@@ -1,0 +1,149 @@
+/* Panel de sonido: música de fondo, efectos virales y los sonidos del video */
+.pso{display:flex;flex-direction:column;gap:22px;min-width:0;max-width:100%;container-type:inline-size}
+.pso h3{font-family:var(--serif);font-weight:500;font-size:18px;line-height:1.2;margin:0}
+.pso svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.pso-bloque{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pso-bloque + .pso-bloque{border-top:1px solid var(--linea);padding-top:20px}
+.pso-cab{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+.pso-ayuda{font-size:12.5px;line-height:1.4;color:var(--tinta2)}
+.pso-ayuda b,.pso-vacia b{font-weight:600;color:var(--tinta)}
+.pso-mas{display:flex;gap:6px;flex-wrap:wrap}
+.pso-mas .btn{padding:5px 12px 5px 10px;gap:6px}
+.pso-mas .btn svg{width:15px;height:15px}
+
+/* Ecualizador dorado: aparece en lo que está sonando */
+.pso-ondas{display:none;align-items:flex-end;gap:2px;height:12px;pointer-events:none}
+.pso-ondas b{display:block;width:3px;height:100%;border-radius:2px;background:var(--oro-vivo);transform-origin:50% 100%;animation:pso-onda .9s ease-in-out infinite}
+.pso-ondas b:nth-child(2){animation-delay:-.3s}
+.pso-ondas b:nth-child(3){animation-delay:-.6s}
+@keyframes pso-onda{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+.sonando .pso-ondas{display:inline-flex}
+
+/* Estilos de música: tarjetas con el estilo elegido en dorado */
+.pso-estilos{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
+.pso-estilo{position:relative;min-width:0;display:flex;border:1px solid var(--linea);border-radius:12px;background:var(--papel);transition:border-color .18s,background-color .18s,box-shadow .18s,transform .18s}
+.pso-estilo:hover{border-color:var(--oro);transform:translateY(-1px)}
+.pso-estilo.activo{border-color:var(--oro-vivo);background:linear-gradient(160deg,var(--oro-suave),var(--papel) 72%);box-shadow:0 10px 20px -16px rgba(23,21,15,.7)}
+.pso-elegir{all:unset;box-sizing:border-box;cursor:pointer;flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:10px 12px 11px;border-radius:12px}
+.pso-elegir:focus-visible,.pso-play:focus-visible,.pso-oir:focus-visible,.pso-poner:focus-visible,.pso-ib:focus-visible,.pso-clip-oir:focus-visible,.pso-clip-nom:focus-visible{outline:2px solid var(--oro);outline-offset:1px}
+.pso-elegir .pso-emoji{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--perla);border:1px solid var(--linea);font-size:17px;line-height:1;margin-bottom:7px;transition:border-color .18s,background-color .18s}
+.pso-estilo.activo .pso-emoji{border-color:var(--oro);background:var(--papel)}
+.pso-elegir b{max-width:100%;font-weight:600;font-size:14px;line-height:1.25;color:var(--tinta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pso-elegir small{max-width:100%;font-size:11.5px;line-height:1.35;color:var(--tinta2);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pso-estilo.activo .pso-elegir b::after{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--oro-vivo);margin-left:7px;vertical-align:2px}
+.pso-play{all:unset;cursor:pointer;position:absolute;top:9px;right:9px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--linea);background:var(--papel);color:var(--tinta);transition:background-color .18s,border-color .18s,color .18s}
+.pso-play svg{width:13px;height:13px;fill:currentColor;stroke:none}
+.pso-play:hover{border-color:var(--tinta);background:var(--tinta);color:var(--papel)}
+.pso-estilo.sonando{border-color:var(--oro-vivo)}
+.pso-estilo.sonando .pso-play{background:var(--oro-vivo);border-color:var(--oro-vivo);color:#fff}
+.pso-estilo .pso-ondas{position:absolute;right:13px;bottom:12px}
+
+/* Ajustes de la música elegida */
+.pso-ajustes{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px 18px;background:var(--perla);border-radius:10px;padding:12px 14px 10px}
+.pso-rango span{font-size:12.5px}
+.pso-rango output{min-width:52px}
+
+/* Canción propia */
+.pso-cancion{display:flex;align-items:flex-start;gap:10px 14px;flex-wrap:wrap}
+.pso-subir{flex:none;flex-direction:row;cursor:pointer;padding:6px 13px 6px 10px}
+.pso-subir svg{width:15px;height:15px}
+.pso-subir:focus-within{outline:2px solid var(--oro);outline-offset:2px}
+.pso-nota{flex:1 1 220px;margin:0;font-size:12px;line-height:1.45;color:var(--tinta2);padding-left:12px;border-left:2px solid var(--oro-suave)}
+
+/* Efectos: mosaico para escuchar con un toque y "+" para ponerlos en el cabezal */
+.pso-efectos{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px}
+.pso-efecto{position:relative;min-width:0;display:flex}
+.pso-oir{all:unset;box-sizing:border-box;cursor:pointer;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:84px;padding:14px 6px 10px;border:1px solid var(--linea);border-radius:12px;background:var(--papel);text-align:center;transition:border-color .18s,background-color .18s,transform .18s}
+.pso-oir:hover{border-color:var(--oro);transform:translateY(-1px)}
+.pso-oir:active{transform:translateY(0)}
+.pso-oir .pso-emoji{font-size:24px;line-height:1.1}
+.pso-nombre{max-width:100%;font-size:12.5px;font-weight:500;line-height:1.25;color:var(--tinta);overflow-wrap:anywhere}
+.pso-efecto .pso-ondas{position:absolute;left:9px;top:9px}
+.pso-efecto.sonando .pso-oir{border-color:var(--oro-vivo);background:linear-gradient(180deg,var(--oro-suave),var(--papel))}
+.pso-poner{all:unset;cursor:pointer;position:absolute;top:5px;right:5px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--papel);border:1px solid #BFC8C3;color:var(--tinta);transition:background-color .18s,border-color .18s,color .18s,transform .18s}
+.pso-poner svg{width:14px;height:14px;stroke-width:2}
+.pso-poner:hover{background:var(--tinta);border-color:var(--tinta);color:var(--papel);transform:scale(1.08)}
+.pso-poner:active{transform:scale(.96)}
+
+/* Aviso con "Deshacer" */
+.pso-aviso{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--oro-suave);color:var(--tinta);border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.4}
+.pso-aviso.mal{background:var(--gra-suave);color:var(--gra)}
+.pso-enlace{all:unset;cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.pso-enlace:focus-visible{outline:2px solid var(--oro);outline-offset:2px;border-radius:3px}
+
+/* Lista de sonidos del video */
+.pso-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.pso-vacia{font-size:13.5px;line-height:1.5;color:var(--tinta2);padding:16px;text-align:center;border:1.5px dashed var(--linea);border-radius:10px}
+.pso-clip{display:grid;grid-template-columns:38px minmax(0,1fr) auto 32px;grid-template-areas:"oir nom tiempo quitar" "mezcla mezcla mezcla mezcla";align-items:center;gap:2px 6px;background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:5px 5px 6px 6px;transition:border-color .18s,background-color .18s}
+.pso-clip:hover{border-color:#C6CFC9}
+.pso-clip[aria-current=true]{border-color:var(--oro-vivo);background:linear-gradient(90deg,var(--oro-suave),var(--papel) 75%)}
+.pso-clip-oir{all:unset;grid-area:oir;cursor:pointer;width:36px;height:36px;border-radius:9px;display:grid;place-items:center;background:var(--perla);border:1px solid var(--linea);font-size:17px;line-height:1;transition:border-color .18s,transform .18s}
+.pso-clip-oir:hover{border-color:var(--oro);transform:scale(1.05)}
+.pso-clip-nom{all:unset;grid-area:nom;cursor:pointer;min-width:0;display:flex;flex-direction:column;padding:2px 4px;border-radius:7px}
+.pso-clip-nom b{font-size:14px;font-weight:500;line-height:1.3;color:var(--tinta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pso-clip-nom small{font-size:12px;line-height:1.3;color:var(--tinta2);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pso-tiempo{grid-area:tiempo;display:flex;align-items:center;gap:2px}
+.pso-num{position:relative;display:inline-flex;align-items:center}
+.pso-num input{width:72px;padding:5px 20px 5px 8px;font-size:13.5px;text-align:right;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
+.pso-num input::-webkit-inner-spin-button,.pso-num input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.pso-num i{position:absolute;right:8px;font-style:normal;font-size:12px;color:var(--tinta2);pointer-events:none}
+.pso-ib{all:unset;cursor:pointer;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--tinta2);transition:background-color .18s,color .18s}
+.pso-ib:hover{background:var(--perla);color:var(--tinta)}
+.pso-ib.peligro{grid-area:quitar}
+.pso-ib.peligro:hover{background:var(--gra-suave);color:var(--gra)}
+.pso-mini{display:grid;grid-template-columns:auto minmax(40px,1fr) 46px;align-items:center;gap:8px;font-size:12px;font-weight:500;color:var(--tinta2);min-width:0;padding:0 2px 0 4px}
+.pso-mezcla{grid-area:mezcla;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;min-width:0}
+.pso-mini input[type=range]{height:22px;min-width:0}
+.pso-mini output{font-size:12px;color:var(--tinta);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Panel angosto: la columna del editor (4 efectos por fila), el celular (3) y pantallas muy chicas (2) */
+@container (max-width:420px){
+  .pso-estilos{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pso-efectos{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+  .pso-oir{min-height:80px;padding:14px 3px 9px}
+  .pso-oir .pso-emoji{font-size:22px}
+  .pso-nombre{font-size:12px}
+  .pso-poner{width:22px;height:22px;top:4px;right:4px}
+  .pso-poner svg{width:12px;height:12px}
+  .pso-mezcla{grid-template-columns:minmax(0,1fr)}
+  .pso-num input{width:66px}
+  .pso-mini{grid-template-columns:62px minmax(0,1fr) 46px}
+}
+@container (max-width:340px){
+  .pso-efectos{gap:5px}
+  .pso-oir{min-height:76px;padding:17px 2px 8px;gap:4px}
+  .pso-oir .pso-emoji{font-size:21px}
+  .pso-nombre{font-size:11.5px}
+  .pso-poner{width:21px;height:21px;top:3px;right:3px}
+  .pso-num input{width:60px;padding-right:18px}
+  .pso-tiempo .pso-ib{width:28px}
+}
+@container (max-width:290px){
+  .pso-efectos{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@container (max-width:270px){
+  .pso-estilos{grid-template-columns:minmax(0,1fr);gap:6px}
+  .pso-estilos .pso-elegir{display:grid;grid-template-columns:34px minmax(0,1fr);grid-template-rows:auto auto;column-gap:10px;align-items:center;padding:8px 48px 8px 9px}
+  .pso-estilos .pso-emoji{grid-row:1/3;margin:0}
+  .pso-play{top:50%;margin-top:-15px}
+  .pso-estilo .pso-ondas{right:46px;bottom:auto;top:50%;margin-top:-6px}
+  .pso-estilo.sonando .pso-elegir{padding-right:66px}
+  .pso-clip{grid-template-columns:38px minmax(0,1fr) 32px;grid-template-areas:"oir nom quitar" "tiempo tiempo tiempo" "mezcla mezcla mezcla"}
+  .pso-tiempo{padding-left:44px}
+}
+@container (max-width:220px){.pso-efectos{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+@media (prefers-color-scheme: dark){
+  .pso-ajustes{background:#16140F}
+  .pso-estilo.activo{box-shadow:0 10px 20px -14px rgba(0,0,0,.9)}
+  .pso-clip:hover{border-color:#5A5446}
+  .pso-estilo.sonando .pso-play{color:#17150F}
+  .pso-poner{border-color:#645C4C;background:#26231C}
+  .pso-play{background:#26231C;border-color:#645C4C}
+  .pso-play:hover,.pso-poner:hover{background:var(--tinta);border-color:var(--tinta);color:#17150F}
+}
+@media (prefers-reduced-motion: reduce){
+  .pso-estilo,.pso-oir,.pso-poner,.pso-clip-oir{transition:none}
+  .pso-estilo:hover,.pso-oir:hover{transform:none}
+  .pso-ondas b{animation:none;transform:scaleY(.7)}
+}

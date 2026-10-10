@@ -6,7 +6,7 @@
 .ptr-bloque + .ptr-bloque{border-top:1px solid var(--linea);padding-top:20px}
 .ptr-bloque.encima{background:var(--oro-suave);box-shadow:0 0 0 8px var(--oro-suave);border-radius:4px}
 .ptr-bloque[aria-busy=true]{cursor:progress}
-.ptr-cab{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+.ptr-cab{display:flex;flex-direction:column;gap:3px}
 .ptr-ayuda{font-size:12.5px;line-height:1.4;color:var(--tinta2);margin:0}
 .ptr-pista{margin:0;font-size:13px;line-height:1.4;color:var(--tinta2);background:var(--perla);border:1px dashed var(--linea);border-radius:8px;padding:10px 12px}
 .ptr-error{margin:0;font-size:13px;line-height:1.4;color:var(--gra);background:var(--gra-suave);border-radius:8px;padding:8px 12px}
@@ -67,9 +67,12 @@ canvas.ptr-muestra.lista{background:var(--perla);box-shadow:none}
   .ptr-subir:hover{border-color:var(--oro-vivo);background:var(--oro-suave)}
   .ptr-subir:hover .ptr-muestra{transform:none;background:none}
   .ptr-subir:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
-  .ptr-pano{flex-basis:100%;width:100%;height:auto;aspect-ratio:2.4}
+  .ptr-pano{flex-basis:100%;width:100%;height:auto;aspect-ratio:3.2}
   .ptr-ajustes{padding:12px}
 }
+
+/* Celular: el consejo ocupa todo el ancho y «Quitar» queda debajo */
+@container (max-width:340px){.ptr-pie .ptr-ayuda{flex-basis:100%}}
 
 @media (prefers-color-scheme: dark){
   .ptr-subir .ptr-muestra{border-color:#5A5446;background:linear-gradient(180deg,rgba(62,52,24,.4),transparent)}

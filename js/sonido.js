@@ -87,6 +87,9 @@ const curvasSat = new Map();
 function saturador(ctx, k = 2) {
   if (!curvasSat.has(k)) curvasSat.set(k, curva(u => Math.tanh(k * (u * 2 - 1)) / Math.tanh(k), 2049));
   const w = ctx.createWaveShaper(); w.curve = curvasSat.get(k); w.oversample = '4x';
+  // siempre en estéreo: si un ruido estéreo se apaga mientras sigue un tono mono, el navegador reinicia
+  // los filtros internos al cambiar de canales y se oye un clic
+  w.channelCount = 2; w.channelCountMode = 'explicit';
   return w;
 }
 
@@ -160,22 +163,24 @@ function campanaParciales(ctx, dest, t, f0, parciales, nivel = 1) {
   }
 }
 
+// ancla = fracción de la duración donde está el golpe (los que suben terminan ahí); agachar = cuánto se baja la música
+// bajo el efecto: [dB, segundos que tarda en bajar hasta el ancla, segundos que se queda abajo, segundos para volver]
 export const EFECTOS = {
   whoosh: {
-    nombre: 'Whoosh', emoji: '💨', duracion: 1, ancla: 0.55,
+    nombre: 'Whoosh', emoji: '💨', duracion: 1, ancla: 0.55, agachar: [3.5, 0.3, 0.1, 0.3],
     generar: (ctx, t, op) => barrido(ctx, t, op, { D: 1, pico: 0.55, f: [320, 3000, 650], q: 1.8, pan: [-0.85, 0.85], subida: 2.2, caida: 2.2, cuerpo: 0.2 }),
   },
   whooshCorto: {
-    nombre: 'Whoosh corto', emoji: '💨', duracion: 0.45, ancla: 0.45,
+    nombre: 'Whoosh corto', emoji: '💨', duracion: 0.45, ancla: 0.45, agachar: [3, 0.15, 0.05, 0.2],
     generar: (ctx, t, op) => barrido(ctx, t, op, { D: 0.45, pico: 0.45, f: [700, 4800, 1500], q: 1.3, pan: [-0.6, 0.7], subida: 1.8, caida: 2.4, aire: 0.5, cuerpo: 0.12, semilla: 4 }),
   },
   whooshInverso: {
     // el soplido "al revés": crece y se corta en seco (lo que se escucha antes de un cambio de plano)
-    nombre: 'Whoosh inverso', emoji: '🌀', duracion: 1.1, ancla: 0.97,
+    nombre: 'Whoosh inverso', emoji: '🌀', duracion: 1.1, ancla: 0.97, agachar: [4.5, 0.9, 0.05, 0.25],
     generar: (ctx, t, op) => barrido(ctx, t, op, { D: 1.1, pico: 0.965, f: [220, 5200, 4200], q: 1.4, pan: [0.7, -0.1], subida: 3.2, caida: 1, aire: 0.5, cuerpo: 0.15, semilla: 7 }),
   },
   riser: {
-    nombre: 'Subida (riser)', emoji: '📈', duracion: 2.6, ancla: 1,
+    nombre: 'Subida (riser)', emoji: '📈', duracion: 2.6, ancla: 1, agachar: [5, 2.2, 0.05, 0.3],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), D = 2.6, fin = t + D + 0.02;
       const corte = u => (u > 0.985 ? (1 - u) / 0.015 : 1);
@@ -200,7 +205,7 @@ export const EFECTOS = {
     },
   },
   impacto: {
-    nombre: 'Impacto', emoji: '💥', duracion: 2.2, ancla: 0, cola: 0.8,
+    nombre: 'Impacto', emoji: '💥', duracion: 2.2, ancla: 0, cola: 0.8, agachar: [8, 0.01, 0.35, 0.8],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), fin = t + 2.2;
       const lp = filtro(ctx, 'lowpass', 7000 * Math.min(r, 1.5), 0.6), sat = saturador(ctx, 2.6);
@@ -208,7 +213,8 @@ export const EFECTOS = {
       // sub que cae de 60 a 35 Hz: el "buum" que se siente en el pecho
       const sub = oscilador(ctx, 'sine', 62 * r, t, fin), gs = gan(ctx, 0);
       sub.frequency.setTargetAtTime(34 * r, t + 0.02, 0.4);
-      gs.gain.setValueAtTime(0, t); gs.gain.linearRampToValueAtTime(1, t + 0.004); gs.gain.setTargetAtTime(0, t + 0.06, 0.5); gs.gain.setTargetAtTime(0, fin - 0.2, 0.05);
+      // cae sola hasta casi el silencio antes del final (sin cortar el retumbo a media altura)
+      gs.gain.setValueAtTime(0, t); gs.gain.linearRampToValueAtTime(1, t + 0.004); gs.gain.setTargetAtTime(0, t + 0.06, 0.34); gs.gain.setTargetAtTime(0, fin - 0.35, 0.08);
       conectar(sub, gs, sat);
       // golpe medio
       const tri = oscilador(ctx, 'triangle', 160 * r, t, t + 1.2), gt = gan(ctx, 0);
@@ -226,13 +232,13 @@ export const EFECTOS = {
     },
   },
   drop808: {
-    nombre: 'Drop 808', emoji: '🔊', duracion: 2.2, ancla: 0,
+    nombre: 'Drop 808', emoji: '🔊', duracion: 2.2, ancla: 0, agachar: [7, 0.01, 0.35, 0.7],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), fin = t + 2.2, f0 = 41.2 * r;   // Mi 1
       const sat = saturador(ctx, 3), env = gan(ctx, 0), lp = filtro(ctx, 'lowpass', 1800, 0.7);
       conectar(sat, env, lp, out);
       env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(1, t + 0.003); env.gain.setTargetAtTime(0.8, t + 0.02, 0.2);
-      env.gain.setTargetAtTime(0, t + 0.5, 0.55); env.gain.setTargetAtTime(0, fin - 0.15, 0.03);
+      env.gain.setTargetAtTime(0, t + 0.5, 0.55); env.gain.setTargetAtTime(0, fin - 0.4, 0.1);
       // el bajo 808: baja de golpe hasta Mi 1 y se queda vibrando, saturado para que también se oiga en el celular
       const o = oscilador(ctx, 'sine', 130 * r, t, fin), g = gan(ctx, 1.6);
       o.frequency.setValueAtTime(130 * r, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.07); o.frequency.setTargetAtTime(f0 * 0.93, t + 0.4, 0.8);
@@ -248,7 +254,7 @@ export const EFECTOS = {
   },
   brillo: {
     // el "bling" de joyería: notas muy agudas en cascada, un poco desafinadas al azar, con eco brillante
-    nombre: 'Brillo', emoji: '✨', duracion: 1.6, ancla: 0, cola: 0.8,
+    nombre: 'Brillo', emoji: '✨', duracion: 1.6, ancla: 0, cola: 0.8, agachar: [4, 0.02, 0.3, 0.5],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), a = azar(21);
       const seco = gan(ctx, 1), envio = gan(ctx, 0.55);
@@ -278,7 +284,7 @@ export const EFECTOS = {
     },
   },
   campana: {
-    nombre: 'Ding', emoji: '🔔', duracion: 1.6, ancla: 0, cola: 0.7,
+    nombre: 'Ding', emoji: '🔔', duracion: 1.6, ancla: 0, cola: 0.7, agachar: [4, 0.01, 0.3, 0.5],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), f0 = 1318.5 * r;   // Mi6, limpio como una notificación
       const seco = gan(ctx, 1); seco.connect(out);
@@ -289,7 +295,7 @@ export const EFECTOS = {
     },
   },
   pop: {
-    nombre: 'Pop', emoji: '🫧', duracion: 0.2, ancla: 0, nivel: -3, pico: 0.7,
+    nombre: 'Pop', emoji: '🫧', duracion: 0.2, ancla: 0, nivel: -3, pico: 0.8, agachar: [2.5, 0.005, 0.08, 0.2],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op);
       const o = oscilador(ctx, 'sine', 240 * r, t, t + 0.2), g = gan(ctx, 0);
@@ -302,7 +308,7 @@ export const EFECTOS = {
   },
   obturador: {
     // cámara de fotos: el "clac" del obturador, el resorte del espejo y el "clic" de vuelta
-    nombre: 'Foto', emoji: '📸', duracion: 0.35, ancla: 0, nivel: -2, pico: 0.6,
+    nombre: 'Foto', emoji: '📸', duracion: 0.35, ancla: 0, nivel: -2, pico: 0.9, agachar: [3, 0.005, 0.15, 0.2],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op);
       clicMecanico(ctx, out, t, 2600, 1, r, 0.05, 1);
@@ -313,7 +319,7 @@ export const EFECTOS = {
     },
   },
   click: {
-    nombre: 'Clic', emoji: '🖱️', duracion: 0.08, ancla: 0, nivel: -6, pico: 0.45,
+    nombre: 'Clic', emoji: '🖱️', duracion: 0.08, ancla: 0, nivel: -3, pico: 0.7, agachar: [2, 0.005, 0.05, 0.15],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op);
       clicMecanico(ctx, out, t, 4200, 1, r, 0.05, 3);
@@ -323,7 +329,7 @@ export const EFECTOS = {
   },
   glitch: {
     // falla digital: trocitos de tonos y ruido que tartamudean, con bits recortados
-    nombre: 'Glitch', emoji: '📺', duracion: 0.7, ancla: 0, nivel: -3,
+    nombre: 'Glitch', emoji: '📺', duracion: 0.7, ancla: 0, nivel: -3, agachar: [3.5, 0.01, 0.6, 0.2],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), a = azar(33), paso = 0.045;
       const crush = ctx.createWaveShaper(); crush.curve = curva(u => Math.round((u * 2 - 1) * 6) / 6, 4096);
@@ -344,7 +350,7 @@ export const EFECTOS = {
     },
   },
   cajaRegistradora: {
-    nombre: 'Cha-ching', emoji: '💰', duracion: 1.4, ancla: 0.08, cola: 0.5,
+    nombre: 'Cha-ching', emoji: '💰', duracion: 1.4, ancla: 0.08, cola: 0.5, agachar: [4, 0.1, 0.4, 0.5],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), a = azar(44);
       // "cha": el cajón que se abre
@@ -370,7 +376,7 @@ export const EFECTOS = {
   },
   latido: {
     // "pum-pum" del corazón: dos golpes graves (con armónicos para que se oigan en el celular)
-    nombre: 'Latido', emoji: '💓', duracion: 0.9, ancla: 0,
+    nombre: 'Latido', emoji: '💓', duracion: 0.9, ancla: 0, agachar: [4, 0.01, 0.4, 0.4],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), sat = saturador(ctx, 2.2);
       conectar(sat, filtro(ctx, 'lowpass', 400, 0.7), out);
@@ -385,12 +391,12 @@ export const EFECTOS = {
     },
   },
   swipe: {
-    nombre: 'Swipe', emoji: '👉', duracion: 0.32, ancla: 0.4, nivel: -2,
+    nombre: 'Swipe', emoji: '👉', duracion: 0.32, ancla: 0.4, nivel: -2, agachar: [3, 0.1, 0.05, 0.2],
     generar: (ctx, t, op) => barrido(ctx, t, op, { D: 0.32, pico: 0.4, f: [1400, 7500, 3000], q: 1, tipo: 'blanco', pan: [0.75, -0.75], subida: 1.6, caida: 2, aire: 0.6, cuerpo: 0.05, semilla: 9 }),
   },
   reverseCymbal: {
     // platillo al revés: el metal de una 808 (seis cuadradas inarmónicas) + ruido, creciendo hasta cortarse
-    nombre: 'Platillo inverso', emoji: '🥁', duracion: 2, ancla: 1,
+    nombre: 'Platillo inverso', emoji: '🥁', duracion: 2, ancla: 1, agachar: [4.5, 1.6, 0.05, 0.25],
     generar(ctx, t, op) {
       const { out, r } = salidaEfecto(ctx, op), D = 2, fin = t + D + 0.02;
       const hp = filtro(ctx, 'highpass', 4200 * Math.min(r, 2), 0.7), hp2 = filtro(ctx, 'highpass', 3200 * Math.min(r, 2), 0.7), lp = filtro(ctx, 'lowpass', 3000, 0.5), vca = gan(ctx, 0);
@@ -608,8 +614,8 @@ function lofi(ctx, destino, { bpm, compases, fin }) {
   const pre = gan(ctx, 1); conectar(pre, filtro(ctx, 'lowpass', 7000, 0.5), saturador(ctx, 1.3), destino);
   const { q, s, c } = ritmo(bpm), m = mesa(ctx, pre, fin, { sala: 1.8, oscuro: 0.7, retorno: 0.3 }), b = bateria(m), a = azar(202), sw = 0.33;
   const teclas = gan(ctx, 1); teclas.connect(m.maestro); m.envio(teclas, 0.3);
-  // "vaivén" de la cinta: desafina un poquito todo el piano eléctrico
-  const lfo = oscilador(ctx, 'sine', 0.45, 0, fin), vaiven = gan(ctx, 9); lfo.connect(vaiven);
+  // "vaivén" de la cinta: desafina un poquito todo el piano eléctrico (dos vueltas por compás: el bucle cierra igual)
+  const lfo = oscilador(ctx, 'sine', 2 / c, 0, fin), vaiven = gan(ctx, 9); lfo.connect(vaiven);
   const PROG = [  // Fa maj9 – Mi m7 – Re m9 – Do maj9
     { bajo: 41, acorde: [52, 57, 60, 67] }, { bajo: 40, acorde: [50, 55, 59, 64] },
     { bajo: 38, acorde: [53, 57, 60, 64] }, { bajo: 36, acorde: [52, 55, 59, 62] },
@@ -748,8 +754,8 @@ function popViral(ctx, destino, { bpm, compases, fin }) {
 
 function cinematico(ctx, destino, { bpm, compases, fin }) {
   const { q, s, c } = ritmo(bpm), m = mesa(ctx, destino, fin, { sala: 3.5, oscuro: 0.6, retorno: 0.45 }), b = bateria(m), a = azar(707);
-  // dron grave que respira (filtro con un vaivén muy lento)
-  const lp = filtro(ctx, 'lowpass', 220, 0.8), dron = gan(ctx, 0), lfo = oscilador(ctx, 'sine', 0.07, 0, fin);
+  // dron grave que respira (filtro con un vaivén muy lento: una vuelta cada cuatro compases)
+  const lp = filtro(ctx, 'lowpass', 220, 0.8), dron = gan(ctx, 0), lfo = oscilador(ctx, 'sine', 1 / (4 * c), 0, fin);
   conectar(lfo, gan(ctx, 110), lp.frequency);
   dron.gain.setValueAtTime(0, 0); dron.gain.linearRampToValueAtTime(0.06, Math.min(2, fin));
   conectar(lp, dron, m.maestro); m.envio(dron, 0.2);
@@ -774,14 +780,15 @@ function cinematico(ctx, destino, { bpm, compases, fin }) {
   }
 }
 
+// entrada = compás donde cae el ritmo (el "drop"); desde el compás `estable` todo se repite cada `ciclo` compases
 export const ESTILOS_MUSICA = {
-  lujo:       { nombre: 'Lujo',       emoji: '💎', descripcion: 'Piano suave y pad',            bpm: 76,  min: 62,  max: 92,  entrada: 1, generar: lujo },
-  lofi:       { nombre: 'Lo-fi',      emoji: '☕', descripcion: 'Piano eléctrico y vinilo',      bpm: 82,  min: 70,  max: 95,  entrada: 0, generar: lofi },
-  trap:       { nombre: 'Trap',       emoji: '🔥', descripcion: '808 y redobles de platillo',    bpm: 140, min: 120, max: 160, entrada: 1, generar: trap },
-  house:      { nombre: 'House',      emoji: '🪩', descripcion: 'Bombo constante, para bailar', bpm: 122, min: 115, max: 130, entrada: 1, generar: house },
-  phonk:      { nombre: 'Phonk',      emoji: '🏎️', descripcion: 'Cencerro y 808 distorsionado', bpm: 130, min: 110, max: 150, entrada: 1, generar: phonk },
-  popViral:   { nombre: 'Pop viral',  emoji: '⚡', descripcion: 'Palmas y sintes alegres',      bpm: 116, min: 100, max: 130, entrada: 1, generar: popViral },
-  cinematico: { nombre: 'Cinemático', emoji: '🎬', descripcion: 'Dron, cuerdas y golpes',       bpm: 90,  min: 70,  max: 110, entrada: 1, generar: cinematico },
+  lujo:       { nombre: 'Lujo',       emoji: '💎', descripcion: 'Piano suave y pad',            bpm: 76,  min: 62,  max: 92,  entrada: 1, estable: 2, ciclo: 4, generar: lujo },
+  lofi:       { nombre: 'Lo-fi',      emoji: '☕', descripcion: 'Piano eléctrico y vinilo',      bpm: 82,  min: 70,  max: 95,  entrada: 0, estable: 0, ciclo: 4, generar: lofi },
+  trap:       { nombre: 'Trap',       emoji: '🔥', descripcion: '808 y redobles de platillo',    bpm: 140, min: 120, max: 160, entrada: 1, estable: 2, ciclo: 4, generar: trap },
+  house:      { nombre: 'House',      emoji: '🪩', descripcion: 'Bombo constante, para bailar', bpm: 122, min: 115, max: 130, entrada: 1, estable: 2, ciclo: 4, generar: house },
+  phonk:      { nombre: 'Phonk',      emoji: '🏎️', descripcion: 'Cencerro y 808 distorsionado', bpm: 130, min: 110, max: 150, entrada: 1, estable: 2, ciclo: 4, generar: phonk },
+  popViral:   { nombre: 'Pop viral',  emoji: '⚡', descripcion: 'Palmas y sintes alegres',      bpm: 116, min: 100, max: 130, entrada: 1, estable: 2, ciclo: 4, generar: popViral },
+  cinematico: { nombre: 'Cinemático', emoji: '🎬', descripcion: 'Dron, cuerdas y golpes',       bpm: 90,  min: 70,  max: 110, entrada: 1, estable: 2, ciclo: 8, generar: cinematico },
 };
 
 // ---------- Sonoridad (BS.1770, la misma medida que usan Instagram, TikTok y YouTube) ----------
@@ -891,16 +898,32 @@ function renderEfecto(id, tono = 0, sr = FRECUENCIA) {
   });
 }
 
-// Base de música hecha aquí: compases enteros (sirve igual si la duración cambia un poco), nivelada a REF_MUSICA
+// Base de música hecha aquí: compases enteros (sirve igual si la duración cambia un poco), nivelada a REF_MUSICA.
+// Pasada la entrada todo se repite, así que nunca se sintetiza más de la entrada y un ciclo: el resto se repite
+// en bucle (un video de 60 s cuesta lo mismo que uno de 20)
 function renderEstilo(estilo, bpm, segs, sr = FRECUENCIA) {
-  const E = ESTILOS_MUSICA[estilo], c = 240 / bpm, compases = Math.max(1, Math.ceil(segs / c - 1e-6));
+  const E = ESTILOS_MUSICA[estilo], c = 240 / bpm, desde = E.estable + 1, hasta = desde + E.ciclo;
+  const compases = Math.min(hasta, Math.max(1, Math.ceil(segs / c - 1e-6)));
   return enCache(`mu|${estilo}|${bpm}|${compases}|${sr}`, 4, async () => {
     const fin = compases * c, ctx = new OfflineAudioContext(2, Math.ceil(fin * sr), sr);
     const salida = gan(ctx, 1); salida.connect(ctx.destination);
     E.generar(ctx, salida, { bpm, compases, fin });
     const buffer = await ctx.startRendering();
-    return { buffer, ganancia: dB(REF_MUSICA - sonoridad(buffer)) };
+    // el ciclo arranca un compás después de `estable`: así su principio ya trae las colas de un compás igual al último
+    const bucle = compases === hasta ? fundirBucle(buffer, desde * c, hasta * c) : null;
+    return { buffer, ganancia: dB(REF_MUSICA - sonoridad(buffer)), bucle };
   });
+}
+
+// Prepara un bucle sin costura: los últimos 30 ms antes del final se funden con lo que suena justo antes del inicio
+// (al saltar del final al inicio la onda sigue continua; las notas siguen siendo las mismas)
+function fundirBucle(b, inicio, fin) {
+  const sr = b.sampleRate, i0 = Math.round(inicio * sr), i1 = Math.min(b.length, Math.round(fin * sr)), x = Math.min(Math.round(0.03 * sr), i0, i1 - i0);
+  for (let ch = 0; ch < b.numberOfChannels; ch++) {
+    const d = b.getChannelData(ch);
+    for (let i = 0; i < x; i++) { const w = (i + 1) / x; d[i1 - x + i] = d[i1 - x + i] * (1 - w) + d[i0 - x + i] * w; }
+  }
+  return { inicio: i0 / sr, fin: i1 / sr };
 }
 
 // Una canción subida se mide una sola vez y se nivela igual que la música de aquí (sin subirla más de 6 dB)
@@ -942,12 +965,28 @@ export function musicaNueva(estilo = 'lujo', anterior = null) {
 }
 
 // ---------- Mezcla ----------
+// Cuánto se baja la música en cada momento para que los efectos se oigan (como el "auto-ducking" de los editores):
+// sin esto el limitador tiene que bajar todo y el golpe no sobresale. Curva de ganancia, 200 puntos por segundo
+function curvaAgachar(clips, D, ritmo = 200) {
+  const n = Math.max(2, Math.ceil(D * ritmo) + 1), prof = new Float32Array(n), suave = u => u * u * (3 - 2 * u);
+  for (const c of clips) {
+    const e = EFECTOS[c.efecto], [db, sube, sostiene, suelta] = e.agachar || [3, 0.01, 0.2, 0.3];
+    const k = db * Math.min(1.5, c.volumen / 0.8), ta = c.t + (e.ancla || 0) * e.duracion;
+    const i0 = Math.max(0, Math.floor((ta - sube) * ritmo)), i1 = Math.min(n - 1, Math.ceil((ta + sostiene + suelta) * ritmo));
+    for (let i = i0; i <= i1; i++) {
+      const t = i / ritmo, v = t < ta ? suave(Math.max(0, 1 - (ta - t) / sube)) : t <= ta + sostiene ? 1 : suave(Math.max(0, 1 - (t - ta - sostiene) / suelta));
+      if (k * v > prof[i]) prof[i] = k * v;
+    }
+  }
+  return Float32Array.from(prof, p => dB(-p));
+}
+
 export async function mezclar(audio, duracion, { sampleRate = FRECUENCIA } = {}) {
   const sr = sampleRate, D = limitar(esNum(+duracion) ? +duracion : 8, 0.05, 600), n = Math.max(1, Math.round(D * sr));
   const musica = normalizarMusica(audio?.musica), clips = normalizarClips(audio?.clips).filter(c => c.t < D && c.t > -EFECTOS[c.efecto].duracion);
   // primero se preparan (en paralelo y con caché) la base de música y cada efecto con su tono
   const [base, ...efectos] = await Promise.all([
-    !musica ? null : musica.archivo ? { buffer: musica.archivo.buffer, ganancia: gananciaArchivo(musica.archivo.buffer), bucle: true }
+    !musica ? null : musica.archivo ? { buffer: musica.archivo.buffer, ganancia: gananciaArchivo(musica.archivo.buffer), bucle: { inicio: 0, fin: musica.archivo.buffer.duration } }
       : renderEstilo(musica.estilo, musica.bpm, musica.inicio + D, sr),
     ...clips.map(c => renderEfecto(c.efecto, c.tono, sr)),
   ]);
@@ -957,14 +996,18 @@ export async function mezclar(audio, duracion, { sampleRate = FRECUENCIA } = {})
   if (base && musica.volumen > 0) {
     const f = ctx.createBufferSource(), g = gan(ctx, 0), v = base.ganancia * musica.volumen;
     f.buffer = base.buffer;
-    const largo = base.buffer.duration;
-    if (base.bucle) { f.loop = true; f.loopStart = 0; f.loopEnd = largo; }
+    const largo = base.buffer.duration, B = base.bucle;
+    if (B) { f.loop = true; f.loopStart = B.inicio; f.loopEnd = B.fin; }
     // entra en 50 ms y se desvanece al final con curva de igual potencia
     const fo = Math.min(musica.fundidoSalida, D * 0.6), ini = Math.min(0.05, D / 4);
     g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(v, ini);
     if (fo > 0.01) g.gain.setValueCurveAtTime(curva(u => v * Math.cos(u * Math.PI / 2)), D - fo, fo);
-    conectar(f, g, bus);
-    f.start(0, base.bucle ? musica.inicio % largo : Math.min(musica.inicio, largo));
+    const ag = gan(ctx, 1);
+    if (clips.length) ag.gain.setValueCurveAtTime(curvaAgachar(clips.filter(c => c.volumen > 0), D), 0, D);
+    conectar(f, g, ag, bus);
+    // si se pide empezar más allá del bucle, se cae en el punto equivalente dentro de él
+    const desde = !B ? Math.min(musica.inicio, largo) : musica.inicio < B.fin ? musica.inicio : B.inicio + (musica.inicio - B.inicio) % (B.fin - B.inicio);
+    f.start(0, desde);
   }
   clips.forEach((c, i) => {
     if (c.volumen <= 0) return;
@@ -972,7 +1015,18 @@ export async function mezclar(audio, duracion, { sampleRate = FRECUENCIA } = {})
     conectar(f, gan(ctx, c.volumen), bus);
     if (c.t >= 0) f.start(c.t); else f.start(0, -c.t);   // un efecto que empieza antes del video suena desde la mitad
   });
-  return masterizar(await ctx.startRendering());
+  return fundirBordes(masterizar(await ctx.startRendering()));
+}
+
+// Bordes suaves: un efecto cortado por el final del video (o que empieza a medias) no truena al repetir el reel
+function fundirBordes(b, entrada = 0.004, salida = 0.025) {
+  const sr = b.sampleRate, ne = Math.min(b.length, Math.round(entrada * sr)), ns = Math.min(b.length, Math.round(salida * sr));
+  for (let ch = 0; ch < b.numberOfChannels; ch++) {
+    const d = b.getChannelData(ch);
+    for (let i = 0; i < ne; i++) d[i] *= i / ne;
+    for (let i = 0; i < ns; i++) d[b.length - 1 - i] *= Math.sin(i / ns * Math.PI / 2);
+  }
+  return b;
 }
 
 // Lee la canción que sube la usuaria (mp3, wav, m4a…) y la deja a 48 kHz
@@ -987,42 +1041,104 @@ export async function decodificarArchivo(file) {
   } catch (e) { throw new Error('No se pudo leer esa canción. Prueba con un archivo MP3, WAV o M4A.'); }
 }
 
-// Estima el tempo (y dónde cae el primer pulso) de una canción subida, para "Ajustar al ritmo"
-export function estimarTempo(buffer, { desde = 0, segs = 40 } = {}) {
-  if (!tieneBuffer({ buffer })) return null;
-  const sr = buffer.sampleRate, hop = Math.round(sr / 200), i0 = Math.floor(desde * sr), i1 = Math.min(buffer.length, i0 + Math.floor(segs * sr));
-  if (i1 - i0 < sr * 4) return null;
-  const chs = [...Array(buffer.numberOfChannels)].map((_, c) => buffer.getChannelData(c));
-  // energía en graves (bombo) y en agudos (platillos y palmas) cada 5 ms; el "ataque" es cuánto sube
-  const aL = 1 - Math.exp(-2 * Math.PI * 150 / sr), aH = 1 - Math.exp(-2 * Math.PI * 3000 / sr);
-  let lo = 0, hi = 0, eL = 0, eH = 0, k = 0, prevL = 0, prevH = 0;
-  const N = Math.floor((i1 - i0) / hop), on = new Float32Array(N);
-  for (let i = i0, j = 0; j < N; i++) {
-    let x = 0; for (const d of chs) x += d[i]; x /= chs.length;
-    lo += aL * (x - lo); hi += aH * (x - hi);
-    const h = x - hi; eL += lo * lo; eH += h * h;
-    if (++k === hop) {
-      const l = Math.log(eL / hop + 1e-9), hh = Math.log(eH / hop + 1e-9);
-      on[j++] = Math.max(0, l - prevL) + Math.max(0, hh - prevH);
-      prevL = l; prevH = hh; eL = eH = k = 0;
+// FFT compleja en el mismo arreglo (radix 2); `tabla` = cosenos y senos ya calculados para este tamaño
+function fft(re, im, cos, sen) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let largo = 2; largo <= n; largo <<= 1) {
+    const mitad = largo >> 1, paso = n / largo;
+    for (let i = 0; i < n; i += largo) {
+      for (let k = 0; k < mitad; k++) {
+        const a = i + k, b = a + mitad, c = cos[k * paso], s = sen[k * paso];
+        const tr = re[b] * c - im[b] * s, ti = re[b] * s + im[b] * c;
+        re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+      }
     }
   }
-  const m = on.reduce((a, b) => a + b, 0) / N; for (let j = 0; j < N; j++) on[j] = Math.max(0, on[j] - m);
-  // autocorrelación entre 60 y 200 bpm, prefiriendo tempos cercanos a 120 (como hace el oído)
-  const fps = sr / hop, ac = lag => { let s = 0; for (let j = lag; j < N; j++) s += on[j] * on[j - lag]; return s / (N - lag); };
-  let mejor = null;
-  for (let lag = Math.floor(fps * 60 / 200); lag <= Math.ceil(fps * 60 / 60); lag++) {
-    const bpm = 60 * fps / lag, w = Math.exp(-0.5 * (Math.log2(bpm / 120) / 0.9) ** 2), v = (ac(lag) + 0.5 * ac(lag * 2)) * w;
-    if (!mejor || v > mejor.v) mejor = { lag, v };
+}
+
+// Estima el tempo (y dónde cae el primer pulso) de una canción subida, para "Ajustar al ritmo".
+// Flujo espectral: cuánto "aparece" de nuevo en 24 bandas (bombo, caja, platillos, acordes...) cada 10 ms;
+// luego se busca el período que mejor se repite también al doble, a la mitad y por compases
+export function estimarTempo(buffer, { desde = 0, segs = 40 } = {}) {
+  if (!tieneBuffer({ buffer })) return null;
+  const sr = buffer.sampleRate, hop = Math.round(sr / 100), fps = sr / hop;
+  const ven = 2 ** Math.round(Math.log2(sr * 0.043)), i0 = Math.max(0, Math.floor(desde * sr)), i1 = Math.min(buffer.length, i0 + Math.floor(segs * sr));
+  const N = Math.floor((i1 - i0 - ven) / hop);
+  if (N < fps * 4) return null;
+  const mono = new Float32Array(i1 - i0), nc = buffer.numberOfChannels;
+  for (let c = 0; c < nc; c++) { const d = buffer.getChannelData(c); for (let i = 0; i < mono.length; i++) mono[i] += d[i0 + i] / nc; }
+  const hann = Float32Array.from({ length: ven }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / ven));
+  const cos = Float64Array.from({ length: ven / 2 }, (_, k) => Math.cos(-2 * Math.PI * k / ven)), sen = cos.map((_, k) => Math.sin(-2 * Math.PI * k / ven));
+  // bandas logarítmicas de 40 Hz a 12 kHz (en índices de la FFT)
+  const NB = 24, bordes = Array.from({ length: NB + 1 }, (_, b) => Math.max(1, Math.round(40 * (12000 / 40) ** (b / NB) * ven / sr)));
+  const re = new Float64Array(ven), im = new Float64Array(ven), on = new Float32Array(N), bombo = new Float32Array(N);
+  const NG = bordes.findIndex(f => f * sr / ven > 90);   // bandas de debajo de 90 Hz: bombo y 808 (el bajo ya va más arriba)
+  let previo = null;
+  const cuadro = (k, d) => { const o = k * hop; for (let i = 0; i < ven; i++) d[i] = mono[o + i] * hann[i]; };
+  const bandas = (k, B) => {   // potencia por banda del cuadro k (separado de la FFT doble)
+    for (let b = 0; b < NB; b++) {
+      let p = 0;
+      for (let f = bordes[b]; f < bordes[b + 1]; f++) {
+        const g = ven - f, ar = re[f] + re[g], ai = im[f] - im[g], br = im[f] + im[g], bi = re[f] - re[g];
+        p += k ? br * br + bi * bi : ar * ar + ai * ai;
+      }
+      B[b] = Math.log1p(1e4 * p / 4);
+    }
+  };
+  // dos cuadros por FFT: uno en la parte real y otro en la imaginaria
+  const BA = new Float64Array(NB), BB = new Float64Array(NB);
+  for (let k = 0; k < N; k += 2) {
+    cuadro(k, re); if (k + 1 < N) cuadro(k + 1, im); else im.fill(0);
+    fft(re, im, cos, sen);
+    bandas(0, BA); bandas(1, BB);
+    for (const [j, B] of [[k, BA], [k + 1, BB]]) {
+      if (j >= N) break;
+      if (previo) {
+        let f = 0, g = 0;
+        for (let b = 0; b < NB; b++) { const d = Math.max(0, B[b] - previo[b]); f += d; if (b < NG) g += d; }
+        on[j] = f; bombo[j] = g;
+      }
+      previo = Float64Array.from(B);
+    }
   }
+  // sin la tendencia lenta (promedio de 1 s) y solo lo que sube
+  const ancho = Math.round(fps), acum = new Float64Array(N + 1);
+  for (let j = 0; j < N; j++) acum[j + 1] = acum[j] + on[j];
+  const o = Float32Array.from(on, (v, j) => { const a = Math.max(0, j - (ancho >> 1)), b = Math.min(N, j + (ancho >> 1) + 1); return Math.max(0, v - (acum[b] - acum[a]) / (b - a)); });
+  const cacheAc = new Map(), acEnt = lag => {
+    if (!cacheAc.has(lag)) { let s = 0; for (let j = lag; j < N; j++) s += o[j] * o[j - lag]; cacheAc.set(lag, lag < N ? s / (N - lag) : 0); }
+    return cacheAc.get(lag);
+  };
+  const ac = lag => { const a = Math.floor(lag), u = lag - a; return acEnt(a) * (1 - u) + acEnt(a + 1) * u; };
+  // puntaje: el pulso, su doble y su compás, con preferencia por tempos cercanos a 120 (como hace el oído)
+  const puntaje = bpm => { const L = fps * 60 / bpm; return (ac(L) + 0.5 * ac(2 * L) + 0.25 * ac(4 * L) + 0.5 * ac(L / 2)) * Math.exp(-0.5 * Math.log2(bpm / 120) ** 2); };
+  let mejor = null;
+  for (let bpm = 60; bpm <= 200; bpm += 0.25) { const v = puntaje(bpm); if (!mejor || v > mejor.v) mejor = { bpm, v }; }
   if (!mejor || mejor.v <= 0) return null;
-  // afina el período con una parábola sobre los vecinos
-  const y0 = ac(mejor.lag - 1), y1 = ac(mejor.lag), y2 = ac(mejor.lag + 1), den = y0 - 2 * y1 + y2;
-  const lag = mejor.lag + (den < 0 ? limitar(0.5 * (y0 - y2) / den, -0.5, 0.5) : 0);
-  // fase: el desfase cuyo "peine" de pulsos coincide con más ataques
-  let fase = 0, fm = -1;
-  for (let f = 0; f < lag; f += 0.5) { let s = 0; for (let p = f; p < N; p += lag) s += on[Math.round(p)] || 0; if (s > fm) { fm = s; fase = f; } }
-  return { bpm: Math.round(60 * fps / lag * 10) / 10, fase: r4(desde + fase / fps) };
+  for (let bpm = mejor.bpm - 0.25; bpm <= mejor.bpm + 0.25; bpm += 0.05) { const v = puntaje(bpm); if (v > mejor.v) mejor = { bpm, v }; }
+  // peine: suma de ataques cada P cuadros desde f (con un cuadro de holgura para el swing y los humanos)
+  const peine = (x, P, f, holgura = 1) => {
+    let s = 0;
+    for (let p = f; p < N; p += P) { const j = Math.round(p); s += holgura ? Math.max(x[j - 1] || 0, x[j] || 0, x[j + 1] || 0) : x[j] || 0; }
+    return s;
+  };
+  const mejorFase = (x, P, holgura) => { let f0 = 0, m = -1; for (let f = 0; f < P; f += 0.5) { const s = peine(x, P, f, holgura); if (s > m) { m = s; f0 = f; } } return { f: f0, m }; };
+  // afina el tempo: el peine de pulsos más nítido cerca del encontrado (un error de 0,3 % ya corre el pulso 0,1 s en 40 s)
+  let bpm = mejor.bpm, nitidez = -1;
+  for (let b = mejor.bpm - 0.4; b <= mejor.bpm + 0.4 + 1e-9; b += 0.05) { const { m } = mejorFase(o, fps * 60 / b, 0); if (m > nitidez) { nitidez = m; bpm = b; } }
+  // fase en dos pasos: 1) la rejilla de corcheas (casi toda la música las marca: platillos, teclado, guitarra);
+  // 2) ¿el pulso o el contratiempo? Si el bombo lo dice claro (4 veces más fuerte en uno de los dos) manda el
+  //    bombo; si no (trap, phonk: el 808 va sincopado) manda el conjunto, donde pesan la caja y las palmas
+  const L = fps * 60 / bpm, f8 = mejorFase(on, L / 2).f;
+  const r = Math.log2((peine(bombo, L, f8) + 1e-6) / (peine(bombo, L, f8 + L / 2) + 1e-6));
+  const fase = (Math.abs(r) >= 2 ? r > 0 : peine(on, L, f8) >= peine(on, L, f8 + L / 2)) ? f8 : f8 + L / 2;
+  return { bpm: Math.round(bpm * 10) / 10, fase: r4(desde + (fase * hop + ven / 2) / sr) };
 }
 
 // ---------- Rejilla de pulsos ----------
@@ -1058,6 +1174,8 @@ export function ajustarAlRitmo(proyecto, { textos = false } = {}) {
     const ancla = (e.ancla || 0) * e.duracion;
     let nt = alPulso(+c.t + ancla, R) - ancla;
     if (nt < 0) nt += R.periodo * Math.ceil(-nt / R.periodo);
+    // si cabía entero en el video, que siga cabiendo (una foto al final no puede quedar cortada)
+    if (+c.t + e.duracion <= D + 1e-6 && nt + e.duracion > D + 1e-6 && nt - R.periodo >= 0) nt -= R.periodo;
     if (nt >= D) continue;
     nt = r4(nt);
     if (Math.abs(nt - c.t) > 1e-4) { c.t = nt; resultado.clips++; }
@@ -1273,7 +1391,8 @@ export async function codificarAudio(buffer, { contenedor = 'mp4' } = {}) {
     : [{ codec: 'opus', nombre: 'opus', bitrate: 160000 }];
   let elegido = null;
   for (const o of opciones) {
-    for (const sr of [...new Set([buffer.sampleRate, 48000, 44100])]) {
+    // Opus trabaja por dentro a 48 kHz (se pide así aunque acepte otras); AAC, a la frecuencia de la mezcla
+    for (const sr of [...new Set(o.nombre === 'opus' ? [48000, buffer.sampleRate] : [buffer.sampleRate, 48000, 44100])]) {
       const cfg = { codec: o.codec, sampleRate: sr, numberOfChannels: canales, bitrate: o.bitrate };
       try { if ((await AudioEncoder.isConfigSupported(cfg)).supported) { elegido = { ...o, cfg }; break; } } catch (e) { /* siguiente */ }
     }
@@ -1336,7 +1455,7 @@ export class PanelSonido {
         <div class="pso-estilos" role="radiogroup" aria-label="Estilo de música"></div>
         <div class="pso-ajustes"></div>
         <div class="pso-cancion">
-          <label class="btn sec chico pso-subir">${icono('subir')}Subir mi canción<input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" hidden></label>
+          <label class="btn sec chico pso-subir">${icono('subir')}<span>Subir mi canción</span><input type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" hidden></label>
           <p class="pso-nota">${esc(AYUDA_TENDENCIA)}</p>
         </div>
       </section>
@@ -1367,6 +1486,12 @@ export class PanelSonido {
     contenedor.addEventListener('click', e => this.alClic(e));
     contenedor.addEventListener('input', e => this.alMover(e));
     contenedor.addEventListener('change', e => this.alSoltar(e));
+    // los estilos son un grupo de opciones: con las flechas se pasa de uno a otro
+    this.$estilos.addEventListener('keydown', e => {
+      const paso = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key]; if (!paso) return;
+      const bs = [...this.$estilos.querySelectorAll('.pso-elegir')], i = bs.indexOf(document.activeElement); if (i < 0) return;
+      e.preventDefault(); bs[(i + paso + bs.length) % bs.length].focus();
+    });
     this.$archivo.addEventListener('change', () => { const f = this.$archivo.files?.[0]; this.$archivo.value = ''; if (f) this.subir(f); });
     const previo = this.rep.alCambiarPrueba;
     this.rep.alCambiarPrueba = id => { previo?.(id); this.marcarPrueba(id); };
@@ -1400,11 +1525,13 @@ export class PanelSonido {
         ${probar ? `<button type="button" class="pso-play" data-accion="probarMusica" aria-label="Escuchar 4 segundos de ${esc(nombre)}">${icono('play')}</button>` : ''}
         <i class="pso-ondas" aria-hidden="true"><b></b><b></b><b></b></i>
       </div>`;
-    let html = Object.entries(ESTILOS_MUSICA).map(([id, E]) => tarjeta(id, E.emoji, E.nombre, `${E.descripcion} · ${id === m?.estilo && !conArchivo ? Math.round(m.bpm) : E.bpm} bpm`)).join('');
+    // el ritmo de cada estilo se ve (y se cambia) en el control de abajo, al elegirlo
+    let html = Object.entries(ESTILOS_MUSICA).map(([id, E]) => tarjeta(id, E.emoji, E.nombre, E.descripcion)).join('');
     const c = this.cancion || (m?.archivo ? { nombre: m.archivo.nombre } : null);
     if (c) html += tarjeta('archivo', '🎵', 'Mi canción', c.buffer ? `${c.nombre} · ${reloj(c.buffer.duration)}` : `${c.nombre} · vuelve a subirla`, !!c.buffer);
     html += tarjeta('ninguna', '🔇', 'Sin música', 'Solo los efectos', false);
     this.$estilos.innerHTML = html;
+    this.$archivo.previousElementSibling.textContent = c?.buffer ? 'Cambiar canción' : 'Subir mi canción';
   }
 
   pintarAjustes() {
@@ -1456,15 +1583,19 @@ export class PanelSonido {
       ? { id: act.closest('li').dataset.id, sel: act.dataset.campo ? `[data-campo="${act.dataset.campo}"]` : `[data-accion="${act.dataset.accion}"]` } : null;
     if (!clips.some(c => c.id === this.sel)) this.sel = null;
     this.$lista.innerHTML = clips.length ? clips.map(c => {
-      const e = EFECTOS[c.efecto] || { nombre: c.efecto, emoji: '🔊' }, vol = esNum(+c.volumen) ? +c.volumen : 0.8, tono = Math.round(+c.tono || 0);
+      const e = EFECTOS[c.efecto] || { nombre: c.efecto, emoji: '🔊' }, vol = esNum(+c.volumen) ? +c.volumen : 0.8, tono = Math.round(+c.tono || 0), t = +c.t || 0;
+      // debajo del nombre: dónde está el golpe (whoosh, subidas) o cuánto dura; el segundo exacto va en la casilla
+      const detalle = e.ancla ? (e.ancla >= 0.95 ? `llega al tope a los ${num(t + e.ancla * e.duracion, 2)} s` : `golpe a los ${num(t + e.ancla * e.duracion, 2)} s`) : e.duracion ? `dura ${num(e.duracion, 1)} s` : '';
       return `<li class="pso-clip" data-id="${esc(c.id)}" aria-current="${c.id === this.sel}">
         <button type="button" class="pso-clip-oir" data-accion="oirClip" aria-label="Escuchar ${esc(e.nombre)}"><span aria-hidden="true">${e.emoji}</span></button>
-        <button type="button" class="pso-clip-nom" data-accion="elegirClip"><b>${esc(e.nombre)}</b><small>a los ${num(+c.t || 0, 2)} s</small></button>
-        <span class="pso-tiempo"><span class="pso-num"><input type="number" data-campo="t" min="0" max="${D}" step="0.05" value="${r4(+c.t || 0)}" aria-label="Segundo en que suena"><i>s</i></span>
+        <button type="button" class="pso-clip-nom" data-accion="elegirClip"><b>${esc(e.nombre)}</b><small>${detalle}</small></button>
+        <span class="pso-tiempo"><span class="pso-num"><input type="number" data-campo="t" min="0" max="${D}" step="0.01" value="${Math.round(t * 100) / 100}" aria-label="Segundo en que empieza ${esc(e.nombre)}"><i>s</i></span>
           <button type="button" class="pso-ib" data-accion="aCabezal" title="Llevarlo al cabezal" aria-label="Llevar ${esc(e.nombre)} al cabezal">${icono('cabezal')}</button></span>
         <button type="button" class="pso-ib peligro" data-accion="quitar" title="Quitar" aria-label="Quitar ${esc(e.nombre)}">${icono('borrar')}</button>
-        <label class="pso-mini"><span>Volumen</span><input type="range" data-campo="volumen" min="0" max="1" step="0.05" value="${vol}"><output>${Math.round(vol * 100)} %</output></label>
-        <label class="pso-mini"><span>Tono</span><input type="range" data-campo="tono" min="-12" max="12" step="1" value="${tono}"><output>${tono ? (tono > 0 ? '+' : '−') + Math.abs(tono) : 'normal'}</output></label>
+        <div class="pso-mezcla">
+          <label class="pso-mini"><span>Volumen</span><input type="range" data-campo="volumen" min="0" max="1" step="0.05" value="${vol}"><output>${Math.round(vol * 100)} %</output></label>
+          <label class="pso-mini"><span>Tono</span><input type="range" data-campo="tono" min="-12" max="12" step="1" value="${tono}"><output>${tono ? (tono > 0 ? '+' : '−') + Math.abs(tono) : 'normal'}</output></label>
+        </div>
       </li>`;
     }).join('') : '<li class="pso-vacia">Aún no hay efectos. Toca <b>+</b> en uno para ponerlo en el cabezal, o usa <b>Sugerir sonidos</b> para que se acomoden solos a los movimientos de la cámara.</li>';
     if (foco) this.$lista.querySelector(`li[data-id="${CSS.escape(foco.id)}"] ${foco.sel}`)?.focus();

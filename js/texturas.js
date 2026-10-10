@@ -113,6 +113,13 @@ export function mapaNormalDesde(imagen, fuerza = 1) {
   return tex;
 }
 
+// Mapa de normales que ya viene armado (presets que lo dibujan directo, sin pasar por el brillo)
+function texturaNormal(c) {
+  const tex = repetir(new THREE.CanvasTexture(c));
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
 // Color en sRGB; intensidad < 1 mezcla el bitmap con blanco (blanco = la piedra queda con su color)
 export function texturaColor(imagen, intensidad = 1) {
   const tex = repetir(new THREE.CanvasTexture(cuadrado(imagen, intensidad)));
@@ -278,35 +285,46 @@ function escarcha() {
 }
 
 function facetas() {
-  // micro facetas: celdas de Voronoi con una inclinación propia (cada una refleja una luz distinta)
+  // micro facetas: celdas de Voronoi, cada una con su propia inclinación (refleja y refracta una luz distinta).
+  // El mapa de normales se arma directo, plano dentro de cada celda: sacado del gris con Sobel, los bordes
+  // serían grietas y en el trazado de rayos la piedra se vería escarchada en vez de chispeante
   const T = MAX, rnd = azar(4409), G = 22, cel = T / G, sem = [];
   for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
-    const a = rnd() * Math.PI * 2, m = (0.0012 + rnd() * 0.0016);
-    sem.push({ x: (i + 0.15 + rnd() * 0.7) * cel, y: (j + 0.15 + rnd() * 0.7) * cel, gx: Math.cos(a) * m, gy: Math.sin(a) * m, b: 0.93 + rnd() * 0.05 });
+    const a = rnd() * Math.PI * 2, t = Math.tan((3 + rnd() * 6) * Math.PI / 180);
+    sem.push({ x: (i + 0.15 + rnd() * 0.7) * cel, y: (j + 0.15 + rnd() * 0.7) * cel, nx: Math.cos(a) * t, ny: Math.sin(a) * t });
   }
-  const alt = new Float32Array(T * T);
+  const nx = new Float32Array(T * T), ny = new Float32Array(T * T);
   for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
     const ci = (x / cel) | 0, cj = (y / cel) | 0;
-    let mejor = Infinity, s = null, ox = 0, oy = 0;
+    let mejor = Infinity, s = null;
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
       const ii = ci + di, jj = cj + dj, q = sem[((jj + G) % G) * G + ((ii + G) % G)];
-      const sx = q.x + Math.floor(ii / G) * T, sy = q.y + Math.floor(jj / G) * T, d = (x - sx) ** 2 + (y - sy) ** 2;
-      if (d < mejor) { mejor = d; s = q; ox = sx; oy = sy; }
+      const d = (x - q.x - Math.floor(ii / G) * T) ** 2 + (y - q.y - Math.floor(jj / G) * T) ** 2;
+      if (d < mejor) { mejor = d; s = q; }
     }
-    alt[y * T + x] = s.b + (x - ox) * s.gx + (y - oy) * s.gy;
+    nx[y * T + x] = s.nx; ny[y * T + x] = s.ny;
   }
-  const c = pintarPixeles(T, i => alt[i]);
-  // destellos: estrellitas de cuatro puntas que levantan el relieve
-  const x = c.getContext('2d'), rnd3 = azar(4410);
-  x.lineCap = 'round';
+  // destellos: puntitos abombados que siempre encuentran una luz (en el lienzo, +y es hacia abajo = −v)
+  const rnd3 = azar(4410), puntos = [];
   for (let n = 0; n < 150; n++) {
-    const px = rnd3() * T, py = rnd3() * T, L = 2 + rnd3() * 6, a = rnd3() * 0.6;
-    enCopias(T, px, py, L, (cx, cy) => {
-      x.strokeStyle = 'rgba(255,255,255,0.95)'; x.lineWidth = 1;
-      for (const b of [a, a + Math.PI / 2]) { x.beginPath(); x.moveTo(cx - Math.cos(b) * L, cy - Math.sin(b) * L); x.lineTo(cx + Math.cos(b) * L, cy + Math.sin(b) * L); x.stroke(); }
-      x.fillStyle = 'rgba(255,255,255,1)'; x.beginPath(); x.arc(cx, cy, 1.2, 0, Math.PI * 2); x.fill();
-    });
+    const px = rnd3() * T, py = rnd3() * T, R = 2 + rnd3() * 3, L = 2 + rnd3() * 6, a = rnd3() * 0.6;
+    puntos.push({ px, py, L, a });
+    for (let y = Math.floor(py - R); y <= py + R; y++) for (let x = Math.floor(px - R); x <= px + R; x++) {
+      const dx = (x + 0.5 - px) / R, dy = (y + 0.5 - py) / R, r = Math.hypot(dx, dy);
+      if (r >= 1) continue;
+      const i = ((y + T) % T) * T + ((x + T) % T);
+      nx[i] = dx * 0.8; ny[i] = -dy * 0.8;
+    }
   }
+  // gris: la luz de arriba a la izquierda sobre cada faceta (para la miniatura y el modo Color)
+  const c = pintarPixeles(T, i => 0.955 + 0.25 * (ny[i] - nx[i]));
+  const x = c.getContext('2d');
+  x.lineCap = 'round'; x.strokeStyle = 'rgba(255,255,255,0.95)'; x.lineWidth = 1; x.fillStyle = '#fff';
+  for (const { px, py, L, a } of puntos) enCopias(T, px, py, L, (cx, cy) => {
+    for (const b of [a, a + Math.PI / 2]) { x.beginPath(); x.moveTo(cx - Math.cos(b) * L, cy - Math.sin(b) * L); x.lineTo(cx + Math.cos(b) * L, cy + Math.sin(b) * L); x.stroke(); }
+    x.beginPath(); x.arc(cx, cy, 1.2, 0, Math.PI * 2); x.fill();
+  });
+  c.mapaNormal = pintarPixeles(T, i => { const inv = 1 / Math.sqrt(nx[i] * nx[i] + ny[i] * ny[i] + 1); return [nx[i] * inv * 0.5 + 0.5, ny[i] * inv * 0.5 + 0.5, inv * 0.5 + 0.5]; });
   return c;
 }
 
@@ -436,12 +454,14 @@ const unaVez = (id, f, extra = {}) => {
     return c;
   };
 };
-// fuerza: pendiente del mapa de normales; relieve: multiplica normalScale; modo, intensidad y escala: valores con los que se ve mejor
+// fuerza: pendiente del mapa de normales; relieve: multiplica normalScale; relievePT: lo mismo en la piedra del trazado
+// de rayos (allí la luz atraviesa la gema y rebota adentro, así que cada desvío se multiplica: se usa mucho menos);
+// modo, intensidad y escala: valores con los que se ve mejor
 export const PRESETS_PIEDRA = {
-  inclusiones:      { nombre: 'Seda e inclusiones', descripcion: 'Agujas finas de rutilo y cristales diminutos, como en rubíes y zafiros naturales', modo: 'ambos', intensidad: 0.7, escala: 1, crear: unaVez('inclusiones', seda, { fuerza: 1.5, relieve: 1 }) },
-  jardin:           { nombre: 'Jardín de esmeralda', descripcion: 'Velos y fisuras con forma de musgo: el "jardín" de las esmeraldas', modo: 'ambos', intensidad: 0.7, escala: 1, crear: unaVez('jardin', jardin, { fuerza: 1.5, relieve: 1 }) },
-  escarcha:         { nombre: 'Escarcha', descripcion: 'Superficie esmerilada, como una piedra mate o sin pulir', modo: 'relieve', intensidad: 0.6, escala: 0.6, crear: unaVez('escarcha', escarcha, { fuerza: 1.5, relieve: 1 }) },
-  'facetas-brillo': { nombre: 'Facetas con brillo', descripcion: 'Micro facetas y puntos de luz: más destellos al girar', modo: 'relieve', intensidad: 0.6, escala: 0.8, crear: unaVez('facetas-brillo', facetas, { fuerza: 2.5, relieve: 1 }) },
+  inclusiones:      { nombre: 'Seda e inclusiones', descripcion: 'Agujas finas de rutilo y cristales diminutos, como en rubíes y zafiros naturales', modo: 'ambos', intensidad: 0.7, escala: 1, crear: unaVez('inclusiones', seda, { fuerza: 1.5, relieve: 1, relievePT: 0.25 }) },
+  jardin:           { nombre: 'Jardín de esmeralda', descripcion: 'Velos y fisuras con forma de musgo: el "jardín" de las esmeraldas', modo: 'ambos', intensidad: 0.7, escala: 1, crear: unaVez('jardin', jardin, { fuerza: 1.5, relieve: 1, relievePT: 0.25 }) },
+  escarcha:         { nombre: 'Escarcha', descripcion: 'Superficie esmerilada, como una piedra mate o sin pulir', modo: 'relieve', intensidad: 0.6, escala: 0.6, crear: unaVez('escarcha', escarcha, { fuerza: 1.5, relieve: 1, relievePT: 0.45 }) },
+  'facetas-brillo': { nombre: 'Facetas con brillo', descripcion: 'Micro facetas y puntos de luz: más destellos al girar', modo: 'relieve', intensidad: 0.6, escala: 0.8, crear: unaVez('facetas-brillo', facetas, { relieve: 1, relievePT: 0.3 }) },
 };
 export const PRESETS_METAL = {
   martillado: { nombre: 'Martillado', descripcion: 'Huellas de martillo, como un anillo forjado a mano', intensidad: 0.6, escala: 0.7, crear: unaVez('martillado', martillado, { fuerza: 5, relieve: 1 }) },
@@ -547,11 +567,26 @@ function mezclaConBlanco(d, clave, fuente, alfa, colorSpace) {
   }
   return m.tex;
 }
-// rugosidad derivada del bitmap: los surcos del cepillado y el grano del arenado quedan menos brillantes
+// Fotos del usuario: se aclaran hasta que lo más claro (el 1 % más brillante) quede blanco.
+// Así una foto oscura no apaga la piedra y el relieve sale con la misma fuerza que en los presets
+function aclarada(d, imagen) {
+  if (d.aclarada) return d.aclarada;
+  const c = cuadrado(imagen), x = ctx2d(c), S = c.width, datos = x.getImageData(0, 0, S, S), p = datos.data, hist = new Uint32Array(256);
+  for (let i = 0; i < p.length; i += 4) hist[(0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]) | 0]++;
+  let n = 0, alto = 255;
+  for (let v = 255; v > 0; v--) { n += hist[v]; if (n >= S * S * 0.01) { alto = v; break; } }
+  const k = 255 / Math.max(alto, 32);   // una imagen casi negra no se estira sin límite (sería puro ruido)
+  if (k > 1.02) { for (let i = 0; i < p.length; i += 4) { p[i] = Math.min(255, p[i] * k); p[i + 1] = Math.min(255, p[i + 1] * k); p[i + 2] = Math.min(255, p[i + 2] * k); } x.putImageData(datos, 0, 0); }
+  return (d.aclarada = c);
+}
+
+// rugosidad derivada del bitmap. three la multiplica por la del acabado, así que solo puede bajarla:
+// lo hundido (surcos del cepillado, cráteres del arenado) conserva la rugosidad del acabado y lo alto,
+// pulido por el roce, brilla un poco más. El mate de verdad lo da el acabado Satinado o Arenado
 function fuenteRugosidad(d, imagen) {
   if (d.fuenteRug) return d.fuenteRug;
   const c = cuadrado(imagen), x = ctx2d(c), S = c.width, datos = x.getImageData(0, 0, S, S), p = datos.data;
-  for (let i = 0; i < p.length; i += 4) { const v = 255 * (0.35 + 0.65 * (0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]) / 255); p[i] = p[i + 1] = p[i + 2] = v; }
+  for (let i = 0; i < p.length; i += 4) { const v = 255 * (1 - 0.55 * (0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]) / 255); p[i] = p[i + 1] = p[i + 2] = v; }
   x.putImageData(datos, 0, 0);
   return (d.fuenteRug = c);
 }
@@ -572,11 +607,12 @@ function aplicarGrupo(estudio, est, grupo, a) {
   if (imagen) {
     if (geo && !geo.attributes.uv) { generarUVCaja(geo); geometria = true; }
     const d = datosDe(imagen, grupo), ds = imagen.dataset || {};
+    const fuente = ds.preset ? imagen : aclarada(d, imagen);   // los presets ya vienen calibrados
     const modo = grupo === 'metal' ? 'relieve' : (['color', 'relieve', 'ambos'].includes(a.modo) ? a.modo : 'ambos');
     const intensidad = clamp(num(a.intensidad, 0.6), 0, 1), escala = clamp(num(a.escala, 1), 0.2, 5);
-    const color = modo !== 'relieve' ? mezclaConBlanco(d, 'color', imagen, intensidad, THREE.SRGBColorSpace) : null;
-    const normal = modo !== 'color' ? (d.normal || (d.normal = mapaNormalDesde(imagen, num(+ds.fuerza, 1)))) : null;
-    const rug = grupo === 'metal' && (ds.rugosidad === '1' || a.rugosidad === true) ? mezclaConBlanco(d, 'rug', fuenteRugosidad(d, imagen), intensidad, THREE.NoColorSpace) : null;
+    const color = modo !== 'relieve' ? mezclaConBlanco(d, 'color', fuente, intensidad, THREE.SRGBColorSpace) : null;
+    const normal = modo !== 'color' ? (d.normal || (d.normal = imagen.mapaNormal ? texturaNormal(imagen.mapaNormal) : mapaNormalDesde(fuente, num(+ds.fuerza, 1)))) : null;
+    const rug = grupo === 'metal' && (ds.rugosidad === '1' || a.rugosidad === true) ? mezclaConBlanco(d, 'rug', fuenteRugosidad(d, fuente), intensidad, THREE.NoColorSpace) : null;
     nuevas = [color, normal, rug].filter(Boolean);
     const aniso = Math.min(8, estudio.renderer?.capabilities?.getMaxAnisotropy?.() || 1);
     for (const t of nuevas) { t.repeat.set(1 / escala, 1 / escala); t.anisotropy = aniso; }
@@ -584,13 +620,15 @@ function aplicarGrupo(estudio, est, grupo, a) {
     const s = intensidad * num(+ds.relieve, 1) * (grupo === 'metal' ? 0.9 : modo === 'ambos' ? 0.45 : 1);
     for (const m of mats) {
       let sombreador = ponerMapa(m, 'normalMap', normal);
-      if (normal) m.normalScale.set(s, s);
+      const k = m === estudio.matPPT ? num(+ds.relievePT, 0.35) : 1;
+      if (normal) m.normalScale.set(s * k, s * k);
       if (grupo === 'piedra') sombreador = ponerMapa(m, 'map', color) || sombreador;
-      // el metal tiene capa de laca (clearcoat) en el motor rápido: lleva el mismo relieve, más suave
+      // el metal del motor rápido tiene capa de laca (clearcoat): lleva el mismo relieve, más suave.
+      // Se pone siempre (aunque el acabado de ahora no tenga laca) porque estudio.pintar() la activa al cambiar el acabado
       else {
         sombreador = ponerMapa(m, 'roughnessMap', rug) || sombreador;
-        if ('clearcoatNormalMap' in m && m.clearcoat > 0) { sombreador = ponerMapa(m, 'clearcoatNormalMap', normal) || sombreador; if (normal) m.clearcoatNormalScale.set(s * 0.6, s * 0.6); }
-        else sombreador = ponerMapa(m, 'clearcoatNormalMap', null) || sombreador;
+        sombreador = ponerMapa(m, 'clearcoatNormalMap', m === estudio.mat ? normal : null) || sombreador;
+        if (m === estudio.mat && normal) m.clearcoatNormalScale.set(s * 0.6, s * 0.6);
       }
       if (sombreador) m.needsUpdate = true;
     }
@@ -733,7 +771,7 @@ export class PanelTexturas {
       const f = e.dataTransfer?.files?.[0]; if (f && !b.querySelector('fieldset')?.disabled) this.cargar(b.dataset.bloque, f);
     });
     // por si el estudio cambia de modelo o de piedra sin avisar: se revisa al acercarse al panel
-    for (const ev of ['pointerover', 'focusin']) contenedor.addEventListener(ev, () => this.render(), { passive: true });
+    for (const ev of ['pointerenter', 'focusin']) contenedor.addEventListener(ev, e => { if (ev === 'pointerenter' || !contenedor.contains(e.relatedTarget)) this.render(); }, { passive: true });
     this.render();
     // las miniaturas se generan cuando el panel se ve (cada preset tarda unas décimas la primera vez)
     try {
@@ -903,8 +941,9 @@ export class PanelTexturas {
 
   render() {
     const est = this.estudio, modelo = !!est?.tieneModelo, piedras = modelo && !!est.geoP;
-    // otro modelo cargado: hay que generar sus uv y volver a poner las texturas
-    if (est && (est.geo !== this.geoVista || est.geoP !== this.geoPVista) && (this.estado.piedra.preset || this.estado.metal.preset)) this.programar();
+    // otro modelo cargado: se generan sus uv y se vuelven a poner las texturas de una vez
+    // (así el siguiente cuadro de la vista previa ya sale con ellas)
+    if (est && (est.geo !== this.geoVista || est.geoP !== this.geoPVista) && (this.estado.piedra.preset || this.estado.metal.preset)) this.aplicar();
     else if (est) { this.geoVista = est.geo; this.geoPVista = est.geoP; }
     const pistas = {
       piedra: !modelo ? 'Carga un modelo 3D (o el anillo de ejemplo) para ponerle bitmaps a las piedras.' : !piedras ? 'Este modelo no tiene piedras reconocidas. Súbelas en otro STL junto al metal o activa «Reconocer las piedras automáticamente».' : '',
