@@ -1,0 +1,81 @@
+/* Panel de texturas: bitmaps de las piedras, textura del metal e iluminación HDRI */
+.ptr{display:flex;flex-direction:column;gap:22px;min-width:0;max-width:100%;container-type:inline-size}
+.ptr .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.ptr h3{font-family:var(--serif);font-weight:500;font-size:18px;line-height:1.2;margin:0}
+.ptr-bloque{display:flex;flex-direction:column;gap:12px;min-width:0;transition:background-color .18s,box-shadow .18s}
+.ptr-bloque + .ptr-bloque{border-top:1px solid var(--linea);padding-top:20px}
+.ptr-bloque.encima{background:var(--oro-suave);box-shadow:0 0 0 8px var(--oro-suave);border-radius:4px}
+.ptr-bloque[aria-busy=true]{cursor:progress}
+.ptr-cab{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+.ptr-ayuda{font-size:12.5px;line-height:1.4;color:var(--tinta2);margin:0}
+.ptr-pista{margin:0;font-size:13px;line-height:1.4;color:var(--tinta2);background:var(--perla);border:1px dashed var(--linea);border-radius:8px;padding:10px 12px}
+.ptr-error{margin:0;font-size:13px;line-height:1.4;color:var(--gra);background:var(--gra-suave);border-radius:8px;padding:8px 12px}
+.ptr-campos{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:14px}
+.ptr-campos:disabled{opacity:.5}
+.ptr-campos:disabled .ptr-ficha{cursor:not-allowed}
+
+/* Galería de bitmaps: muestras cuadradas con el nombre debajo (como los fondos) */
+.ptr-galeria{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:12px 10px}
+.ptr-ficha{all:unset;cursor:pointer;min-width:0;display:flex;flex-direction:column;gap:6px;align-items:center;text-align:center}
+.ptr-ficha[hidden]{display:none}
+.ptr-ficha b{font-weight:500;font-size:12px;line-height:1.25;color:var(--tinta2);max-width:100%;overflow-wrap:anywhere}
+.ptr-muestra{display:block;width:100%;aspect-ratio:1;border-radius:10px;border:1px solid var(--linea);background:linear-gradient(110deg,var(--perla) 30%,var(--papel) 50%,var(--perla) 70%) 0 0/300% 100%;box-shadow:inset 0 0 0 3px var(--papel);transition:border-color .18s,transform .18s,box-shadow .18s}
+canvas.ptr-muestra:not(.lista){animation:ptr-brillo 1.4s linear infinite}
+canvas.ptr-muestra.lista{background:var(--perla);box-shadow:none}
+@keyframes ptr-brillo{to{background-position:-150% 0}}
+.ptr-ficha:hover .ptr-muestra{transform:translateY(-2px);border-color:var(--oro)}
+.ptr-ficha:focus-visible .ptr-muestra{outline:2px solid var(--oro);outline-offset:2px}
+.ptr-ficha[aria-pressed=true] .ptr-muestra{border:2px solid var(--oro-vivo);box-shadow:0 6px 16px -10px rgba(23,21,15,.55)}
+.ptr-ficha[aria-pressed=true] b{color:var(--tinta);font-weight:600}
+.ptr-ficha[aria-busy=true] .ptr-muestra{opacity:.55;animation:ptr-latido .9s ease-in-out infinite alternate}
+@keyframes ptr-latido{from{opacity:.4}to{opacity:.8}}
+.ptr-subir .ptr-muestra{display:grid;place-items:center;border:1.5px dashed #C9BFA8;background:linear-gradient(180deg,rgba(244,231,200,.45),transparent);box-shadow:none;color:var(--oro)}
+.ptr-subir .ptr-muestra svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.ptr-subir:hover .ptr-muestra{border-color:var(--oro-vivo);background:var(--oro-suave)}
+
+/* Ajustes del bitmap elegido */
+.ptr-ajustes{display:flex;flex-direction:column;gap:12px;min-width:0;background:var(--perla);border-radius:10px;padding:14px 14px 12px}
+.ptr-ajustes .grid2{gap:6px 16px}
+.ptr-seg{display:flex;gap:3px;background:var(--papel);border:1px solid var(--linea);border-radius:999px;padding:3px;min-width:0}
+.ptr-seg button{all:unset;cursor:pointer;flex:1 1 0;min-width:0;text-align:center;padding:6px 8px;border-radius:999px;font-size:13px;font-weight:500;line-height:1.2;color:var(--tinta2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .18s,color .18s}
+.ptr-seg button:hover{color:var(--tinta)}
+.ptr-seg button[aria-pressed=true]{background:var(--tinta);color:var(--papel)}
+.ptr-seg button:focus-visible{outline:2px solid var(--oro);outline-offset:1px}
+.ptr-pie{display:flex;align-items:center;justify-content:space-between;gap:8px 14px;flex-wrap:wrap}
+.ptr-pie .ptr-ayuda{flex:1 1 180px}
+.ptr-pie .btn{flex:none;padding:5px 12px 5px 9px;gap:5px}
+.ptr-pie .btn svg{width:15px;height:15px}
+
+/* HDRI: panorama en miniatura con su nombre */
+.ptr-hdri{display:flex;gap:14px;align-items:center;flex-wrap:wrap;min-width:0}
+.ptr-pano{display:block;flex:0 0 156px;width:156px;height:78px;border-radius:9px;border:1px solid var(--linea);background:#2a2622;object-fit:cover}
+.ptr-hdri-txt{flex:1 1 190px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.ptr-hdri-txt b{font-family:var(--serif);font-weight:500;font-size:17px;line-height:1.2;color:var(--tinta);overflow-wrap:anywhere}
+.ptr-botones{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.ptr-botones .btn{padding:5px 12px 5px 9px;gap:5px}
+.ptr-botones .btn svg{width:15px;height:15px}
+[data-bloque=hdri] .ptr-ajustes{background:var(--perla)}
+
+/* Panel angosto (celular o columna estrecha): cuatro muestras por fila y "Subir imagen" como barra */
+@container (max-width:400px){
+  .ptr-galeria{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 8px}
+  .ptr-ficha b{font-size:11.5px}
+  .ptr-subir{grid-column:1/-1;flex-direction:row;justify-content:center;gap:10px;padding:9px 12px;border:1.5px dashed #C9BFA8;border-radius:10px;background:linear-gradient(180deg,rgba(244,231,200,.45),transparent)}
+  .ptr-subir .ptr-muestra{width:auto;aspect-ratio:auto;border:0;background:none}
+  .ptr-subir .ptr-muestra svg{width:20px;height:20px}
+  .ptr-subir b{font-size:13px;color:var(--tinta)}
+  .ptr-subir:hover{border-color:var(--oro-vivo);background:var(--oro-suave)}
+  .ptr-subir:hover .ptr-muestra{transform:none;background:none}
+  .ptr-subir:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+  .ptr-pano{flex-basis:100%;width:100%;height:auto;aspect-ratio:2.4}
+  .ptr-ajustes{padding:12px}
+}
+
+@media (prefers-color-scheme: dark){
+  .ptr-subir .ptr-muestra{border-color:#5A5446;background:linear-gradient(180deg,rgba(62,52,24,.4),transparent)}
+  @container (max-width:400px){.ptr-subir{border-color:#5A5446;background:linear-gradient(180deg,rgba(62,52,24,.4),transparent)}.ptr-subir .ptr-muestra{background:none}}
+  .ptr-ficha[aria-pressed=true] .ptr-muestra{box-shadow:0 6px 16px -10px rgba(0,0,0,.9)}
+  .ptr-ajustes,[data-bloque=hdri] .ptr-ajustes{background:#16140F}
+  .ptr-pista{background:#16140F}
+}
+@media (prefers-reduced-motion: reduce){.ptr-muestra,.ptr-bloque{transition:none}canvas.ptr-muestra:not(.lista),.ptr-ficha[aria-busy=true] .ptr-muestra{animation:none}}
