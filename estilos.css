@@ -6,7 +6,7 @@
   --campo:#fff; --campo-borde:#C7CFCA;
   --serif:'Bodoni Moda', Didot, 'Times New Roman', serif;
   --sans:'Instrument Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --alto-editor:clamp(480px, calc(100vh - 200px), 860px);   /* vista previa + inspector en escritorio */
+  --alto-vista:clamp(520px, calc(100vh - 100px), 1000px);   /* alto de la columna de la vista previa en escritorio */
 }
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%}
@@ -36,7 +36,7 @@ nav .nav-linea{margin-top:10px;padding-top:12px;border-top:1px solid rgba(255,25
 .nota .punto{width:8px;height:8px;border-radius:50%;background:#7FC4A4;flex:none;margin-top:5px}
 .nota.trabajando .punto{background:#D6B877}
 .nota.error .punto{background:#E88B96}
-main{padding:20px clamp(16px,2.6vw,36px) 72px;min-width:0;width:100%;max-width:1680px}
+main{padding:20px clamp(16px,2.6vw,36px) 72px;min-width:0;width:100%;max-width:1680px;margin:0 auto}
 .barra-movil{display:none}
 
 /* Tipografía */
@@ -95,15 +95,17 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 /* Paneles */
 .panel{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:20px 22px;transition:border-color .18s}
 
-/* ---------- Editor: vista previa + inspector arriba, línea de tiempo abajo ---------- */
-.editor{--aspecto:.5625;display:grid;grid-template-columns:fit-content(60%) minmax(340px,1fr);gap:20px;height:var(--alto-editor);align-items:stretch}
-.vista{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0;width:calc((var(--alto-editor) - 104px) * var(--aspecto));max-width:100%}
-.marco{position:relative;background:#E7E2D7;border-radius:12px;overflow:hidden;border:1px solid var(--linea);display:grid;place-items:center;flex:1 1 auto;min-height:0}
+/* ---------- Editor: la vista previa queda fija a la izquierda; el inspector y la línea de tiempo, a la derecha ----------
+   Así la joya siempre está a la vista mientras se editan los keyframes (como en un editor de video). */
+.editor{--aspecto:.5625;--ancho-vista:min(calc((var(--alto-vista) - 104px) * var(--aspecto)), 44%);
+  display:grid;grid-template-columns:var(--ancho-vista) minmax(0,1fr);grid-template-areas:"vista inspector" "vista linea";gap:20px;align-items:start}
+.vista{grid-area:vista;position:sticky;top:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.marco{position:relative;background:#E7E2D7;border-radius:12px;overflow:hidden;border:1px solid var(--linea);display:grid;place-items:center;aspect-ratio:var(--aspecto);width:100%}
 .marco canvas{display:block;width:100%;height:100%;object-fit:contain;touch-action:pan-y}
 .marco .vacio-vista{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--tinta2);background:var(--papel);font-size:14px}
 .marco .vacio-vista svg{width:64px;height:auto;margin:0 auto 10px;display:block}
 .marco .vacio-vista b{display:block;font-family:var(--serif);font-weight:500;font-size:22px;color:var(--tinta);margin-bottom:4px}
-.marco .vacio-vista .btn{margin-top:16px}
+.marco .vacio-vista .btn{margin-top:16px;white-space:normal}
 .etiqueta-vista{position:absolute;top:10px;left:10px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;background:rgba(23,21,15,.72);color:#F4E7C8;padding:4px 10px;border-radius:999px;pointer-events:none}
 .transporte{display:flex;gap:10px;align-items:center;flex:none}
 .transporte input{flex:1;min-width:40px}
@@ -119,16 +121,29 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .redondo[aria-pressed=true]{color:var(--oro);border-color:var(--oro);background:var(--oro-suave)}
 .vista > .btn{flex:none;align-self:stretch}
 
-/* Inspector con pestañas: el contenido se desplaza por dentro (como el panel derecho de un editor de video) */
-.inspector{display:flex;flex-direction:column;min-width:0;min-height:0;padding:0;overflow:hidden}
+/* Inspector con pestañas: el contenido se desplaza por dentro (como el panel derecho de un editor de video).
+   Es un poco más bajo que la vista previa para que asome el título de la línea de tiempo y se note que sigue abajo. */
+.inspector{grid-area:inspector;display:flex;flex-direction:column;min-width:0;min-height:0;padding:0;overflow:hidden;height:calc(var(--alto-vista) - 64px)}
 .pestanas{display:none;margin:14px 16px 0;flex:none}
-.hojas{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:22px 24px 28px;scrollbar-width:thin;scrollbar-color:var(--linea) transparent;scroll-padding-top:12px}
-.hoja{min-width:0}
+.hojas{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:22px 24px 28px;scrollbar-width:thin;scrollbar-color:var(--linea) transparent;scroll-padding-top:12px;display:flex;flex-direction:column}
+.hoja{min-width:0;flex:none}
 .hoja:focus{outline:none}
 .pasos{margin:24px 0 0;padding:16px 18px 16px 34px;background:var(--perla);border-radius:10px;font-size:13.5px;color:var(--tinta2);display:flex;flex-direction:column;gap:6px}
 .pasos b{color:var(--tinta);font-weight:600}
+/* el chat ocupa todo el alto del inspector: la conversación crece y el cuadro para escribir queda abajo */
+#h-asistente{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+#h-asistente #chat{flex:1 1 auto;min-height:0}
+#h-asistente .cht-lista{flex:1 1 auto;height:auto;min-height:180px}
 #h-asistente .cht-titulo h3{display:none}
-.zona-linea{margin-top:20px;scroll-margin-top:16px}
+.zona-linea{grid-area:linea;min-width:0;scroll-margin-top:16px}
+/* las pistas se vuelven a dibujar enteras: el navegador no debe tomarlas como ancla al corregir el scroll */
+.zona-linea .lt-pistas{overflow-anchor:none}
+/* la línea de tiempo comparte el ancho con la vista previa: los ajustes del cabezal van en dos columnas más compactas */
+.zona-linea .lt-controles{grid-template-columns:repeat(auto-fill,minmax(262px,1fr))}
+.zona-linea .lt-ctl{grid-template-columns:22px minmax(0,6.9em) minmax(60px,1fr) auto}
+.zona-linea .lt-ctl .lt-largo{display:none}
+.zona-linea .lt-ctl .lt-corto{display:inline}
+.zona-linea .lt-ctl .lt-num input{width:60px}
 
 /* Zona para soltar el STL */
 .soltar{border:1.5px dashed #C9BFA8;border-radius:10px;padding:26px 18px;text-align:center;cursor:pointer;background:linear-gradient(180deg,rgba(244,231,200,.35),transparent);transition:border-color .18s,background-color .18s}
@@ -166,15 +181,40 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 #aviso.ver{opacity:1;transform:translateX(-50%) translateY(0)}
 #aviso.mal{background:var(--gra);color:#fff}
 
-/* Pantallas medianas: todo en una columna (vista previa, inspector, línea de tiempo) */
-@media (max-width:1100px){
-  .editor{grid-template-columns:minmax(0,1fr);height:auto;gap:16px}
-  .vista{width:100%;max-width:min(100%, calc(62vh * var(--aspecto)), 720px);margin:0 auto}
-  .marco{aspect-ratio:var(--aspecto);flex:none;max-height:62vh}
-  .inspector{overflow:visible}
+/* Portátiles: el menú lateral se angosta un poco para dejarle espacio a la línea de tiempo */
+@media (max-width:1366px){
+  .app{grid-template-columns:216px 1fr}
+  aside{padding:24px 12px 20px}
+  .marca{gap:5px 10px}
+  .marca svg{width:36px}
+  .marca b{font-size:16.5px}
+  .marca i{font-size:12.5px;white-space:nowrap}
+  .marca span{font-size:11.5px}
+  main{padding-left:24px;padding-right:24px}
+}
+/* Pantallas medianas y celulares: todo en una columna (vista previa, inspector con pestañas, línea de tiempo) */
+@media (max-width:1180px){
+  .editor{grid-template-columns:minmax(0,1fr);grid-template-areas:"vista" "inspector" "linea";gap:16px}
+  .vista{position:static;width:100%;max-width:max(min(100%, calc(62vh * var(--aspecto))), min(100%, 460px));margin:0 auto}
+  .marco{width:min(100%, calc(62vh * var(--aspecto)));margin:0 auto}
+  .inspector{overflow:visible;height:auto}
   .hojas{overflow:visible;padding:20px 22px 24px}
   .pestanas{display:flex}
   .hoja > h2{display:none}
+  #h-asistente .cht-lista{flex:none;height:clamp(280px,50vh,520px)}
+  #h-asistente .cht:not(.con-mensajes) .cht-lista{height:auto;min-height:0}
+}
+/* en una columna la línea de tiempo vuelve a tener todo el ancho: nombres completos (en celulares manda su propia hoja) */
+@media (max-width:1180px) and (min-width:701px){
+  .zona-linea .lt-controles{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
+  .zona-linea .lt-ctl{grid-template-columns:22px minmax(0,9.2em) minmax(90px,1fr) auto}
+  .zona-linea .lt-ctl .lt-largo{display:inline}
+  .zona-linea .lt-ctl .lt-corto{display:none}
+  .zona-linea .lt-ctl .lt-num input{width:66px}
+}
+@media (max-width:700px){
+  .zona-linea .lt-controles{grid-template-columns:1fr}
+  .zona-linea .lt-ctl{grid-template-columns:22px minmax(0,7.5em) minmax(70px,1fr) auto}
 }
 @media (max-width:900px){
   .app{grid-template-columns:1fr}
@@ -184,6 +224,7 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   .barra-movil b{font-family:var(--serif);font-weight:400;letter-spacing:.06em;font-size:17px}
   .barra-movil i{font-family:var(--serif);font-style:italic;color:#D9A83A;font-size:12.5px;margin-left:auto}
   main{padding:14px 16px 64px}
+  .inspector,.zona-linea{scroll-margin-top:66px}   /* que no queden bajo la barra de arriba */
   .cab-titulo .sello{display:none}
 }
 @media (max-width:640px){

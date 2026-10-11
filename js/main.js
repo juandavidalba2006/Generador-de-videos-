@@ -181,21 +181,61 @@ const programarLinea = () => { if (!lineaPendiente) lineaPendiente = requestAnim
 const linea = new LineaTiempo($('lineaTiempo'), {
   obtenerProyecto: () => proyecto,
   efectos: EFECTOS, estilosMusica: ESTILOS_MUSICA,
-  alCambiar: motivo => {
+  // los paneles de arriba cambian de alto al volver a dibujarse: la línea de tiempo se queda quieta bajo el puntero
+  alCambiar: motivo => sinSaltar(() => {
     clearTimeout(tRafaga); tRafaga = 0;
     if (motivo === 'deshacer' || motivo === 'rehacer') { todoCambio({ linea: false }); return; }
     if (motivo === 'textos' || motivo === 'duracion') panelTextos.render();
     if (motivo === 'audio' || motivo === 'duracion') { panelSonido.render(); rep.preparar(proyecto.audio, proyecto.duracion); }
     if (motivo === 'duracion') avisoCalidad();
     asentar(); cambio();
-  },
+  }),
   // tocar la regla, arrastrar el cabezal o editar un valor pausa la reproducción (como en CapCut)
   alMoverCabezal: t => { buscar(t); },
-  alSeleccionar: s => {
+  alSeleccionar: s => sinSaltar(() => {
     if (s.tipo === 'texto') { abrirPestana('textos'); panelTextos.seleccionar(s.id); estado.sucio = true; }
     else if (s.tipo === 'sonido') { abrirPestana('sonido'); panelSonido.seleccionar(s.id); }
-  },
+  }),
 });
+
+// Al elegir algo en la línea de tiempo se abre su pestaña y el panel muestra la fila elegida; la línea de tiempo no debe
+// moverse bajo el dedo mientras se arrastra (en una columna el inspector cambia de alto, y los paneles hacen scrollIntoView)
+// (el anclaje automático del navegador se apaga un momento: si no, corrige otra vez lo que ya se corrigió aquí)
+let anclaje = 0, sinAnclaje = false, fijo = null;   // fijo: arrastre en curso en las pistas (ver abajo)
+const anclajeNativo = () => { document.documentElement.style.overflowAnchor = sinAnclaje || fijo ? 'none' : ''; };
+function sinSaltar(fn, ancla = $('lineaTiempo')) {
+  const antes = ancla.getBoundingClientRect().top;
+  sinAnclaje = true; anclajeNativo();
+  try { fn(); } finally {
+    const corrido = ancla.getBoundingClientRect().top - antes;
+    if (Math.abs(corrido) > 0.5) scrollBy({ top: corrido, behavior: 'instant' });
+    cancelAnimationFrame(anclaje);
+    anclaje = requestAnimationFrame(() => requestAnimationFrame(() => { sinAnclaje = false; anclajeNativo(); }));
+  }
+}
+
+// Mientras se arrastra en las pistas, lo que está bajo el dedo no se mueve aunque cambie el alto de lo de arriba
+// (el inspector al cambiar de pestaña, o el recuadro de lo elegido en la línea de tiempo). Se corrige antes de pintar.
+$('lineaTiempo').addEventListener('pointerdown', e => {
+  const el = e.target.closest?.('.lt-pistas');
+  if (!el) return;
+  fijo = { el, top: el.getBoundingClientRect().top };
+  anclajeNativo();
+}, true);
+// al soltar, la línea de tiempo se vuelve a dibujar: se sigue corrigiendo un par de cuadros más
+for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => {
+  const f = fijo; if (!f) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (fijo === f) { fijo = null; anclajeNativo(); } }));
+});
+function mantenerFijo() {
+  if (!fijo) return;
+  const d = fijo.el.getBoundingClientRect().top - fijo.top;
+  if (Math.abs(d) > 0.5) scrollBy({ top: d, behavior: 'instant' });
+}
+if (typeof ResizeObserver !== 'undefined') {
+  const ro = new ResizeObserver(mantenerFijo);
+  for (const el of [document.querySelector('.cab'), document.querySelector('.vista'), document.querySelector('.inspector'), $('lineaTiempo').querySelector('.lt-cabecera'), $('lineaTiempo').querySelector('.lt-inspector')]) if (el) ro.observe(el);
+}
 
 // ---------- Paneles del inspector ----------
 const panelTexturas = new PanelTexturas($('panelTexturas'), { estudio, alCambiar: () => cambio() });
@@ -259,7 +299,7 @@ arrastrarEnLienzo($('lienzo'), {
     reproducir(false);
     // el foco sale del campo que se estaba editando: Ctrl+Z deshace el arrastre, no lo último que se escribió
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
-    abrirPestana('textos'); panelTextos.seleccionar(id); linea.seleccionar({ tipo: 'texto', id });
+    sinSaltar(() => { abrirPestana('textos'); panelTextos.seleccionar(id); }, document.querySelector('.vista')); linea.seleccionar({ tipo: 'texto', id });
     estado.sucio = true;
   },
   alMover: () => {
@@ -295,11 +335,12 @@ function abrirPestana(id, { desplazar = false, enfocar = false } = {}) {
   document.querySelectorAll('#nav a[data-pestana]').forEach(a => a.setAttribute('aria-current', String(a.dataset.pestana === id)));
   if (enfocar) tabs.find(b => b.dataset.pestana === id)?.focus();
   if (desplazar) {
-    const r = document.querySelector('.inspector').getBoundingClientRect();
-    if (r.top < 0 || r.top > innerHeight * 0.7) document.querySelector(innerWidth > 1100 ? '.editor' : '.inspector').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const r = document.querySelector('.inspector').getBoundingClientRect(), barra = innerWidth <= 900 ? 56 : 0;   // en el celular hay una barra fija arriba
+    if (r.top < barra - 1 || r.top > innerHeight * 0.7) document.querySelector(innerWidth > 1180 ? '.editor' : '.inspector').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 }
-$('pestanas').addEventListener('click', e => { const b = e.target.closest('[role=tab]'); if (b) abrirPestana(b.dataset.pestana); });
+// en una columna, si la tira de pestañas está muy abajo, se sube para que se vea lo que se abrió
+$('pestanas').addEventListener('click', e => { const b = e.target.closest('[role=tab]'); if (b) abrirPestana(b.dataset.pestana, { desplazar: true }); });
 $('pestanas').addEventListener('keydown', e => {
   const i = PESTANAS.indexOf(estado.pestana), paso = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
   if (paso) { e.preventDefault(); abrirPestana(PESTANAS[(i + paso + PESTANAS.length) % PESTANAS.length], { enfocar: true }); }
