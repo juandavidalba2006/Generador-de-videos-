@@ -312,6 +312,8 @@ arrastrarEnLienzo($('lienzo'), {
   obtenerTiempo: () => estado.t,
   alSeleccionar: id => {
     reproducir(false);
+    // agarrar un texto es un gesto nuevo: lo que se venía escribiendo queda como su propio paso de Deshacer
+    if (tRafaga) cerrarRafaga();
     // el foco sale del campo que se estaba editando: Ctrl+Z deshace el arrastre, no lo último que se escribió
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     sinSaltar(() => { abrirPestana('textos'); panelTextos.seleccionar(id); }, document.querySelector('.vista')); linea.seleccionar({ tipo: 'texto', id });
@@ -664,7 +666,7 @@ $('crear').addEventListener('click', () => trabajo(async (comp, salida, f) => {
     const blob = await cod.terminar();
     mostrarVideo(blob, `${slug(nombreDelProyecto())}-${estado.formato}.${cod.extension}`);
     const seg = (performance.now() - inicio) / 1000;
-    if (cod.extension === 'webm') aviso('Este navegador solo pudo crear WebM (sirve para la web y el catálogo). Para Instagram crea el video en Chrome, Edge o Safari.', true);
+    if (cod.extension === 'webm') aviso(`Este navegador solo pudo crear WebM (sirve para la web y el catálogo)${sinSonido ? ' y sin sonido' : ''}. Para Instagram crea el video en Chrome, Edge o Safari.`, true);
     else if (sinSonido) aviso('Video listo, pero este navegador no pudo agregarle el sonido.', true);
     else aviso(`Video listo en ${reloj(seg)}.`);
     nota(`Video listo (${(blob.size / 1048576).toFixed(1)} MB${cod.conSonido ? ', con sonido' : ''}).`);

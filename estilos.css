@@ -238,7 +238,7 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   .pestanas button{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 4px;border-radius:12px;font-size:13.5px;min-width:0}
   .pestanas svg{display:block}
 }
-@media (max-width:520px){.grid2{grid-template-columns:1fr}.hojas{padding:18px 16px 22px}.acciones .btn{flex:1 1 100%}.pasos{padding-left:30px}}
+@media (max-width:520px){.grid2,.grid3{grid-template-columns:1fr}.hojas{padding:18px 16px 22px}.acciones .btn{flex:1 1 100%}.pasos{padding-left:30px}}
 
 @media (prefers-color-scheme: dark){
   :root{

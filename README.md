@@ -113,7 +113,7 @@ cuando la cámara llega a la piedra.
 El proyecto se **guarda solo** en este navegador y se recupera al volver a abrir la página. Con
 **Guardar proyecto** descargas un archivo `.atelier.json` (keyframes, textos, sonidos, formato, fondo y materiales)
 para seguir en otro momento o en otro equipo con **Abrir**. *Nuevo* empieza de cero (se puede deshacer).
-El STL, una canción subida y los bitmaps propios no van dentro del archivo: vuelve a subirlos.
+El STL, una canción subida, los bitmaps y el HDRI no van dentro del archivo: vuelve a subirlos o escogerlos.
 
 ### Calidades
 
