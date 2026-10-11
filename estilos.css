@@ -6,7 +6,7 @@
   --campo:#fff; --campo-borde:#C7CFCA;
   --serif:'Bodoni Moda', Didot, 'Times New Roman', serif;
   --sans:'Instrument Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --alto-vista:clamp(520px, calc(100vh - 100px), 1000px);   /* alto de la columna de la vista previa en escritorio */
+  --alto-vista:clamp(500px, calc(100vh - 150px), 980px);    /* alto de la vista previa y del inspector en escritorio */
 }
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%}
@@ -32,6 +32,18 @@ nav a[aria-current=true]{color:#fff;border-left-color:var(--oro-vivo);background
 nav a[aria-current=true] svg{color:var(--oro-vivo);opacity:1}
 nav a:focus-visible{outline:2px solid #D6B877;outline-offset:1px}
 nav .nav-linea{margin-top:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);border-radius:0;color:#B9B2A2;font-size:14px}
+/* Vista previa en miniatura: aparece en el menú lateral cuando la grande queda fuera de la pantalla (al editar la línea de tiempo) */
+.mini-vista{all:unset;box-sizing:border-box;flex:1 1 0;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:0 10px;cursor:pointer;
+  opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .25s,transform .25s,visibility .25s}
+.mini-vista.ver{opacity:1;visibility:visible;transform:none}
+.mini-marco{display:block;line-height:0;border-radius:9px;padding:3px;background:rgba(196,144,34,.14);border:1px solid rgba(196,144,34,.5);box-shadow:0 10px 28px rgba(0,0,0,.45);transition:border-color .18s}
+.mini-marco canvas{display:block;border-radius:6px;width:0;height:0}
+.mini-vista:hover .mini-marco{border-color:#D9A83A}
+.mini-vista:focus-visible .mini-marco{outline:2px solid #D6B877;outline-offset:3px}
+.mini-pie{display:flex;align-items:center;gap:7px;font-size:12px;color:#A39D8E;letter-spacing:.02em;white-space:nowrap}
+.mini-pie b{font-weight:600;color:#F4E7C8;font-variant-numeric:tabular-nums;margin-left:2px}
+.mini-punto{width:7px;height:7px;border-radius:50%;background:#6E685A;flex:none;transition:background-color .2s}
+.mini-vista.reproduciendo .mini-punto{background:#E88B96;box-shadow:0 0 0 3px rgba(232,139,150,.18)}
 .nota{margin-top:auto;font-size:12.5px;line-height:1.4;color:#9FB3AB;padding:0 10px;display:flex;gap:9px;align-items:flex-start}
 .nota .punto{width:8px;height:8px;border-radius:50%;background:#7FC4A4;flex:none;margin-top:5px}
 .nota.trabajando .punto{background:#D6B877}
@@ -87,6 +99,7 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .subnav button:hover{color:var(--tinta)}
 .subnav button[aria-pressed=true],.subnav button[aria-selected=true]{background:var(--tinta);color:var(--papel)}
 .subnav button:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.pestanas svg{display:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chips button{cursor:pointer;border:1px solid var(--linea);background:var(--papel);border-radius:999px;padding:7px 14px;font-size:14px;color:var(--tinta);transition:background-color .18s,border-color .18s,color .18s}
 .chips button:hover{border-color:var(--oro)}
@@ -95,17 +108,17 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 /* Paneles */
 .panel{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:20px 22px;transition:border-color .18s}
 
-/* ---------- Editor: la vista previa queda fija a la izquierda; el inspector y la línea de tiempo, a la derecha ----------
-   Así la joya siempre está a la vista mientras se editan los keyframes (como en un editor de video). */
-.editor{--aspecto:.5625;--ancho-vista:min(calc((var(--alto-vista) - 104px) * var(--aspecto)), 44%);
-  display:grid;grid-template-columns:var(--ancho-vista) minmax(0,1fr);grid-template-areas:"vista inspector" "vista linea";gap:20px;align-items:start}
-.vista{grid-area:vista;position:sticky;top:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+/* ---------- Editor, como en CapCut: arriba la vista previa y el inspector con pestañas; abajo, la línea de tiempo a todo
+   el ancho. La parte de arriba llena la pantalla y deja asomar el título de la línea de tiempo para que se note que sigue. */
+.editor{--aspecto:.5625;--ancho-vista:min(calc((var(--alto-vista) - 92px) * var(--aspecto)), 56%);
+  display:grid;grid-template-columns:var(--ancho-vista) minmax(0,1fr);grid-template-areas:"vista inspector" "linea linea";gap:20px;align-items:start}
+.vista{grid-area:vista;display:flex;flex-direction:column;gap:10px;min-width:0;container-type:inline-size}
 .marco{position:relative;background:#E7E2D7;border-radius:12px;overflow:hidden;border:1px solid var(--linea);display:grid;place-items:center;aspect-ratio:var(--aspecto);width:100%}
 .marco canvas{display:block;width:100%;height:100%;object-fit:contain;touch-action:pan-y}
 .marco .vacio-vista{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--tinta2);background:var(--papel);font-size:14px}
 .marco .vacio-vista svg{width:64px;height:auto;margin:0 auto 10px;display:block}
 .marco .vacio-vista b{display:block;font-family:var(--serif);font-weight:500;font-size:22px;color:var(--tinta);margin-bottom:4px}
-.marco .vacio-vista .btn{margin-top:16px;white-space:normal}
+.marco .vacio-vista .btn{display:flex;margin:16px auto 0;white-space:normal}
 .etiqueta-vista{position:absolute;top:10px;left:10px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;background:rgba(23,21,15,.72);color:#F4E7C8;padding:4px 10px;border-radius:999px;pointer-events:none}
 .transporte{display:flex;gap:10px;align-items:center;flex:none}
 .transporte input{flex:1;min-width:40px}
@@ -120,10 +133,11 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .redondo.grande svg{fill:currentColor;stroke:none;width:16px;height:16px}
 .redondo[aria-pressed=true]{color:var(--oro);border-color:var(--oro);background:var(--oro-suave)}
 .vista > .btn{flex:none;align-self:stretch}
+/* vista previa angosta (pantallas bajas): el reloj muestra solo el momento y la barra del tiempo conserva espacio */
+@container (max-width:340px){.transporte{gap:8px}.reloj-vista span{display:none}}
 
-/* Inspector con pestañas: el contenido se desplaza por dentro (como el panel derecho de un editor de video).
-   Es un poco más bajo que la vista previa para que asome el título de la línea de tiempo y se note que sigue abajo. */
-.inspector{grid-area:inspector;display:flex;flex-direction:column;min-width:0;min-height:0;padding:0;overflow:hidden;height:calc(var(--alto-vista) - 64px)}
+/* Inspector con pestañas: el contenido se desplaza por dentro (como el panel derecho de un editor de video) */
+.inspector{grid-area:inspector;display:flex;flex-direction:column;min-width:0;min-height:0;padding:0;overflow:hidden;height:var(--alto-vista)}
 .pestanas{display:none;margin:14px 16px 0;flex:none}
 .hojas{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:22px 24px 28px;scrollbar-width:thin;scrollbar-color:var(--linea) transparent;scroll-padding-top:12px;display:flex;flex-direction:column}
 .hoja{min-width:0;flex:none}
@@ -138,12 +152,8 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .zona-linea{grid-area:linea;min-width:0;scroll-margin-top:16px}
 /* las pistas se vuelven a dibujar enteras: el navegador no debe tomarlas como ancla al corregir el scroll */
 .zona-linea .lt-pistas{overflow-anchor:none}
-/* la línea de tiempo comparte el ancho con la vista previa: los ajustes del cabezal van en dos columnas más compactas */
-.zona-linea .lt-controles{grid-template-columns:repeat(auto-fill,minmax(262px,1fr))}
-.zona-linea .lt-ctl{grid-template-columns:22px minmax(0,6.9em) minmax(60px,1fr) auto}
-.zona-linea .lt-ctl .lt-largo{display:none}
-.zona-linea .lt-ctl .lt-corto{display:inline}
-.zona-linea .lt-ctl .lt-num input{width:60px}
+/* columnas de ajustes un poco más angostas: caben tres a todo el ancho (dos en una tableta) y las pistas quedan más a la vista */
+@media (min-width:701px){.zona-linea .lt-controles{grid-template-columns:repeat(auto-fill,minmax(318px,1fr))}}
 
 /* Zona para soltar el STL */
 .soltar{border:1.5px dashed #C9BFA8;border-radius:10px;padding:26px 18px;text-align:center;cursor:pointer;background:linear-gradient(180deg,rgba(244,231,200,.35),transparent);transition:border-color .18s,background-color .18s}
@@ -204,18 +214,6 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   #h-asistente .cht-lista{flex:none;height:clamp(280px,50vh,520px)}
   #h-asistente .cht:not(.con-mensajes) .cht-lista{height:auto;min-height:0}
 }
-/* en una columna la línea de tiempo vuelve a tener todo el ancho: nombres completos (en celulares manda su propia hoja) */
-@media (max-width:1180px) and (min-width:701px){
-  .zona-linea .lt-controles{grid-template-columns:repeat(auto-fill,minmax(340px,1fr))}
-  .zona-linea .lt-ctl{grid-template-columns:22px minmax(0,9.2em) minmax(90px,1fr) auto}
-  .zona-linea .lt-ctl .lt-largo{display:inline}
-  .zona-linea .lt-ctl .lt-corto{display:none}
-  .zona-linea .lt-ctl .lt-num input{width:66px}
-}
-@media (max-width:700px){
-  .zona-linea .lt-controles{grid-template-columns:1fr}
-  .zona-linea .lt-ctl{grid-template-columns:22px minmax(0,7.5em) minmax(70px,1fr) auto}
-}
 @media (max-width:900px){
   .app{grid-template-columns:1fr}
   aside{display:none}
@@ -235,8 +233,10 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   .cab-acciones{width:100%}
   .cab-acciones .btn{flex:1 1 auto;padding:6px 10px}
   .guardado{display:none}
-  .pestanas{margin:12px 12px 0}
-  .pestanas button{padding:7px 13px}
+  /* las seis pestañas a la vista, en dos filas, con su ícono (sin tener que deslizar la tira) */
+  .pestanas{margin:12px 12px 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-radius:16px;gap:3px}
+  .pestanas button{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 4px;border-radius:12px;font-size:13.5px;min-width:0}
+  .pestanas svg{display:block}
 }
 @media (max-width:520px){.grid2{grid-template-columns:1fr}.hojas{padding:18px 16px 22px}.acciones .btn{flex:1 1 100%}.pasos{padding-left:30px}}
 

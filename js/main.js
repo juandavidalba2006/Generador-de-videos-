@@ -37,6 +37,8 @@ const previa = new Compositor($('lienzo'));
 const rep = new Reproductor();
 // t en segundos; sonido: la vista previa suena (empieza muda, como los videos que se reproducen solos)
 const estado = { fondo: 'perla', formato: 'reel', t: 0, reproduciendo: true, sucio: true, ocupado: false, cancelar: false, realista: false, pestana: 'modelo', sonido: false, silencioManual: false, medidas: null };
+// miniatura de la vista previa en el menú lateral (ver «Vista previa en miniatura» más abajo)
+const mini = { ver: false, fuera: false, sucio: true, alto: 0, ctx: $('miniLienzo').getContext('2d') };
 
 // ---------- Opciones ----------
 const opciones = (sel, lista, valor) => { sel.innerHTML = lista.map(v => `<option${v === valor ? ' selected' : ''}>${v}</option>`).join(''); };
@@ -324,6 +326,8 @@ arrastrarEnLienzo($('lienzo'), {
 
 // ---------- Pestañas del inspector (y el menú lateral) ----------
 const tabs = [...document.querySelectorAll('#pestanas [role=tab]')];
+// en el celular las pestañas llevan el mismo ícono que el menú lateral
+for (const b of tabs) { const ico = document.querySelector(`#nav a[data-pestana="${b.dataset.pestana}"] svg`)?.cloneNode(true); if (ico) { ico.setAttribute('aria-hidden', 'true'); b.prepend(ico); } }
 const scrollHojas = {};
 function abrirPestana(id, { desplazar = false, enfocar = false } = {}) {
   if (!PESTANAS.includes(id)) return;
@@ -390,7 +394,7 @@ function listo(info) {
   for (const id of ['crear', 'foto', 'realista']) $(id).disabled = false;
   if (refrescarAutos()) { asentar(); panelTextos.render(); linea.render(); }
   panelTexturas.reaplicar();
-  estado.t = 0; reproducir(true); cambio();
+  estado.t = 0; reproducir(true); cambio(); verMini();
   nota('Modelo listo. Todo se procesa en tu equipo.');
 }
 const nombreBonito = n => n.replace(/\.stl$/i, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\p{L}/gu, c => c.toUpperCase()).slice(0, 40);
@@ -419,8 +423,39 @@ function ajustarPrevia() {
   const w = Math.round(f.w * k / 2) * 2, h = Math.round(f.h * k / 2) * 2;
   previa.tamano(w, h); estudio.tamano(w, h);
   $('editor').style.setProperty('--aspecto', (f.w / f.h).toFixed(4));
+  const m = $('miniLienzo'); m.width = w / 2; m.height = h / 2; verMini(true);
   estado.sucio = true;
 }
+
+// Vista previa en miniatura en el menú lateral: la línea de tiempo va debajo de la vista previa y, al bajar a editar
+// los keyframes, la joya se sigue viendo ahí (solo en pantallas con menú lateral y si cabe con un tamaño útil)
+function verMini(medir = false) {
+  const caja = $('miniVista'), c = $('miniLienzo');
+  const conMenu = getComputedStyle(caja.parentElement).display !== 'none';
+  if (conMenu && (medir || !mini.ver)) {
+    // la miniatura llena el espacio libre del menú (entre las secciones y la nota de abajo) sin pasarse
+    const W = caja.clientWidth - 26, H = caja.clientHeight - caja.querySelector('.mini-pie').offsetHeight - 17;
+    const k = Math.max(0, Math.min(W / c.width, H / c.height));
+    c.style.width = Math.floor(c.width * k) + 'px'; c.style.height = Math.floor(c.height * k) + 'px';
+    mini.alto = c.height * k;
+  }
+  const ver = mini.fuera && estudio.tieneModelo && conMenu && mini.alto >= 96;   // muy pequeña no sirve
+  if (ver !== mini.ver) { mini.ver = ver; caja.classList.toggle('ver', ver); mini.sucio = true; }
+}
+// t: el instante del cuadro que quedó en la vista previa (el reloj de la miniatura dice el de la imagen)
+const previaPintada = (t = estado.t) => { mini.sucio = true; mini.t = t; };
+function pintarMini() {
+  if (!mini.ver || !mini.sucio) return;
+  mini.sucio = false;
+  const c = $('miniLienzo');
+  mini.ctx.drawImage($('lienzo'), 0, 0, c.width, c.height);
+  $('miniReloj').textContent = relojVideo(mini.t ?? estado.t);
+}
+$('miniVista').hidden = false;
+$('miniVista').addEventListener('click', () => scrollTo({ top: 0, behavior: 'smooth' }));
+if (typeof IntersectionObserver !== 'undefined') new IntersectionObserver(([e]) => { mini.fuera = e.intersectionRatio < 0.4; verMini(); }, { threshold: [0, 0.4, 1] }).observe($('marco'));
+addEventListener('resize', () => verMini(true));
+
 // cualquier cambio vuelve a dibujar la vista previa y detiene el cuadro hiperrealista (pero no anula un «Cancelar» en curso)
 function cambio() { estado.sucio = true; if (estado.realista) estado.cancelar = true; }
 
@@ -465,9 +500,10 @@ function bucle(ahora) {
     if (estado.sucio) {
       estado.sucio = false;
       relojes(); linea.ponerCabezal(estado.t);
-      if (estudio.tieneModelo) { $('etiquetaVista').textContent = 'Vista rápida'; dibujarRapido(previa, proyecto, estado.t, capaElegida()); }
+      if (estudio.tieneModelo) { $('etiquetaVista').textContent = 'Vista rápida'; dibujarRapido(previa, proyecto, estado.t, capaElegida()); previaPintada(); }
     }
   }
+  pintarMini();
   requestAnimationFrame(bucle);
 }
 
@@ -476,7 +512,10 @@ const icoSonido = '<path d="M4 9.5v5h3.5l4.5 4v-13l-4.5 4z"/><path d="M15.5 9.2a
 const icoMudo = '<path d="M4 9.5v5h3.5l4.5 4v-13l-4.5 4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>';
 function reproducir(si) {
   estado.reproduciendo = si;
-  $('icoPlay').innerHTML = si ? icoPausa : icoPlay; $('reproducir').setAttribute('aria-label', si ? 'Pausar' : 'Reproducir');
+  // sin joya no hay nada que reproducir: el botón muestra ▶ (al cargarla empieza sola)
+  const pausa = si && estudio.tieneModelo;
+  $('icoPlay').innerHTML = pausa ? icoPausa : icoPlay; $('reproducir').setAttribute('aria-label', pausa ? 'Pausar' : 'Reproducir');
+  $('miniVista').classList.toggle('reproduciendo', si);
   if (si && estado.sonido && estudio.tieneModelo) rep.reproducir(estado.t); else rep.detener();
 }
 function ponerSonido(si, manual = false) {
@@ -536,6 +575,7 @@ async function componerRealista(comp, pr, muestras, { sombra, t, img, masc, alAv
   const pintar = () => {
     ci.clearRect(0, 0, W, H); ci.drawImage(lienzoGL, 0, 0);
     comp.cuadro({ fondo: estado.fondo, render3D: img, sombra, intensidadSombra: intensidadSombra(), mascara: masc, capas: pr.textos, t, duracion: pr.duracion });
+    if (comp === previa) previaPintada(t);
   };
   let ultimoPintado = 0;
   await estudio.renderRealista(muestras, {
@@ -617,7 +657,7 @@ $('crear').addEventListener('click', () => trabajo(async (comp, salida, f) => {
         if (i % 6 === 0) { const seg = (performance.now() - inicio) / 1000; progreso((i + 1) / n, `Cuadro ${i + 1} de ${n}`, i > 5 ? seg / (i + 1) * (n - i - 1) : null); await new Promise(r => setTimeout(r)); }
       }
       // muestra en la vista previa (y en la línea de tiempo) el cuadro que se acaba de terminar
-      if (muestras > 0 || i % 6 === 0) { previa.ctx.drawImage(salida, 0, 0, previa.lienzo.width, previa.lienzo.height); linea.ponerCabezal(Math.min(t, proyecto.duracion)); }
+      if (muestras > 0 || i % 6 === 0) { previa.ctx.drawImage(salida, 0, 0, previa.lienzo.width, previa.lienzo.height); previaPintada(t); linea.ponerCabezal(Math.min(t, proyecto.duracion)); }
       await cod.agregar(salida);
     }
     progreso(1, 'Guardando el archivo…');
@@ -651,7 +691,7 @@ $('foto').addEventListener('click', () => trabajo(async (comp, salida, f) => {
   poner(pr, t);
   const sombra = estudio.sombra(), inicio = performance.now();
   await componerRealista(comp, pr, muestras, { sombra, t, img: document.createElement('canvas'), masc: document.createElement('canvas'), cancelado: () => estado.cancelar, alAvanzar: p => { const seg = (performance.now() - inicio) / 1000; progreso(p, `Foto · ${Math.round(p * 100)} %`, p > 0.05 ? seg / p * (1 - p) : null); } });
-  previa.ctx.drawImage(salida, 0, 0, previa.lienzo.width, previa.lienzo.height);
+  previa.ctx.drawImage(salida, 0, 0, previa.lienzo.width, previa.lienzo.height); previaPintada(t);
   const blob = await new Promise(r => salida.toBlob(r, 'image/png'));
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${slug(nombreDelProyecto())}-${estado.formato}.png`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);

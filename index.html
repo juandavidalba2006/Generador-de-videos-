@@ -44,6 +44,11 @@
       <a href="#exportar" data-pestana="exportar"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>Exportar</a>
       <a href="#lineaTiempo" class="nav-linea" data-ir="lineaTiempo"><svg viewBox="0 0 24 24"><path d="M3 6.5h18M3 12h18M3 17.5h18"/><path d="M8 9.5l2.5 2.5L8 14.5 5.5 12z" fill="currentColor"/></svg>Línea de tiempo</a>
     </nav>
+    <!-- al bajar a la línea de tiempo, la joya se sigue viendo aquí -->
+    <button type="button" class="mini-vista" id="miniVista" hidden title="Volver a la vista previa" aria-label="Volver a la vista previa">
+      <span class="mini-marco"><canvas id="miniLienzo" width="270" height="480" aria-hidden="true"></canvas></span>
+      <span class="mini-pie"><i class="mini-punto" aria-hidden="true"></i>Vista previa<b id="miniReloj">00:00,00</b></span>
+    </button>
     <div class="nota" id="nota"><i class="punto"></i><span>Todo se procesa en tu equipo: tus diseños no se suben a ningún servidor.</span></div>
   </aside>
 

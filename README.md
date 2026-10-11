@@ -4,9 +4,11 @@ Estudio de video en el navegador para crear videos de joyería a partir de archi
 **hiperrealista** (trazado de rayos), listos para un reel de Instagram o para el catálogo.
 Usa el mismo estilo, los mismos colores y las mismas tipografías que la página de Atelier & Co.
 
-Funciona como un editor de video: a la izquierda está la **vista previa** (siempre a la vista), a la derecha
-el **inspector** con pestañas (Modelo, Materiales, Textos, Sonido, Asistente y Exportar) y debajo la
-**línea de tiempo** con keyframes, textos y sonidos. En el celular todo queda en una sola columna.
+Funciona como un editor de video (al estilo de CapCut): arriba la **vista previa** y, a su lado, el **inspector**
+con pestañas (Modelo, Materiales, Textos, Sonido, Asistente y Exportar); abajo, a todo el ancho, la **línea de
+tiempo** con keyframes, textos y sonidos. Cuando bajas a la línea de tiempo, la joya se sigue viendo en miniatura en
+el menú lateral (tócala para volver arriba). En el celular todo queda en una sola columna: vista previa, pestañas y
+línea de tiempo.
 
 ## Cómo se usa
 
@@ -29,7 +31,7 @@ crear todo el video. La barra espaciadora reproduce o pausa, y el botón del par
 Cada ajuste de cámara es una **pista** en la línea de tiempo: Giro, Altura de cámara, Zoom, Posición vertical,
 Posición lateral, Foco en la piedra, Inclinación (roll), Exposición y Desenfoque macro.
 
-- **Mueve el cabezal** tocando la regla o arrastrando la marca roja. La vista previa muestra ese instante.
+- **Mueve el cabezal** tocando la regla o arrastrando la línea granate. La vista previa muestra ese instante.
 - **Toca el rombo ◆** de un ajuste (arriba de las pistas) para poner un keyframe con el valor actual en el cabezal;
   si ya hay uno, lo quita.
 - **Mueve un deslizador**: si la pista ya tiene keyframes, se crea o se actualiza uno en el cabezal (automático,

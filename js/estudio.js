@@ -267,6 +267,9 @@ export class Estudio {
       // tamaño el cuerpo queda saturado; mucho más corta, la gema se ve negra. (En pavé la caja junta muchas piedras: se limita)
       else { t.color.setHex(g.color).lerp(new THREE.Color(0xffffff), 0.35); t.attenuationColor.setHex(g.color); t.attenuationDistance = THREE.MathUtils.clamp(this.tamPiedras || this.radio * 0.4, this.radio * 0.15, this.radio * 0.5) * 0.7; }
     }
+    // la mesa de una gema de color refleja sobre todo el gris de la cúpula del estudio y el cuerpo se ve apagado: un brillo
+    // propio muy suave (como la luz difusa que usan los fotógrafos de joyas) le devuelve el color sin quitarle los reflejos
+    if (g.perla || g.blanca) t.emissive.setHex(0x000000); else { t.emissive.setHex(g.color); t.emissiveIntensity = 0.2; }
     t.needsUpdate = true; this.matPT.needsUpdate = true;
     if (this.pt) this.pt.updateMaterials();
   }
