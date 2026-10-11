@@ -118,7 +118,7 @@ export function resumenAcciones(acciones) {
   if (a.pistas?.length) out.push('◆ ' + a.pistas.map(p => PISTAS[p.pista]?.nombre || p.pista).join(', '));
   if (a.duracion > 0) out.push(`⏱ ${seg(a.duracion)}`);
   if (a.bucle === 'si') out.push('∞ En bucle'); else if (a.bucle === 'no') out.push('→ Sin bucle');
-  if (a.textos?.cambiar) out.push(a.textos.capas.length ? `T ${a.textos.capas.length} ${a.textos.capas.length === 1 ? 'texto' : 'textos'}` : 'T Sin textos');
+  if (a.textos?.cambiar) out.push(a.textos.capas.length ? `Aa ${a.textos.capas.length} ${a.textos.capas.length === 1 ? 'texto' : 'textos'}` : 'Aa Sin textos');
   if (a.sonidos?.cambiar) out.push(a.sonidos.clips.length ? `♪ ${a.sonidos.clips.length} ${a.sonidos.clips.length === 1 ? 'sonido' : 'sonidos'}` : '♪ Sin efectos');
   if (a.musica?.cambiar) out.push(a.musica.estilo === 'ninguna' ? '♫ Sin música' : `♫ ${MUSICA_INFO[a.musica.estilo]?.nombre || a.musica.estilo}`);
   return out;
@@ -279,6 +279,8 @@ function formatearPrecio(cifra, signo, moneda) {
 
 const CORTES_TEXTO = '(?=\\s+(?:arriba|abajo|al\\s+centro|en\\s+el\\s+centro|en\\s+medio|en\\s+la\\s+parte|al\\s+inicio|al\\s+principio|al\\s+comienzo|al\\s+final|durante|los\\s+primeros|los\\s+[uú]ltimos|desde|hasta|en\\s+el\\s+segundo|al\\s+segundo|a\\s+los|con\\s+animaci[oó]n|con\\s+efecto|con\\s+brillo|que\\s+aparezca|que\\s+salga|y\\s+luego|y\\s+despu[eé]s|y\\s+al\\s+final)\\b|\\s*[\\n.;!?,]|\\s*$)';
 const CLAVE_TEXTO = '(texto|t[ií]tulo|subt[ií]tulo|frase|letrero|mensaje|gancho|leyenda)';
+// el texto en sí: una pregunta o exclamación completa («¿Te lo pondrías? 💍») o lo que haya hasta el siguiente corte
+const TEXTO_LIBRE = '((?:[¿¡][^?!\\n§]{1,100}[?!](?:\\s*[\\p{Extended_Pictographic}\\u200d\\ufe0f]+)*)|[^\\n.;!?,§]+?)';
 
 // Saca del texto original lo que no hay que pasar a minúsculas ni sin tildes: el precio y los textos que van en el video
 function extraer(original) {
@@ -291,21 +293,23 @@ function extraer(original) {
   s = s.replace(/["“«]([^"“”«»\n]{1,120})["”»]/g, (m, t) => cita(t));
   s = s.replace(/(^|[\s(:])['‘]([^'‘’\n]{1,120})['’](?=$|[\s.,;:!?)])/g, (m, pre, t) => pre + cita(t));
   // sin comillas: «el texto que diga Nueva colección arriba» o «agrega el título Solitario Aurora abajo»
-  s = s.replace(new RegExp(`\\b${CLAVE_TEXTO}(\\s+que\\s+diga|\\s+que\\s+dice|\\s+diciendo|\\s*:)\\s*(?!\\s*§)([^\\n.;!?§]+?)${CORTES_TEXTO}`, 'gi'), (m, clave, con, t) => `${clave} ${cita(t)}`);
-  s = s.replace(new RegExp(`\\b(agrega|añade|anade|pon|ponle|escribe|coloca|mete|incluye)\\s+(?:el|un|una|la)?\\s*${CLAVE_TEXTO}\\s+(?!(?:que|con|de|del|en|al|arriba|abajo|y|§)\\b)([^\\n.;!?,§]+?)${CORTES_TEXTO}`, 'gi'), (m, v, clave, t) => `${v} ${clave} ${cita(t)}`);
+  s = s.replace(new RegExp(`\\b${CLAVE_TEXTO}(\\s+que\\s+diga|\\s+que\\s+dice|\\s+diciendo|\\s*:)\\s*(?!\\s*§)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, clave, con, t) => `${clave} ${cita(t)}`);
+  // (el verbo puede faltar si el mensaje empieza con «el texto …»)
+  s = s.replace(new RegExp(`(?:^\\s*|\\b(agrega|añade|anade|pon|ponle|escribe|coloca|mete|incluye)\\s+)(?:el|un|una|la)?\\s*${CLAVE_TEXTO}\\s+(?!(?:que|con|de|del|en|al|arriba|abajo|y|§)\\b)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, v, clave, t) => `${v || ''} ${clave} ${cita(t)}`);
   return { s, citas, precio };
 }
 
 // ---------- Partir en cláusulas ("primero…, luego…, y al final…") ----------
-const VERBOS = 'gir|rot|da\\b|dale|acerc|aproxim|alej|sub|baj|termin|acab|enfoc|enfoqu|inclin|lade|muev|mov|fren|aceler|vuelv|volv|regres|muestr|ense|qued|pon|agreg|anad|mete|quit|usa\\b|cambi|haz|hag|empie|empez|comien|arranc|abr|cierr|cerr|zoom|vista|plano|balanc|orbit|rebot|revel|desliz|centr|ilumin|oscurec|aclar|desciend|elev';
+const VERBOS = 'gir|rot|da\\b|dale|acerc|acerqu|aproxim|alej|sub|baj|termin|acab|enfoc|enfoqu|inclin|lade|muev|mov|fren|aceler|vuelv|volv|regres|muestr|ense|qued|pon|agreg|anad|mete|quit|usa\\b|cambi|haz|hag|empie|empez|comien|arranc|abr|cierr|cerr|zoom|vista|plano|balanc|orbit|rebot|revel|desliz|centr|ilumin|oscurec|aclar|desciend|elev';
 function partir(x) {
   let s = x
     .replace(/\b(?:fren\w*|desaceler\w*|suave|lento|despacio)\s+al\s+final\b/g, ' frenafinal ')
     .replace(/\b(?:rapido|fuerte|con\s+fuerza)\s+al\s+(?:inicio|principio|comienzo)\b|\b(?:arranca\w*|empieza\w*)\s+(?:rapido|con\s+fuerza)\b/g, ' rapidoinicio ')
-    .replace(/[.;!?\n]+/g, ' ¦ ').replace(/,/g, ' ¦ ')
+    .replace(/(?:\.(?!\d)|[;!?\n])+/g, ' ¦ ').replace(/,/g, ' ¦ ')   // el punto de «0.5 vueltas» no parte la frase
+    .replace(/\s+y\s+(al\s+mismo\s+tiempo|a\s+la\s+vez)\s+/g, ' | $1 ')   // «…y al mismo tiempo baja»: otra indicación en el mismo tramo
     .replace(/\b(?:y\s+)?(primero|luego|despues|entonces|finalmente|por\s+ultimo|para\s+terminar|para\s+cerrar|para\s+finalizar|al\s+final|a\s+continuacion)\b/g, ' | $1 ')
     .replace(new RegExp(`\\s+y\\s+(?=(?:se\\s+|que\\s+|la\\s+|lo\\s+|le\\s+)?(?:${VERBOS}))`, 'g'), ' | ')
-    .replace(/\s+que\s+(?=(?:se\s+)?(?:gir|baj|sub|acerc|alej|termin|acab|enfoc|qued|vuelv|regres|rot|inclin|desciend))/g, ' | ');
+    .replace(/\s+que\s+(?=(?:se\s+)?(?:gir|baj|sub|acerc|acerqu|alej|termin|acab|enfoc|qued|vuelv|regres|rot|inclin|desciend))/g, ' | ');
   const partes = []; let tras = '¦';
   for (const trozo of s.split(/([|¦])/)) {
     if (trozo === '|' || trozo === '¦') { tras = trozo; continue; }
@@ -336,7 +340,8 @@ const SONIDOS = [
   ['click', /\b(?:click|clic|tic)\b/],
 ];
 const CUANDO = [
-  ['piedra', /\b(?:cuando|al|en\s+cuanto)\s+(?:se\s+)?(?:aparezca|vea|ve|muestre|enfoque|enfoca|llegue\s+a|acerque\s+a|salga|brille|revele|aparece)?\s*(?:a\s+)?(?:la|el|las|los)?\s*(?:piedras?|diamantes?|gemas?|esmeraldas?|rubi|zafiro|brillante|solitario)\b|\b(?:en|con)\s+(?:la\s+piedra|el\s+diamante)\b/],
+  ['piedra', /\b(?:cuando|en\s+cuanto|apenas|justo\s+cuando|antes\s+de\s+que)\s+(?:se\s+)?(?:aparezca|vea|ve|muestre|enfoque|enfoca|llegue\s+a|acerque\s+a|salga|brille|revele|aparece|asome)?\s*(?:a\s+)?(?:la|el|las|los)?\s*(?:piedras?|diamantes?|gemas?|esmeraldas?|rubi|zafiro|brillante|solitario)\b|\bal\s+(?:aparecer|verse|mostrarse|revelarse|salir|brillar)\s+(?:la|el|las|los)\s+(?:piedras?|diamantes?|gemas?|esmeraldas?|rubi|zafiro|brillante|solitario)\b/],
+  ['piedra', /\b(?:en|con)\s+(?:la\s+piedra|el\s+diamante|la\s+gema|el\s+brillante|la\s+esmeralda)\b/, true],   // suelto: solo si la cláusula no mueve la cámara hacia ella
   ['precio', /\b(?:cuando|al)\s+(?:aparezca|salga|entre|se\s+vea|aparece)?\s*(?:el\s+)?precio\b|\bcon\s+el\s+precio\b/],
   ['texto', /\b(?:cuando|al)\s+(?:aparezca|salga|entre|se\s+vea|aparece)\s+(?:el\s+)?(?:texto|titulo|nombre|letrero)\b|\bcon\s+el\s+(?:texto|titulo|nombre)\b/],
   ['vueltas', /\b(?:en\s+)?cada\s+(?:vuelta|giro)\b/],
@@ -355,10 +360,11 @@ const PRESETS = [
   ['destello', /\b(?:estilo\s+viral|(?:hazlo|algo|video|reel|toma)\s+viral|viral|punch|que\s+enganche)\b/],
   ['revelacion', /\b(?:revelacion|del\s+detalle\s+a\s+(?:la\s+)?(?:pieza|joya|anillo)(?:\s+completa)?)\b/],
   ['heroe', /\b(?:heroe|heroic[oa]|toma\s+heroica)\b/],
-  ['orbita', /\b(?:orbita\w*)\b/],
+  ['orbita', /\b(?:orbita\w*|(?:desde|por)\s+todos\s+los\s+(?:angulos|lados)|por\s+todos\s+lados|todos\s+sus\s+angulos)\b/],
   ['vaiven', /\b(?:vaiven|pendulo|de\s+un\s+lado\s+a\s+otro|de\s+lado\s+a\s+lado)\b/],
   ['giroRapido', /\bgiro\s+rapido\s+con\s+frenado\b/],
   ['acercamiento', /\bgiro\s+con\s+acercamiento\b/],
+  ['acercamiento', /\b(?:mas\s+)?(?:elegante|sofisticad[oa]|lujos[oa]|de\s+lujo|con\s+clase|delicad[oa])\b/],   // elegante = giro suave que se acerca
   ['giro', /\b(?:giro\s+(?:360|basico|normal|clasico|simple)|tornamesa|movimiento\s+original)\b/],
 ];
 const NOMBRES_PIEDRA = { diamante: 'el diamante', diamantes: 'los diamantes', esmeralda: 'la esmeralda', rubi: 'el rubí', zafiro: 'el zafiro', brillante: 'el brillante', solitario: 'el solitario', gema: 'la gema', perla: 'la perla', moissanita: 'la moissanita', amatista: 'la amatista', topacio: 'el topacio', aguamarina: 'la aguamarina' };
@@ -391,6 +397,7 @@ function analizar(c0, citas) {
   if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|apaga\w*|silencia\w*)\s+(?:la\s+)?(?:musica|cancion)\b|\bsin\s+(?:musica|cancion)\b|\bsilencio\b/)) k.musica = { estilo: 'ninguna' };
   // duración del video
   let m = sacar(/\b(?:que\s+)?(?:dur[ea]n?|duracion(?:\s+de)?|hazlo\s+de|video\s+de|reel\s+de|largo\s+de|alargalo\s+a|acortalo\s+a)\s*(?:de\s+|a\s+)?(\d+(?:\.\d+)?)\s*(?:segundos?)?/) || sacar(/\b(\d+(?:\.\d+)?)\s+segundos\s+de\s+(?:duracion|largo|video)\b/);
+  if (!m) m = sacar(/^\s*(?:de\s+|en\s+)?(\d+(?:\.\d+)?)\s+segundos\s*$/);   // «10 segundos» a secas
   if (m) k.duracion = +m[1];
   else if (sacar(/\b(?:mas\s+largo|alargalo|alarga\s+el\s+video)\b/)) k.duracion = 'largo';
   else if (sacar(/\b(?:mas\s+corto|acortalo|acorta\s+el\s+video)\b/)) k.duracion = 'corto';
@@ -411,6 +418,11 @@ function analizar(c0, citas) {
   if (sacar(/\bmas\s+(?:luz|brillo|brillante|clar[oa]|iluminad[oa]|exposicion)\b|\bilumina\w*|\baclar\w*|\bsube\s+la\s+(?:luz|exposicion)\b/)) k.metas.exposicion = { valor: 1.4 };
   else if (sacar(/\bmenos\s+(?:luz|brillo|exposicion)\b|\bmas\s+oscur[oa]\b|\boscurec\w*|\bbaja\s+la\s+(?:luz|exposicion)\b/)) k.metas.exposicion = { valor: 0.9 };
   if (sacar(/\b(?:destellos?\s+de\s+luz|destello|flash(?!\s+de\s+foto)|fogonazo|resplandor)\b/)) k.metas.exposicion = { destello: true };
+  // «que la piedra brille»: la cámara va a la piedra, destello de luz y sonido de brillo justo cuando llega
+  if (sacar(/\b(?:brill(?:e|en|ando)|destell(?:e|en|ando)|resplandezca\w*|reluzca\w*|centell\w*)\b/)) {
+    k.metas.exposicion = { destello: true }; k.sonidos.push('brillo'); k.brillaPiedra = true;
+    if (hay(PIEDRA)) k.cuando = 'piedra';
+  }
   // desenfoque (antes que el zoom: «efecto macro» no es acercarse)
   if (sacar(/\b(?:desenfoque|desenfocad[oa]|bokeh|fondo\s+borroso|borroso|profundidad\s+de\s+campo|efecto\s+macro)\b/)) k.metas.desenfoque = { valor: hay(/\b(?:mucho|bastante|fuerte)\b/) ? 0.9 : hay(/\b(?:poco|leve|suave)\b/) ? 0.3 : 0.6 };
   else if (sacar(/\b(?:nitid[oa]|sin\s+desenfoque|todo\s+enfocado|quita\w*\s+el\s+desenfoque)\b/)) k.metas.desenfoque = { valor: 0 };
@@ -423,11 +435,16 @@ function analizar(c0, citas) {
   else if (sacar(/\b(?:acelerando|acelera|que\s+acelere|cada\s+vez\s+mas\s+rapido)\b/)) k.curva = 'entrada';
   else if (sacar(/\b(?:velocidad\s+constante|a\s+velocidad\s+constante|constante|lineal|uniforme|parej[oa])\b/)) k.curva = 'lineal';
   if (sacar(/\bmas\s+(?:rapido|veloz|rapida)\b/)) k.mods.velocidad = 1.6;
-  else if (sacar(/\bmas\s+(?:lento|lenta|despacio|suave)\b/)) k.mods.velocidad = 0.6;
+  else if (sacar(/\bmas\s+(?:lento|lenta|despacio|suave)\b|\bcamara\s+lenta\b|\bslow\s*motion\b/)) k.mods.velocidad = 0.6;
+  else if (sacar(/^\s*(?:muy\s+|mas\s+)?(?:rapid[oa]|veloz)\s*$/)) k.mods.velocidad = 1.6;
+  else if (sacar(/^\s*(?:muy\s+|mas\s+)?(?:lent[oa]|despacio)\s*$/)) k.mods.velocidad = 0.6;
+  // (a) «al mismo tiempo»: comparte el tramo de la indicación anterior
+  if (sacar(/\b(?:al\s+mismo\s+tiempo|a\s+la\s+vez|simultaneamente|mientras\s+tanto)\b/)) k.junto = true;
   if (hay(/\b(?:rapid[oa]s?|rapidamente|veloz|de\s+golpe|brusc[oa]|subit[oa]|repentin[oa]|con\s+fuerza)\b/)) { k.rapido = true; k.peso = 0.55; }
   else if (hay(/\b(?:lent[oa]s?|lentamente|despacio|suave(?:mente)?|poco\s+a\s+poco|tranquil[oa]|pausad[oa])\b/)) { k.lento = true; k.peso = 1.6; }
-  // sonidos (y cuándo)
-  for (const [id, re] of CUANDO) if (sacar(re)) { k.cuando = id; break; }
+  // sonidos (y cuándo): «cuando aparezca la piedra» solo cuenta si hay un sonido o un texto; si no, «acércate al diamante» perdería la piedra
+  const mueve = hay(/\b(?:acerc|acerqu|aproxim|zoom|enfoc|enfoqu|revel|muestr|lleg)\w*/);
+  if (k.esTexto || SONIDOS.some(([, re]) => hay(re))) for (const [id, re, suelto] of CUANDO) if (!(suelto && mueve) && sacar(re)) { k.cuando = id; break; }
   for (const [id, re] of SONIDOS) {
     for (let i = 0; i < 3 && hay(re); i++) { r = r.replace(re, ' '); k.sonidos.push(id); k.entendido = true; }
   }
@@ -437,6 +454,7 @@ function analizar(c0, citas) {
   r = k.t.resto;
   if (k.esTexto) return k;
   // presets con nombre
+  if (hay(/\b(?:elegante|sofisticad[oa]|lujos[oa]|de\s+lujo|con\s+clase|delicad[oa])\b/)) k.elegante = true;
   for (const [id, re] of PRESETS) if (hay(re)) { k.preset = id; r = r.replace(re, ' '); k.entendido = true; break; }
   camara(k, r);
   if (rapidoInicio) { if (Object.keys(k.metas).length) { k.t.inicio = true; k.rapido = true; k.peso = 0.55; } else k.mods.rapidoInicio = true; }
@@ -501,7 +519,7 @@ function camara(k, r0) {
     M.giro = g;
   }
   // zoom y foco
-  const cerca = hay(/\b(?:acerc\w*|aproxim\w*|zoom(?!\s+out)|primer\s+plano|plano\s+detalle|close\s*up|mas\s+cerca|de\s+cerca|macro|detalle|amplia\w*|agranda\w*|zoom\s+in)\b/);
+  const cerca = hay(/\b(?:acer(?:c|qu)\w*|aproxim\w*|zoom(?!\s+out)|primer\s+plano|plano\s+detalle|close\s*up|mas\s+cerca|de\s+cerca|macro|detalle|amplia\w*|agranda\w*|zoom\s+in)\b/);
   const lejos = hay(/\b(?:alej\w*|zoom\s+out|plano\s+(?:general|abierto|completo)|toda\s+la\s+(?:pieza|joya)|(?:pieza|joya|anillo)\s+complet[oa]|mas\s+lejos|de\s+lejos|abre\s+el\s+plano|retroce\w*|achica\w*)\b/);
   const piedra = r.match(PIEDRA), detalle = hay(/\bdetalle\b/);
   const poco = hay(/\b(?:un\s+poco|un\s+poquito|ligeramente|leve\w*|apenas)\b/), mucho = hay(/\b(?:mucho|bastante|muy\s+cerca|al\s+maximo|extremo|super\s+cerca|full)\b/);
@@ -516,23 +534,29 @@ function camara(k, r0) {
   } else if (piedra && hay(/\b(?:enfoc\w*|enfoqu\w*|muestr\w*|mira\w*|ver|vea|revel\w*|apunt\w*|centr\w*|qued\w*|termin\w*|en|a|al|hacia)\b/)) {
     M.foco = { valor: 1, piedra: piedra[1] };
     M.zoom = { minimo: 1.7 };
+  } else if (piedra && k.brillaPiedra) {
+    M.foco = { valor: 1, piedra: piedra[1] };
+    M.zoom = { minimo: 1.7 };
   } else if (hay(/\b(?:enfoc\w*|centr\w*)\s+(?:la\s+|toda\s+la\s+)?(?:pieza|joya|anillo)\b|\bcentro\s+de\s+la\s+pieza\b/)) M.foco = { valor: 0 };
   // altura de la cámara
-  const deltaInc = hay(/\b(?:sub\w*|elev\w*|levant\w*)\s+(?:la\s+)?camara\b|\bcamara\s+(?:mas\s+)?(?:arriba|alta)\b|\bmas\s+alt[oa]\b/) ? 20
-    : hay(/\b(?:baj\w*|desciend\w*)\s+(?:la\s+)?camara\b|\bcamara\s+(?:mas\s+)?(?:abajo|baja)\b|\bmas\s+baj[oa]\b/) ? -20 : 0;
+  const paso = poco ? 10 : mucho ? 30 : 20;
+  const deltaInc = hay(/\b(?:sub\w*|elev\w*|levant\w*)\s+(?:un\s+poco\s+|un\s+poquito\s+)?(?:la\s+)?camara\b|\bcamara\s+(?:mas\s+)?(?:arriba|alta)\b|\bmas\s+alt[oa]\b/) ? paso
+    : hay(/\b(?:baj\w*|desciend\w*)\s+(?:un\s+poco\s+|un\s+poquito\s+)?(?:la\s+)?camara\b|\bcamara\s+(?:mas\s+)?(?:abajo|baja)\b|\bmas\s+baj[oa]\b/) ? -paso : 0;
   if (hay(/\b(?:cenital|desde\s+el\s+techo|top\s+view|vista\s+de\s+pajaro|en\s+planta)\b/)) M.inclinacion = { valor: 78, txt: 'vista cenital' };
   else if (hay(/\b(?:desde\s+arriba|vista\s+(?:superior|de\s+arriba|aerea)|(?:en\s+)?picad[oa]|por\s+encima|desde\s+lo\s+alto|en\s+alto)\b/)) M.inclinacion = { valor: 60, txt: 'vista desde arriba' };
   else if (hay(/\b(?:contrapicad[oa]|desde\s+abajo|angulo\s+bajo|toma\s+baja|a\s+ras|desde\s+el\s+piso|desde\s+la\s+mesa|de\s+abajo)\b/)) M.inclinacion = { valor: hay(/contrapicad/) ? -15 : -10, txt: 'contrapicado (desde abajo)' };
   else if (frente) M.inclinacion = { valor: 8, txt: 'a la altura de la pieza' };
   else if (deltaInc) M.inclinacion = { delta: deltaInc, txt: deltaInc > 0 ? 'sube la cámara' : 'baja la cámara' };
-  else if (!M.altura && hay(/\b(?:sube|subiendo|asciende)\b/)) M.inclinacion = { delta: 20, txt: 'sube la cámara' };
-  else if (!M.altura && hay(/\b(?:baja|bajando|desciende)\b/)) M.inclinacion = { delta: -20, txt: 'baja la cámara' };
+  else if (!M.altura && hay(/\b(?:sube|subiendo|asciende)\b/)) M.inclinacion = { delta: paso, txt: 'sube la cámara' };
+  else if (!M.altura && hay(/\b(?:baja|bajando|desciende)\b/)) M.inclinacion = { delta: -paso, txt: 'baja la cámara' };
   // inclinación lateral (roll) y balanceo
   if (hay(/\b(?:balance\w*|mece\w*|mecer|meciendo|oscila\w*)\b/)) M.rodar = { oscilar: 9 };
   else if (hay(/\b(?:endereza\w*|nivela\w*|sin\s+inclinacion|camara\s+recta)\b/)) M.rodar = { valor: 0 };
   else if (hay(/\b(?:inclin\w*|lade\w*|torc\w*|dutch|holandes|diagonal)\b/) && !hay(/\binclinacion\s+de\s+la\s+camara\s+(?:arriba|abajo)\b/)) M.rodar = { valor: der ? -12 : 12 };
   // ¿describe una vista (estado) o un movimiento?
-  k.estado = Object.keys(M).length > 0 && !hay(/\b(?:gir|rot|acerc|aproxim|alej|sub|baj|desciend|elev|muev|mueve|vuelv|regres|termin|acab|pas[ae]|cambi|zoom|enfoc|inclin|balanc|mece|lade|revel|hasta|lleg|da\b|dale|voltea)\w*/);
+  // (dar vueltas, balancearse o un destello siempre es movimiento, aunque no haya verbo: «media vuelta a la derecha»)
+  const mov = (M.giro && (M.giro.delta !== undefined || M.giro.vaiven)) || M.rodar?.oscilar || M.exposicion?.destello || k.rapido || k.lento;
+  k.estado = Object.keys(M).length > 0 && !mov && !hay(/\b(?:gir|rot|acerc|acerqu|aproxim|alej|sub|baj|desciend|elev|muev|mueve|vuelv|regres|termin|acab|pas[ae]|cambi|zoom|enfoc|inclin|balanc|mece|lade|revel|hasta|lleg|da\b|dale|voltea)\w*/);
   if (k.preset === 'vaiven') { /* se decide en interpretar */ }
 }
 
@@ -542,7 +566,8 @@ function ventanas(cls, D) {
   cls.forEach((k, i) => {
     let { a, b, len, inicio, final, ultimos } = k.t;
     if (ultimos !== undefined) { a = D - ultimos; b = D; }
-    if (a === undefined && b === undefined && len === undefined && !inicio && !final && k.estado && i === 0 && cls.length > 1) { k.inicial = true; k.a = k.b = 0; return; }
+    // una vista sin verbo ni tiempo («desde arriba», «contrapicado») es el plano de partida; si va sola, el de todo el video
+    if (a === undefined && b === undefined && len === undefined && !inicio && !final && k.estado && i === 0) { k.inicial = true; k.a = k.b = 0; return; }
     if (a !== undefined && b === undefined && len !== undefined) b = a + len;
     if (b !== undefined && a === undefined && len !== undefined) a = b - len;
     if (final && a === undefined && b === undefined) { b = D; a = D - (len ?? finLen * (k.rapido ? 0.6 : 1)); }
@@ -553,6 +578,8 @@ function ventanas(cls, D) {
   let cursor = 0;
   for (let i = 0; i < cls.length; i++) {
     const k = cls[i]; if (k.inicial) continue;
+    const previo = cls.slice(0, i).reverse().find(o => !o.inicial);
+    if (k.junto && previo && k.a === undefined && k.b === undefined && k.len === undefined) { k.a = previo.a; k.b = previo.b; continue; }
     if (k.a === undefined) k.a = cursor;
     if (k.b === undefined) {
       if (k.len !== undefined) k.b = k.a + k.len;
@@ -561,6 +588,7 @@ function ventanas(cls, D) {
         while (j < cls.length) {
           const o = cls[j];
           if (o.a !== undefined) { limite = o.a; break; }
+          if (o.junto && o.b === undefined && o.len === undefined) { j++; continue; }
           grupo.push(o);
           if (o.b !== undefined) { limite = o.b; break; }
           j++;
@@ -594,7 +622,11 @@ function objetivo(id, meta, cur, ctx) {
       ctx.dirGiro = dir;
     }
     const multiplo = base => { const d = ctx.dirGiro || 1, n = (v - base) / 360; return base + 360 * (meta.delta !== undefined ? Math.round(n) : d > 0 ? Math.ceil(n - 1e-6) : Math.floor(n + 1e-6)); };
-    if (meta.frente) v = meta.delta !== undefined ? multiplo(0) : Math.round(cur / 360) * 360;
+    if (meta.frente) {
+      // sigue girando en el mismo sentido hasta el frente si falta poco; si no, vuelve al frente más cercano
+      const sig = multiplo(0);
+      v = meta.delta !== undefined || Math.abs(sig - cur) <= 200 ? sig : Math.round(cur / 360) * 360;
+    }
     else if (meta.lado) v = multiplo(90);
     else if (meta.detras) v = multiplo(180);
     return limitar(v, P.min, P.max);
@@ -702,6 +734,16 @@ function proyectoBase(p) {
   };
 }
 
+// Pedidos que no son del chat: se le dice en qué pestaña se hacen
+function fueraDeAqui(x) {
+  if (/\b(?:metal|oro(?:\s+(?:rosa|blanco|amarillo))?|plata|platino|acabado|material|color\s+de\s+la\s+(?:piedra|gema))\b/.test(x)) return 'El metal, el acabado y el color de las piedras se cambian en la pestaña «Materiales». Aquí puedo mover la cámara y poner textos, sonidos o música.';
+  if (/\b(?:logo|logotipo|marca|escarabajo)\b/.test(x)) return 'El logo de Atelier & Co está en la pestaña «Textos»: ahí lo mueves, cambias cuándo aparece o lo ocultas.';
+  if (/\b(?:fondo|color\s+de\s+fondo|sombra)\b/.test(x)) return 'El fondo y la sombra se eligen en la pestaña «Exportar».';
+  if (/\b(?:export\w*|descarg\w*|guarda\w*\s+el\s+video|crea\w*\s+el\s+video|compart\w*|subir\s+a\s+instagram)\b/.test(x)) return 'Para crear y descargar el video usa la pestaña «Exportar».';
+  if (/\b(?:stl|archivo|modelo\s+3d|otro\s+anillo|otra\s+joya)\b/.test(x)) return 'Para cambiar la joya sube otro archivo STL en la pestaña «Modelo».';
+  return '';
+}
+
 // interpretar(texto, proyecto, info) → acciones (la misma forma que devuelve /api/chat). Nunca lanza.
 export function interpretar(texto, proyecto, info = {}) {
   try { return interpretarSinRed(texto, proyecto, esObj(info) ? info : {}); }
@@ -735,7 +777,7 @@ function interpretarSinRed(texto, proyecto, info) {
     }
     cls.push(k);
   });
-  if (!cls.some(k => k.entendido) && !precio) return accionesVacias('No entendí bien qué quieres cambiar. ' + AYUDA);
+  if (!cls.some(k => k.entendido) && !precio) return accionesVacias(fueraDeAqui(x) || 'No entendí bien qué quieres cambiar. ' + AYUDA);
 
   // ----- globales -----
   const salida = accionesVacias(), notas = [];
@@ -842,6 +884,7 @@ function interpretarSinRed(texto, proyecto, info) {
   }
   // bucle
   let bucle = bucleTxt;
+  if (mods.frenaFinal && bucle === null && P.bucle && modTxt.length) { bucle = 'no'; notas.push('Lo dejé sin bucle para que el frenado se sienta como el final.'); }
   if (bucle === 'si') {
     for (const id of PISTAS_IDS) {
       const claves = salidaPistas.get(id) || base[id];
@@ -856,6 +899,10 @@ function interpretarSinRed(texto, proyecto, info) {
   else if (bucleTxt) salida.bucle = bucleTxt;
   if (bucleTxt === 'si') notas.push(P.bucle ? 'Queda en bucle: el final empalma con el inicio.' : 'Ahora va en bucle: el final empalma con el inicio.');
   else if (bucleTxt === 'no') notas.push('Lo dejé sin bucle.');
+  // vueltas completas que ocupan todo el video y van en bucle: a velocidad constante, para que el empalme no se note
+  const gi = salidaPistas.get('giro'), kg = ultimas.giro?.k;
+  const enBucle = bucle === 'si' || (bucle === null && P.bucle);
+  if (enBucle && gi?.length === 2 && kg && gi[0].t < 1e-3 && gi[1].t > D - 1e-3 && Math.abs(gi[1].v - gi[0].v) >= 359 && cierra(gi, 'giro') && !kg.curva && !kg.rapido && !kg.mods.frenaFinal && !mods.rapidoInicio) gi[0].curva = 'lineal';
   salida.pistas = [...salidaPistas.entries()].map(([pista, claves]) => ({ pista, claves: limpiar(claves, pista, D) }));
 
   // ----- proyecto virtual para ubicar sonidos (con las pistas nuevas) -----
@@ -869,8 +916,8 @@ function interpretarSinRed(texto, proyecto, info) {
   const picoVel = (a, b) => { let im = Math.round(a / dt); for (let i = Math.round(a / dt); i <= Math.min(N, Math.round(b / dt)); i++) if (vel[i] > vel[im]) im = i; return { t: muestras[im].t, v: vel[im] }; };
   const maxFoco = Math.max(...muestras.map(m => m.foco)), maxZoom = Math.max(...muestras.map(m => m.zoom));
   const momentoPiedra = muestras[0].foco >= 0.6 && muestras[0].foco >= maxFoco - 0.05 ? 0.15
-    : maxFoco >= 0.5 ? muestras.find(m => m.foco >= maxFoco * 0.95).t
-    : maxZoom >= 1.3 ? muestras.find(m => m.zoom >= maxZoom * 0.95).t : null;
+    : maxFoco >= 0.5 ? muestras.find(m => m.foco >= maxFoco * 0.98).t
+    : maxZoom >= 1.3 ? muestras.find(m => m.zoom >= maxZoom * 0.98).t : null;
   const vueltasEn = () => { const out = []; for (let i = 1; i <= N; i++) { const a = Math.floor(muestras[i - 1].giro / 360), b = Math.floor(muestras[i].giro / 360); if (a !== b) out.push(muestras[i].t); } return out.slice(0, 6); };
 
   // ----- textos -----
@@ -890,6 +937,7 @@ function interpretarSinRed(texto, proyecto, info) {
   const tiempoTexto = (k, estilo) => {
     const T = k.t; let entra = 0.5, sale = -1;
     if (T.a !== undefined) entra = T.a; else if (T.ultimos !== undefined) entra = D - T.ultimos; else if (T.inicio) entra = 0; else if (T.final) entra = Math.max(0, D - 2.5);
+    if (estilo === 'gancho' && T.a === undefined && T.ultimos === undefined && !T.final) entra = 0;   // el gancho sale desde el primer cuadro
     if (T.b !== undefined) sale = T.b; else if (T.len !== undefined) sale = entra + T.len; else if (T.inicio && estilo === 'gancho') sale = Math.min(D, 2.2);
     if (k.cuando === 'piedra' && momentoPiedra !== null) entra = momentoPiedra;
     entra = r2(limitar(entra, 0, Math.max(0, D - 0.5)));
@@ -897,7 +945,8 @@ function interpretarSinRed(texto, proyecto, info) {
   };
   for (const k of cls) for (const tx of k.textos) {
     const texto = tx.texto;
-    const estilo = tx.estilo || ((tx.pos === 'arriba' || !tx.pos && /[?!¿¡]$/.test(texto)) ? (/[?!]$/.test(texto) || texto.length <= 18 ? 'gancho' : 'subtitulo') : texto.length <= 24 ? 'titulo' : 'detalle');
+    // una pregunta o exclamación es un gancho (arriba, en los primeros segundos)
+    const estilo = tx.estilo || ((tx.pos === 'arriba' || !tx.pos && /[?!¿¡]/.test(texto)) ? (/[?!¿¡]/.test(texto) || texto.length <= 18 ? 'gancho' : 'subtitulo') : texto.length <= 24 ? 'titulo' : 'detalle');
     const pos = tx.pos || (estilo === 'gancho' || estilo === 'subtitulo' ? 'arriba' : 'abajo');
     const { entra, sale } = tiempoTexto(k, estilo);
     const s = { texto, estilo, y: hueco(pos), entra, sale, animacion: tx.anim || (estilo === 'gancho' ? 'zoom' : estilo === 'titulo' ? 'subir' : estilo === 'subtitulo' ? 'maquina' : 'aparecer') };
@@ -908,7 +957,7 @@ function interpretarSinRed(texto, proyecto, info) {
     const existente = simples.find(s => s.estilo === 'precio');
     if (existente) existente.texto = precio;
     else { const { entra, sale } = tiempoTexto(k, 'precio'); simples.push({ texto: precio, estilo: 'precio', y: hueco(k.precio?.pos || 'abajo'), entra: k.t.a === undefined && !k.t.inicio && !k.t.final ? Math.min(1, D / 4) : entra, sale, animacion: k.precio?.anim || 'zoom' }); }
-    textosNuevos.push(`precio ${precio}`);
+    textosNuevos.push(`precio ${precio.replace(/\$ /, '$\u00a0')}`);   // en la respuesta el precio no se parte en dos líneas
   }
   if (textosNuevos.length || quitarTextos || quitarPrecio) salida.textos = { cambiar: true, capas: simples.slice(0, 10) };
 
@@ -926,6 +975,7 @@ function interpretarSinRed(texto, proyecto, info) {
     const subida = ['riser', 'whooshInverso', 'reverseCymbal'].includes(id), aire = ['whoosh', 'whooshCorto', 'swipe'].includes(id);
     if (T.a !== undefined && !tieneVentana) golpes.push(T.a);
     else if (T.ultimos !== undefined && !tieneVentana) golpes.push(D - T.ultimos);
+    else if (k.brillaPiedra && tieneVentana) golpes.push(Math.min(D, Math.max(k.a, k.b - 0.7) + 0.12));   // con el pico del destello
     else if (k.cuando === 'piedra') golpes.push(momentoPiedra ?? D / 2);
     else if (k.cuando === 'precio') golpes.push(entradaTexto('precio') ?? D * 0.6);
     else if (k.cuando === 'texto') golpes.push(entradaTexto() ?? 0.5);
@@ -962,6 +1012,9 @@ function interpretarSinRed(texto, proyecto, info) {
     const volumen = estilo === 'ninguna' ? 0 : mus.volumen ?? (actual && actual.estilo === estilo && esNum(actual.volumen) ? actual.volumen : 0.55);
     salida.musica = { cambiar: true, estilo, volumen };
     musicaTxt = estilo === 'ninguna' ? 'Quité la música.' : mus.estilo && mus.estilo !== 'auto' ? `Música: ${MUSICA_INFO[estilo].nombre}${mus.volumen ? (mus.volumen < 0.5 ? ', suave' : ', fuerte') : ''}.` : mus.volumen ? `Música ${mus.volumen < 0.5 ? 'más suave' : 'más fuerte'}.` : `Música: ${MUSICA_INFO[estilo].nombre}.`;
+  } else if (cls.some(k => k.elegante) && !actual) {
+    salida.musica = { cambiar: true, estilo: 'lujo', volumen: 0.5 };
+    musicaTxt = 'Le puse música de Lujo (piano suave).';
   } else if (preset === 'destello' && !actual) {
     salida.musica = { cambiar: true, estilo: 'popViral', volumen: 0.55 };
     musicaTxt = 'Le puse música Pop viral.';
@@ -1006,33 +1059,41 @@ function interpretarSinRed(texto, proyecto, info) {
     const extra = { rebote: ' con rebote', elastico: ' con efecto resorte', escalon: ' con corte seco', entrada: ' acelerando', lineal: ' a velocidad constante' }[k.curva] || (k.mods.frenaFinal || k.curva === 'salida' ? ' frenando al final' : k.rapido ? ' rápido' : k.lento ? ' despacio' : '');
     return txt ? txt + extra : '';
   };
-  // la vista con la que empieza («desde arriba», «de frente»…)
+  // la vista con la que empieza, o la de todo el video si va sola («desde arriba», «de frente»…)
   const describirInicio = k => {
     const M = k.metas, p = [];
     if (M.inclinacion?.txt) p.push(M.inclinacion.valor === 8 ? 'a la altura de la pieza' : M.inclinacion.txt);
     if (M.giro?.frente) p.push('de frente'); else if (M.giro?.lado) p.push('de perfil'); else if (M.giro?.detras) p.push('desde atrás');
     if (M.zoom?.dir > 0) p.push(M.zoom.piedra ? `cerca de ${nombrePiedra(M.foco?.piedra)}`.replace('de el', 'del') : 'en primer plano');
     else if (M.zoom?.dir < 0) p.push('en plano abierto');
-    if (M.rodar) p.push('con la cámara inclinada');
-    return p.length ? 'empieza ' + p.join(', ').replace(/^(vista|contrapicado)/, 'con $1') : '';
+    if (M.rodar) p.push(M.rodar.valor ? 'con la cámara inclinada' : 'con la cámara derecha');
+    if (M.altura?.txt) p.push(M.altura.delta > 0 ? 'con la pieza más arriba' : M.altura.delta < 0 ? 'con la pieza más abajo' : 'con la pieza centrada');
+    else if (M.lateral?.txt) p.push(M.lateral.delta < 0 ? 'con la pieza a la izquierda' : 'con la pieza a la derecha');
+    if (M.exposicion) p.push(M.exposicion.valor > 1.2 ? 'con más luz' : 'con menos luz');
+    if (M.desenfoque) p.push(M.desenfoque.valor ? 'con desenfoque macro' : 'con todo nítido');
+    return p.map(f => f.replace(/^vista/, 'con vista').replace(/^contrapicado/, 'en contrapicado')).join(', ');
   };
   const frases = [];
   if (preset) frases.push(`apliqué el movimiento «${MOVIMIENTOS[preset].nombre}»`);
   const conVentana = conMetas.filter(k => !k.inicial);
   const inicial = conMetas.find(k => k.inicial);
-  if (inicial && describirInicio(inicial)) frases.push(describirInicio(inicial));
+  if (inicial && describirInicio(inicial)) frases.push((conVentana.length ? 'empieza ' : 'todo el video va ') + describirInicio(inicial));
   for (const k of conMetas) if (k.frenteAjustado && !conVentana.includes(k)) frases.push('termina de frente');
-  for (const k of conVentana) {
-    const d = describir(k); if (!d) continue;
-    frases.push(conVentana.length === 1 && k.a < 0.05 && k.b > D - 0.05 ? d : `del ${seg(k.a).replace(' s', '')} al ${seg(k.b)} ${d}`);
-  }
+  const todoElVideo = k => k.a < 0.05 && k.b > D - 0.05;
+  conVentana.forEach((k, i) => {
+    const d = describir(k); if (!d) return;
+    // lo que va «al mismo tiempo» se cuenta en la misma frase
+    if (k.junto && i > 0 && frases.length) { frases[frases.length - 1] += ` y al mismo tiempo ${d}`; return; }
+    const solo = conVentana.filter(o => !o.junto).length === 1;
+    frases.push(solo && todoElVideo(k) ? d : `del ${seg(k.a).replace(' s', '')} al ${seg(k.b)} ${d}`);
+  });
   frases.push(...modTxt);
   if (textosNuevos.length) frases.push(`agregué ${textosNuevos.length === 1 ? 'el texto' : 'los textos'} ${textosNuevos.join(', ')}`.replace('el texto precio', 'el precio'));
   if (quitarTextos) frases.push('quité los textos (la marca se queda)'); else if (quitarPrecio) frases.push('quité el precio');
   if (sonidosTxt.length) frases.push(`agregué ${sonidosTxt.length === 1 ? 'un sonido' : 'sonidos'}: ${sonidosTxt.join(', ')}`);
   if (quitarSonidos) frases.push('quité los efectos de sonido');
   const cuerpo = frases.length ? frases.map((f, i) => i ? f : f[0].toUpperCase() + f.slice(1)).join('; ') + '.' : '';
-  const todo = ['Listo.', cuerpo, musicaTxt, ...notas].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const todo = ['Listo.', cuerpo, musicaTxt, ...notas].filter(Boolean).join(' ').replace(/[ \t\r\n]+/g, ' ').trim();   // sin tocar los espacios duros
   // «más lento» en bucle alarga el video: todo lo calculado se lleva a la nueva duración
   if (alargar) {
     const f = alargar / D;
@@ -1041,7 +1102,7 @@ function interpretarSinRed(texto, proyecto, info) {
     for (const c of salida.textos.capas) { c.entra = r2(c.entra * f); if (c.sale >= 0) c.sale = r2(c.sale * f); }
     for (const c of salida.sonidos.clips) c.t = r4(c.t * f);
   }
-  salida.respuesta = hayCambios(salida) ? todo : notas.length ? notas.join(' ') : 'No encontré nada que cambiar. ' + AYUDA;
+  salida.respuesta = hayCambios(salida) ? todo : notas.length ? notas.join(' ') : fueraDeAqui(x) || 'No encontré nada que cambiar. ' + AYUDA;
   if (info.tienePiedras === false && conMetas.some(k => k.metas.foco?.valor === 1)) salida.respuesta += ' (No encontré piedras en el modelo, así que enfoco la parte de arriba.)';
   return normalizarAcciones(salida, { duracion: P.duracion });
 }

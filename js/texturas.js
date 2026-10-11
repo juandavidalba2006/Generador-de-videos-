@@ -120,6 +120,62 @@ function texturaNormal(c) {
   return tex;
 }
 
+// ---------- Normales exactas para el trazado de rayos ----------
+// three-gpu-pathtracer no vuelve a normalizar: hace normal = TBN · texel, con normalScale multiplicando solo x, y.
+// Si el texel no mide exactamente 1 la base de la superficie queda torcida y en una gema, donde la luz rebota
+// por dentro muchas veces, el error se acumula: la piedra sale blanquecina, como escarchada.
+// Por eso el motor realista recibe su propio mapa, con la fuerza ya incluida (normalScale = 1), y cada texel
+// se guarda en el vecino de 8 bits cuya longitud más se acerca a 1 (desvío de dirección de 2° como mucho).
+let TABLA = null;
+function tablaNormales() {
+  if (TABLA) return TABLA;
+  const v = b => b / 127.5 - 1, zb = new Uint8Array(65536), err = new Float32Array(65536);
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+    const r2 = v(x) ** 2 + v(y) ** 2, i = y * 256 + x;
+    if (r2 >= 1) { err[i] = 1; continue; }
+    const z = Math.round((Math.sqrt(1 - r2) + 1) * 127.5); zb[i] = z; err[i] = Math.abs(Math.sqrt(r2 + v(z) ** 2) - 1);
+  }
+  // para cada (x, y) cuantizado: el vecino (hasta 4 pasos) que mejor equilibra longitud exacta y misma dirección
+  const T = new Uint8Array(65536 * 3);
+  for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) {
+    let mejor = Infinity, bx = x, by = y;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+      const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx > 255 || yy > 255) continue;
+      const c = err[yy * 256 + xx] * 100 + Math.hypot(dx, dy) / 127.5;
+      if (c < mejor) { mejor = c; bx = xx; by = yy; }
+    }
+    const o = 3 * (y * 256 + x); T[o] = bx; T[o + 1] = by; T[o + 2] = zb[by * 256 + bx];
+  }
+  return (TABLA = T);
+}
+// Pendientes (x/z, y/z) de un mapa de normales: con ellas se rehace el mapa a cualquier fuerza
+function pendientes(c) {
+  const S = c.width, p = ctx2d(c).getImageData(0, 0, S, S).data, px = new Float32Array(S * S), py = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i++) {
+    const z = Math.max(0.05, p[4 * i + 2] / 127.5 - 1);
+    px[i] = (p[4 * i] / 127.5 - 1) / z; py[i] = (p[4 * i + 1] / 127.5 - 1) / z;
+  }
+  return { S, px, py };
+}
+// d: caché de la imagen; fuente: lienzo del mapa de normales; k: fuerza del relieve. Se rehace en el mismo lienzo
+function normalExacta(d, fuente, k) {
+  if (!d.pend || d.pend.fuente !== fuente) d.pend = { fuente, ...pendientes(fuente) };
+  const { S, px, py } = d.pend;
+  let m = d.pt;
+  if (!m || m.c.width !== S) { const c = lienzo(S); m = d.pt = { c, tex: texturaNormal(c), k: NaN }; }
+  if (!(Math.abs(m.k - k) < 1e-3)) {
+    const T = tablaNormales(), x = ctx2d(m.c), datos = x.createImageData(S, S), p = datos.data;
+    for (let i = 0; i < S * S; i++) {
+      const sx = px[i] * k, sy = py[i] * k, inv = 1 / Math.sqrt(sx * sx + sy * sy + 1);
+      const o = 3 * (Math.round((sy * inv + 1) * 127.5) * 256 + Math.round((sx * inv + 1) * 127.5)), j = 4 * i;
+      p[j] = T[o]; p[j + 1] = T[o + 1]; p[j + 2] = T[o + 2]; p[j + 3] = 255;
+    }
+    x.putImageData(datos, 0, 0);
+    m.k = k; m.tex.needsUpdate = true;
+  }
+  return m.tex;
+}
+
 // Color en sRGB; intensidad < 1 mezcla el bitmap con blanco (blanco = la piedra queda con su color)
 export function texturaColor(imagen, intensidad = 1) {
   const tex = repetir(new THREE.CanvasTexture(cuadrado(imagen, intensidad)));
@@ -232,7 +288,7 @@ function jardin() {
   // musgo: manchas verde grisáceas suaves y retorcidas (el "jardín" que hace única a cada esmeralda)
   const c = pintarPixeles(T, i => {
     const px = ((i % T) + (wx[i] - 0.5) * 160 + T) % T | 0, py = (((i / T) | 0) + (wy[i] - 0.5) * 160 + T) % T | 0;
-    const s = 0.24 * escalon(0.48, 0.84, musgo[py * T + px]) * (0.35 + 0.65 * velo[i]);
+    const s = 0.34 * escalon(0.46, 0.84, musgo[py * T + px]) * (0.35 + 0.65 * velo[i]);
     return [1 - s * 0.95, 1 - s * 0.7, 1 - s * 0.88];
   });
   const x = c.getContext('2d');
@@ -245,7 +301,7 @@ function jardin() {
       for (let s = 0; s <= 1; s += 3 / L) {
         const b = 4 * s * (1 - s), qx = cx + ax * (s - 0.5) * L - ay * curva * b, qy = cy + ay * (s - 0.5) * L + ax * curva * b;
         const h = (3 + 12 * b) * (0.5 + 0.5 * Math.sin(s * 37 + n));
-        x.strokeStyle = `rgba(66,90,76,${(0.06 + 0.11 * b).toFixed(3)})`; x.lineWidth = 0.8;
+        x.strokeStyle = `rgba(66,90,76,${(0.08 + 0.15 * b).toFixed(3)})`; x.lineWidth = 0.8;
         x.beginPath(); x.moveTo(qx - ay * h, qy + ax * h); x.lineTo(qx + ay * h * 0.6, qy - ax * h * 0.6); x.stroke();
       }
     });
@@ -253,7 +309,7 @@ function jardin() {
   // fisuras que se ramifican (cada una con su propio azar: sus copias en los bordes salen idénticas)
   const rama = (r, px, py, ang, largo, ancho, nivel) => {
     let qx = px, qy = py;
-    x.strokeStyle = `rgba(56,74,64,${(0.12 + 0.05 * nivel).toFixed(3)})`; x.lineWidth = ancho;
+    x.strokeStyle = `rgba(56,74,64,${(0.16 + 0.06 * nivel).toFixed(3)})`; x.lineWidth = ancho;
     x.beginPath(); x.moveTo(qx, qy);
     for (let k = 0; k < 4; k++) { ang += (r() - 0.5) * 0.6; qx += Math.cos(ang) * largo / 4; qy += Math.sin(ang) * largo / 4; x.lineTo(qx, qy); }
     x.stroke();
@@ -461,7 +517,7 @@ export const PRESETS_PIEDRA = {
   inclusiones:      { nombre: 'Seda e inclusiones', descripcion: 'Agujas finas de rutilo y cristales diminutos, como en rubíes y zafiros naturales', modo: 'ambos', intensidad: 0.7, escala: 1, crear: unaVez('inclusiones', seda, { fuerza: 1.5, relieve: 1, relievePT: 0.25 }) },
   jardin:           { nombre: 'Jardín de esmeralda', descripcion: 'Velos y fisuras con forma de musgo: el "jardín" de las esmeraldas', modo: 'ambos', intensidad: 0.7, escala: 1, crear: unaVez('jardin', jardin, { fuerza: 1.5, relieve: 1, relievePT: 0.25 }) },
   escarcha:         { nombre: 'Escarcha', descripcion: 'Superficie esmerilada, como una piedra mate o sin pulir', modo: 'relieve', intensidad: 0.6, escala: 0.6, crear: unaVez('escarcha', escarcha, { fuerza: 1.5, relieve: 1, relievePT: 0.45 }) },
-  'facetas-brillo': { nombre: 'Facetas con brillo', descripcion: 'Micro facetas y puntos de luz: más destellos al girar', modo: 'relieve', intensidad: 0.6, escala: 0.8, crear: unaVez('facetas-brillo', facetas, { relieve: 1, relievePT: 0.3 }) },
+  'facetas-brillo': { nombre: 'Facetas con brillo', descripcion: 'Micro facetas y puntos de luz: más destellos al girar', modo: 'relieve', intensidad: 0.6, escala: 0.8, crear: unaVez('facetas-brillo', facetas, { relieve: 1, relievePT: 0.08 }) },
 };
 export const PRESETS_METAL = {
   martillado: { nombre: 'Martillado', descripcion: 'Huellas de martillo, como un anillo forjado a mano', intensidad: 0.6, escala: 0.7, crear: unaVez('martillado', martillado, { fuerza: 5, relieve: 1 }) },
@@ -567,17 +623,34 @@ function mezclaConBlanco(d, clave, fuente, alfa, colorSpace) {
   }
   return m.tex;
 }
-// Fotos del usuario: se aclaran hasta que lo más claro (el 1 % más brillante) quede blanco.
-// Así una foto oscura no apaga la piedra y el relieve sale con la misma fuerza que en los presets
-function aclarada(d, imagen) {
-  if (d.aclarada) return d.aclarada;
-  const c = cuadrado(imagen), x = ctx2d(c), S = c.width, datos = x.getImageData(0, 0, S, S), p = datos.data, hist = new Uint32Array(256);
-  for (let i = 0; i < p.length; i += 4) hist[(0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]) | 0]++;
-  let n = 0, alto = 255;
-  for (let v = 255; v > 0; v--) { n += hist[v]; if (n >= S * S * 0.01) { alto = v; break; } }
-  const k = 255 / Math.max(alto, 32);   // una imagen casi negra no se estira sin límite (sería puro ruido)
+// Fotos del usuario. Para el relieve se aclaran hasta que lo más claro (el 1 % más brillante) quede blanco:
+// así una foto oscura da el mismo relieve que los presets.
+// Para el color de las piedras, lo que más abunda en la foto es piedra limpia y debe quedar blanco (no tiñe).
+// Si la foto es oscura (inclusiones que brillan sobre fondo negro, como en el microscopio) se invierte en gris:
+// las inclusiones quedan oscuras sobre blanco en vez de volver negra toda la piedra
+const luz = (p, i) => 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2];
+function percentil(p, q, canal = -1) {   // canal -1: luminancia
+  const hist = new Uint32Array(256), n = p.length / 4;
+  for (let i = 0; i < p.length; i += 4) hist[canal < 0 ? Math.min(255, luz(p, i) | 0) : p[i + canal]]++;
+  let suma = 0;
+  for (let v = 0; v < 256; v++) { suma += hist[v]; if (suma >= n * q) return v; }
+  return 255;
+}
+function fuentesFoto(d, imagen, grupo) {
+  if (d.fuentes) return d.fuentes;
+  const c = cuadrado(imagen), x = ctx2d(c), S = c.width, datos = x.getImageData(0, 0, S, S), p = datos.data;
+  const k = 255 / Math.max(percentil(p, 0.99), 32);   // una imagen casi negra no se estira sin límite (sería puro ruido)
   if (k > 1.02) { for (let i = 0; i < p.length; i += 4) { p[i] = Math.min(255, p[i] * k); p[i + 1] = Math.min(255, p[i + 1] * k); p[i + 2] = Math.min(255, p[i + 2] * k); } x.putImageData(datos, 0, 0); }
-  return (d.aclarada = c);
+  if (grupo !== 'piedra') return (d.fuentes = { color: c, relieve: c });
+  const c2 = lienzo(S), x2 = ctx2d(c2), d2 = x2.createImageData(S, S), q = d2.data;
+  if (percentil(p, 0.5) < 102) for (let i = 0; i < p.length; i += 4) { q[i] = q[i + 1] = q[i + 2] = 255 - luz(p, i); q[i + 3] = 255; }
+  else q.set(p);
+  // balance de blancos sobre el tono que más abunda: la mitad más clara de cada canal pasa a blanco
+  // (una foto con fondo beige o rojizo no tiñe toda la piedra; las manchas conservan su color relativo)
+  const k2 = [0, 1, 2].map(j => 255 / Math.max(percentil(q, 0.5, j), 32));
+  for (let i = 0; i < q.length; i += 4) { q[i] = Math.min(255, q[i] * k2[0]); q[i + 1] = Math.min(255, q[i + 1] * k2[1]); q[i + 2] = Math.min(255, q[i + 2] * k2[2]); }
+  x2.putImageData(d2, 0, 0);
+  return (d.fuentes = { color: c2, relieve: c });
 }
 
 // rugosidad derivada del bitmap. three la multiplica por la del acabado, así que solo puede bajarla:
@@ -607,21 +680,23 @@ function aplicarGrupo(estudio, est, grupo, a) {
   if (imagen) {
     if (geo && !geo.attributes.uv) { generarUVCaja(geo); geometria = true; }
     const d = datosDe(imagen, grupo), ds = imagen.dataset || {};
-    const fuente = ds.preset ? imagen : aclarada(d, imagen);   // los presets ya vienen calibrados
+    const fuente = ds.preset ? { color: imagen, relieve: imagen } : fuentesFoto(d, imagen, grupo);   // los presets ya vienen calibrados
     const modo = grupo === 'metal' ? 'relieve' : (['color', 'relieve', 'ambos'].includes(a.modo) ? a.modo : 'ambos');
     const intensidad = clamp(num(a.intensidad, 0.6), 0, 1), escala = clamp(num(a.escala, 1), 0.2, 5);
-    const color = modo !== 'relieve' ? mezclaConBlanco(d, 'color', fuente, intensidad, THREE.SRGBColorSpace) : null;
-    const normal = modo !== 'color' ? (d.normal || (d.normal = imagen.mapaNormal ? texturaNormal(imagen.mapaNormal) : mapaNormalDesde(fuente, num(+ds.fuerza, 1)))) : null;
-    const rug = grupo === 'metal' && (ds.rugosidad === '1' || a.rugosidad === true) ? mezclaConBlanco(d, 'rug', fuenteRugosidad(d, fuente), intensidad, THREE.NoColorSpace) : null;
-    nuevas = [color, normal, rug].filter(Boolean);
-    const aniso = Math.min(8, estudio.renderer?.capabilities?.getMaxAnisotropy?.() || 1);
-    for (const t of nuevas) { t.repeat.set(1 / escala, 1 / escala); t.anisotropy = aniso; }
+    const color = modo !== 'relieve' ? mezclaConBlanco(d, 'color', fuente.color, intensidad, THREE.SRGBColorSpace) : null;
+    const normal = modo !== 'color' ? (d.normal || (d.normal = imagen.mapaNormal ? texturaNormal(imagen.mapaNormal) : mapaNormalDesde(fuente.relieve, num(+ds.fuerza, 1)))) : null;
+    const rug = grupo === 'metal' && (ds.rugosidad === '1' || a.rugosidad === true) ? mezclaConBlanco(d, 'rug', fuenteRugosidad(d, fuente.relieve), intensidad, THREE.NoColorSpace) : null;
     // en «ambos» el color dibuja las inclusiones y el relieve solo suma un brillo leve (si no, parecen rayones)
     const s = intensidad * num(+ds.relieve, 1) * (grupo === 'metal' ? 0.9 : modo === 'ambos' ? 0.45 : 1);
+    // trazado de rayos: mapa propio con la fuerza incluida (en la gema, mucho menor: cada desvío se multiplica al rebotar adentro)
+    const normalPT = normal ? normalExacta(d, normal.image, s * (grupo === 'piedra' ? num(+ds.relievePT, 0.35) : 1)) : null;
+    nuevas = [color, normal, normalPT, rug].filter(Boolean);
+    const aniso = Math.min(8, estudio.renderer?.capabilities?.getMaxAnisotropy?.() || 1);
+    for (const t of nuevas) { t.repeat.set(1 / escala, 1 / escala); t.anisotropy = aniso; }
     for (const m of mats) {
-      let sombreador = ponerMapa(m, 'normalMap', normal);
-      const k = m === estudio.matPPT ? num(+ds.relievePT, 0.35) : 1;
-      if (normal) m.normalScale.set(s * k, s * k);
+      const pt = m === estudio.matPPT || m === estudio.matPT;
+      let sombreador = ponerMapa(m, 'normalMap', pt ? normalPT : normal);
+      if (normal) m.normalScale.set(pt ? 1 : s, pt ? 1 : s);
       if (grupo === 'piedra') sombreador = ponerMapa(m, 'map', color) || sombreador;
       // el metal del motor rápido tiene capa de laca (clearcoat): lleva el mismo relieve, más suave.
       // Se pone siempre (aunque el acabado de ahora no tenga laca) porque estudio.pintar() la activa al cambiar el acabado
@@ -662,12 +737,28 @@ function aplicarHDRI(estudio, est, h) {
   estudio.pt?.updateEnvironment();
 }
 
+// Si se carga otro modelo con un bitmap puesto, la geometría nueva llega sin uv: se generan justo antes de
+// dibujar su primer cuadro (la escena avisa antes de subir la geometría a la tarjeta de video)
+function vigilarModelo(estudio, est) {
+  const e = estudio.escena;
+  if (est.vigilando || !e) return;
+  est.vigilando = true;
+  const previo = e.onBeforeRender;
+  e.onBeforeRender = function (...args) {
+    for (const [geo, grupo] of [[estudio.geo, 'metal'], [estudio.geoP, 'piedra']]) {
+      if (geo?.attributes?.position && !geo.attributes.uv && est[grupo]?.length) { generarUVCaja(geo); estudio.ptSucio = true; }
+    }
+    return previo?.apply(this, args);
+  };
+}
+
 // ajustes = { piedra: { imagen, modo, intensidad, escala }, metal: { imagen, intensidad, escala }, hdri: { textura, intensidad, rotacion } }
 // (cada grupo es opcional: si falta, no se toca)
 export function aplicarTexturas(estudio, ajustes = {}) {
   if (!estudio) return;
   let est = ESTADOS.get(estudio);
   if (!est) ESTADOS.set(estudio, est = {});
+  vigilarModelo(estudio, est);
   let geometria = false;
   if (ajustes.piedra !== undefined) geometria = aplicarGrupo(estudio, est, 'piedra', ajustes.piedra) || geometria;
   if (ajustes.metal !== undefined) geometria = aplicarGrupo(estudio, est, 'metal', ajustes.metal) || geometria;
@@ -959,7 +1050,7 @@ export class PanelTexturas {
       bloque.querySelector(`[data-campo="intensidad"]`).value = s.intensidad;
       bloque.querySelector(`[data-campo="escala"]`).value = Math.log(s.escala) / Math.log(5);
       bloque.querySelectorAll('[data-modo]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.modo === s.modo)));
-      bloque.querySelector(`[data-consejo="${g}"]`).textContent = g === 'piedra' ? (s.preset === 'propia' ? 'Usa una foto clara de inclusiones o una textura: lo blanco no cambia la piedra. ' : '') + (MODOS[s.modo]?.[1] || '') : (CONSEJOS_METAL[s.preset] || '');
+      bloque.querySelector(`[data-consejo="${g}"]`).textContent = g === 'piedra' ? (s.preset === 'propia' ? 'Sirve una foto de inclusiones, clara u oscura: el tono que más abunda se toma como piedra limpia. ' : '') + (MODOS[s.modo]?.[1] || '') : (CONSEJOS_METAL[s.preset] || '');
     }
     const h = this.estado.hdri, hb = this.cont.querySelector('[data-bloque="hdri"]');
     hb.querySelector('[data-nombre-hdri]').textContent = h.textura ? h.nombre || 'Tu panorama' : 'Estudio Atelier';
