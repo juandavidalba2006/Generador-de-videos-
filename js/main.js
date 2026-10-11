@@ -209,6 +209,7 @@ function sinSaltar(fn, ancla = $('lineaTiempo')) {
   try { fn(); } finally {
     const corrido = ancla.getBoundingClientRect().top - antes;
     if (Math.abs(corrido) > 0.5) scrollBy({ top: corrido, behavior: 'instant' });
+    sostenerAlto();
     cancelAnimationFrame(anclaje);
     anclaje = requestAnimationFrame(() => requestAnimationFrame(() => { sinAnclaje = false; anclajeNativo(); }));
   }
@@ -220,17 +221,29 @@ $('lineaTiempo').addEventListener('pointerdown', e => {
   const el = e.target.closest?.('.lt-pistas');
   if (!el) return;
   fijo = { el, top: el.getBoundingClientRect().top };
-  anclajeNativo();
+  anclajeNativo(); sostenerAlto();
 }, true);
+// si la página está al final y la línea de tiempo se encoge, el navegador recortaría el scroll y todo saltaría:
+// mientras se arrastra, la página no baja de lo que se está viendo
+function sostenerAlto() { if (fijo) document.body.style.minHeight = Math.ceil(scrollY + innerHeight) + 'px'; }
+// después del arrastre el alto extra se quita apenas deje de hacer falta (al subir), así nada salta al soltar
+function soltarAlto() {
+  const b = document.body, y = scrollY;   // se lee antes: al quitar el alto, el navegador ya recorta el scroll
+  if (fijo || !b.style.minHeight) return;
+  b.style.minHeight = '';
+  if (document.documentElement.scrollHeight < y + innerHeight - 0.5) { b.style.minHeight = Math.ceil(y + innerHeight) + 'px'; if (scrollY !== y) scrollTo({ top: y, behavior: 'instant' }); }
+}
+addEventListener('scroll', soltarAlto, { passive: true });
 // al soltar, la línea de tiempo se vuelve a dibujar: se sigue corrigiendo un par de cuadros más
 for (const ev of ['pointerup', 'pointercancel']) addEventListener(ev, () => {
   const f = fijo; if (!f) return;
-  requestAnimationFrame(() => requestAnimationFrame(() => { if (fijo === f) { fijo = null; anclajeNativo(); } }));
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (fijo === f) { mantenerFijo(); fijo = null; anclajeNativo(); soltarAlto(); } }));
 });
 function mantenerFijo() {
   if (!fijo) return;
   const d = fijo.el.getBoundingClientRect().top - fijo.top;
   if (Math.abs(d) > 0.5) scrollBy({ top: d, behavior: 'instant' });
+  sostenerAlto();
 }
 if (typeof ResizeObserver !== 'undefined') {
   const ro = new ResizeObserver(mantenerFijo);
