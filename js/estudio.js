@@ -184,6 +184,8 @@ export class Estudio {
 
     this.limpiar();
     this.geo = geo; this.geoP = geoP;
+    // tamaño de las piedras: con él se calcula cuánto color absorbe la luz al atravesarlas en el render realista
+    this.tamPiedras = geoP ? Math.max(...geoP.boundingBox.getSize(new THREE.Vector3()).toArray()) : 0;
     this.mallaMetal = new THREE.Mesh(geo, this.mat);
     this.pivote.add(this.mallaMetal);
     this.pivotePT.add(new THREE.Mesh(geo, this.matPT));
@@ -261,7 +263,9 @@ export class Estudio {
     } else {
       Object.assign(t, { transmission: 1, metalness: 0, roughness: 0, ior: g.ior, iridescence: 0, flatShading: true, sheen: 0, thickness: 1 });
       if (g.blanca) { t.color.setHex(0xFFFFFF); t.attenuationColor.setHex(0xFFFFFF); t.attenuationDistance = Infinity; }
-      else { t.color.setHex(g.color).lerp(new THREE.Color(0xffffff), 0.35); t.attenuationColor.setHex(g.color); t.attenuationDistance = Math.max(this.radio * 0.08, 0.4); }
+      // la luz recorre varias veces la piedra entre reflejos internos: con una distancia de absorción del orden de su
+      // tamaño el cuerpo queda saturado; mucho más corta, la gema se ve negra. (En pavé la caja junta muchas piedras: se limita)
+      else { t.color.setHex(g.color).lerp(new THREE.Color(0xffffff), 0.35); t.attenuationColor.setHex(g.color); t.attenuationDistance = THREE.MathUtils.clamp(this.tamPiedras || this.radio * 0.4, this.radio * 0.15, this.radio * 0.5) * 0.7; }
     }
     t.needsUpdate = true; this.matPT.needsUpdate = true;
     if (this.pt) this.pt.updateMaterials();
@@ -340,11 +344,12 @@ export class Estudio {
     this.prepararPT();
     const pt = this.pt;
     pt.updateCamera(); pt.updateEnvironment(); pt.updateMaterials(); pt.reset();
-    let t0 = performance.now(), vueltas = 0;
+    let t0 = performance.now();
     while (pt.samples < muestras || pt.isCompiling) {
       pt.renderSample();
-      if (++vueltas > 200000) break;
-      if (performance.now() - t0 > 40) {
+      // mientras se compila el shader (la primera vez puede tardar más de medio minuto) no se dibuja nada: se espera
+      // cuadro a cuadro, sin un tope de vueltas que corte antes de tiempo y deje en el lienzo la silueta de la máscara
+      if (pt.isCompiling || performance.now() - t0 > 40) {
         alAvanzar?.(Math.min(1, pt.samples / muestras));
         await new Promise(r => requestAnimationFrame(() => r()));
         if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
