@@ -99,17 +99,6 @@ export function hdrEstudio(oscuro = false, W = 1024, H = 512) {
   return tex;
 }
 
-// ---------- Movimientos de cámara ----------
-const suave = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-const mezcla = (a, b, t) => a + (b - a) * t;
-export const MOVIMIENTOS = {
-  giro: { nombre: 'Giro 360°', ciclico: true, fn: t => ({ az: t * Math.PI * 2, el: 0, dist: 1 }) },
-  acercamiento: { nombre: 'Giro con acercamiento', fn: t => { const s = suave(t); return { az: s * Math.PI * 2, el: mezcla(10, -2, s), dist: mezcla(1.22, 0.86, s) }; } },
-  revelacion: { nombre: 'Revelación (del detalle a la pieza)', fn: t => { const s = suave(t); return { az: mezcla(-Math.PI * 0.6, Math.PI * 0.4, s), el: mezcla(14, 0, s), dist: mezcla(0.5, 1.02, s), foco: 1 - s }; } },
-  pendulo: { nombre: 'Vaivén frontal', ciclico: true, fn: t => ({ az: Math.sin(t * Math.PI * 2) * THREE.MathUtils.degToRad(38), el: Math.sin(t * Math.PI * 4) * 3, dist: 1 - Math.sin(t * Math.PI) * 0.06 }) },
-  orbita: { nombre: 'Órbita alta y baja', ciclico: true, fn: t => ({ az: t * Math.PI * 2, el: Math.sin(t * Math.PI * 2) * 16, dist: 1 + Math.cos(t * Math.PI * 2) * 0.05 }) },
-};
-
 const leerSTL = async archivo => {
   const g = new STLLoader().parse(await archivo.arrayBuffer());
   return g.index ? g.toNonIndexed() : g;
@@ -158,8 +147,10 @@ export class Estudio {
     this.matPPT = new THREE.MeshPhysicalMaterial({ metalness: 0, roughness: 0, transmission: 1, thickness: 1, ior: 2.42, flatShading: true });
     this.matMascara = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-    this.ajustes = { metal: METALES[0], acabado: 'Pulido', piedra: 'Diamante', elevacion: 18, zoom: 1, altura: 0, giroInicial: 0, movimiento: 'giro', exposicion: 1.15, enfoque: 0 };
+    // el movimiento, el zoom, la exposición y el desenfoque ya no viven aquí: los da el proyecto (keyframes) en cada cuadro
+    this.ajustes = { metal: METALES[0], acabado: 'Pulido', piedra: 'Diamante' };
     this.radio = 1; this.base = 0; this.huella = 1;
+    this.rotacionHDRI = 0;   // la pone texturas.js cuando hay un HDRI girado (radianes)
   }
 
   get tieneModelo() { return !!this.mallaMetal; }
@@ -273,7 +264,6 @@ export class Estudio {
       else { t.color.setHex(g.color).lerp(new THREE.Color(0xffffff), 0.35); t.attenuationColor.setHex(g.color); t.attenuationDistance = Math.max(this.radio * 0.08, 0.4); }
     }
     t.needsUpdate = true; this.matPT.needsUpdate = true;
-    this.renderer.toneMappingExposure = a.exposicion;
     if (this.pt) this.pt.updateMaterials();
   }
 
@@ -283,29 +273,36 @@ export class Estudio {
     this.camara.aspect = w / h; this.camara.updateProjectionMatrix();
   }
 
-  // Coloca la cámara para el instante t (0 a 1) del movimiento escogido.
+  // Coloca la cámara con los valores del proyecto en un instante (p = evaluar(proyecto, t)).
   // La luz gira con la cámara: el resultado es idéntico a una tornamesa con la pieza girando bajo luces fijas.
   // zona: franja de la imagen libre de textos ({ arriba, abajo }, de 0 a 1); la joya se encuadra ahí
-  pose(t, zona = { arriba: 0.03, abajo: 0.97 }) {
-    const a = this.ajustes, cam = this.camara, m = (MOVIMIENTOS[a.movimiento] || MOVIMIENTOS.giro).fn(THREE.MathUtils.clamp(t, 0, 1));
-    const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2), alto = Math.max(0.25, zona.abajo - zona.arriba);
+  aplicarPose(p, zona = { arriba: 0.03, abajo: 0.97 }) {
+    const cam = this.camara, M = THREE.MathUtils;
+    const tv = Math.tan(M.degToRad(cam.fov) / 2), alto = Math.max(0.25, zona.abajo - zona.arriba);
     const tz = Math.min(tv * alto, tv * cam.aspect * 0.92);           // medio ángulo disponible para la pieza
     const ajuste = this.radio * Math.sqrt(1 + tz * tz) / tz;          // la esfera que envuelve la joya cabe justo en la franja
-    const dist = ajuste / a.zoom * m.dist;
-    const az = m.az + THREE.MathUtils.degToRad(a.giroInicial), el = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(a.elevacion + m.el, -60, 85));
+    const dist = ajuste / Math.max(0.05, p.zoom);
+    const az = M.degToRad(p.giro), el = M.degToRad(M.clamp(p.inclinacion, -60, 85));
     cam.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
     cam.near = Math.max(dist - this.radio * 3, dist * 0.02); cam.far = dist + this.radio * 6;
     // punto de interés: el centro de la pieza, o más arriba (la piedra) en los acercamientos
-    const foco = new THREE.Vector3(0, (m.foco || 0) * (this.caja ? this.caja.max.y * 0.7 : 0), 0);
-    cam.up.set(0, 1, 0); cam.lookAt(foco); cam.updateMatrixWorld(true);
-    // corre la mira para que la pieza quede centrada en la franja libre (más el ajuste manual de posición vertical)
-    const cy = 1 - (zona.arriba + zona.abajo) + a.altura;
-    const arribaCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
-    cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist)); cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
-    cam.focusDistance = cam.position.length();
-    // enfoque 0 = todo nítido; 1 = macro con poca profundidad de campo
-    cam.fStop = a.enfoque > 0 ? THREE.MathUtils.lerp(22, 1.8, a.enfoque) : 1e6;
-    for (const e of [this.escena, this.escenaPT]) e.environmentRotation.set(0, az, 0);
+    const foco = new THREE.Vector3(0, M.clamp(p.foco, 0, 1) * (this.caja ? this.caja.max.y * 0.7 : 0), 0);
+    // cámara ladeada (roll): se gira el "arriba" alrededor de la dirección en que mira
+    const mira = foco.clone().sub(cam.position).normalize();
+    cam.up.set(0, 1, 0).applyAxisAngle(mira, M.degToRad(p.rodar || 0));
+    cam.lookAt(foco); cam.updateMatrixWorld(true);
+    // corre la mira para que la pieza quede centrada en la franja libre, más la posición vertical y lateral de los keyframes
+    const cy = 1 - (zona.arriba + zona.abajo) + p.altura, cx = p.lateral;
+    const arribaCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1), derCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist).addScaledVector(derCam, -cx * tv * cam.aspect * dist));
+    cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    cam.focusDistance = cam.position.distanceTo(foco);
+    // desenfoque 0 = todo nítido; 1 = macro con poca profundidad de campo (solo se ve con trazado de rayos)
+    cam.fStop = p.desenfoque > 0 ? M.lerp(22, 1.8, p.desenfoque) : 1e6;
+    this.renderer.toneMappingExposure = p.exposicion;
+    // el HDRI que suba la usuaria puede venir girado: se suma al giro de la tornamesa
+    const giroLuz = az + (this.rotacionHDRI || 0);
+    for (const e of [this.escena, this.escenaPT]) e.environmentRotation.set(0, giroLuz, 0);
     this.luces.rotation.set(0, az, 0);
     this.matP.envMapRotation.set(0, az, 0); this.matP2.envMapRotation.set(0, az, 0);
   }

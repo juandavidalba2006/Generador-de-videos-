@@ -1,5 +1,5 @@
-// Composición de cada cuadro: fondo de marca, sombra de contacto, la joya y los textos de Atelier & Co.
-import { logoPath, LOGO_W, LOGO_H } from './marca.js';
+// Composición de cada cuadro: fondo de marca, sombra de contacto, la joya y las capas de texto del proyecto.
+import { dibujarTextos, marcoSeleccion } from './textos.js';
 
 export const FONDOS = {
   perla:     { nombre: 'Perla',       centro: '#FCFBF8', borde: '#E2DCCF', oscuro: false, sombra: 0.30 },
@@ -18,19 +18,14 @@ export const FORMATOS = {
   catalogo: { nombre: 'Catálogo 16:9',        w: 1920, h: 1080 },
 };
 
-const SERIF = "'Bodoni Moda', Didot, 'Times New Roman', serif";
-const SANS = "'Instrument Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-
 export async function cargarFuentes() {
   try {
     await Promise.all([
-      document.fonts.load(`500 40px 'Bodoni Moda'`), document.fonts.load(`italic 400 40px 'Bodoni Moda'`), document.fonts.load(`400 40px 'Bodoni Moda'`),
-      document.fonts.load(`500 20px 'Instrument Sans'`), document.fonts.load(`400 20px 'Instrument Sans'`),
+      document.fonts.load(`500 40px 'Bodoni Moda'`), document.fonts.load(`italic 400 40px 'Bodoni Moda'`), document.fonts.load(`400 40px 'Bodoni Moda'`), document.fonts.load(`600 40px 'Bodoni Moda'`),
+      document.fonts.load(`500 20px 'Instrument Sans'`), document.fonts.load(`400 20px 'Instrument Sans'`), document.fonts.load(`600 20px 'Instrument Sans'`),
     ]);
   } catch (e) { /* si no cargan, el lienzo usa las fuentes de respaldo */ }
 }
-
-const facil = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
 export class Compositor {
   constructor(lienzo) { this.lienzo = lienzo; this.ctx = lienzo.getContext('2d'); this.capa = document.createElement('canvas'); this.cache = {}; }
@@ -58,8 +53,9 @@ export class Compositor {
     return c;
   }
 
-  // Dibuja el cuadro completo. render3D: lienzo WebGL; mascara: silueta (solo en el render final con trazado de rayos)
-  cuadro({ fondo, render3D, sombra, intensidadSombra = 1, mascara = null, textos, t }) {
+  // Dibuja el cuadro completo. render3D: lienzo WebGL; mascara: silueta (solo en el render final con trazado de rayos).
+  // capas: los textos del proyecto; t: segundo del video (null = todos quietos y completos); seleccion: capa con marco (solo vista previa)
+  cuadro({ fondo, render3D, sombra, intensidadSombra = 1, mascara = null, capas = [], t = null, duracion, seleccion = null }) {
     const ctx = this.ctx, W = this.lienzo.width, H = this.lienzo.height, f = FONDOS[fondo] || FONDOS.perla;
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     ctx.drawImage(this.fondo(fondo), 0, 0);
@@ -73,83 +69,9 @@ export class Compositor {
       ctx.drawImage(capa, 0, 0);
     }
     if (render3D) ctx.drawImage(render3D, 0, 0, W, H);
-    if (textos?.mostrar) this.textos(textos, f.oscuro, t);
+    dibujarTextos(ctx, capas, { W, H, t, oscuro: f.oscuro, duracion });
+    if (seleccion) marcoSeleccion(ctx, seleccion, { W, H });
   }
-
-  // Posiciones de los textos según el formato (las usa también la cámara para no tapar los textos con la joya)
-  static disposicion(W, H, tx) {
-    const u = Math.min(W, H) / 1080, vertical = H / W > 1.5, apaisado = W > H;
-    const x = apaisado ? W * 0.065 : W / 2, alinear = apaisado ? 'left' : 'center';
-    const marca = { y: vertical ? H * 0.085 : H * 0.07, lh: 64 * u };
-    const tamNombre = (vertical ? 76 : 64) * u;
-    const base = vertical ? H * 0.80 : H * 0.905;
-    const pie = vertical ? H * 0.865 : H - 34 * u;
-    let arriba = 0.03, abajo = 0.97;
-    if (tx?.mostrar && !apaisado) {
-      arriba = (marca.y + marca.lh + 80 * u + 34 * u) / H;
-      if (tx.nombre || tx.detalle || tx.precio) {
-        let y = base; if (tx.precio) y -= 62 * u; if (tx.detalle) y -= 44 * u; y -= 30 * u; if (tx.nombre) y -= tamNombre * 0.78;
-        abajo = (y - 34 * u) / H;
-      } else if (tx.pie) abajo = (pie - 19 * u - 34 * u) / H;
-    }
-    return { u, vertical, apaisado, x, alinear, marca, tamNombre, base, pie, arriba, abajo };
-  }
-
-  textos(tx, oscuro, t = 99) {
-    const ctx = this.ctx, W = this.lienzo.width, H = this.lienzo.height;
-    const D = Compositor.disposicion(W, H, tx), u = D.u, x = D.x;
-    const tinta = oscuro ? '#FFFFFF' : '#1E1B15', tinta2 = oscuro ? 'rgba(244,241,234,.78)' : '#5E5A50', oro = oscuro ? '#D9A83A' : '#B8871F';
-    const aparece = (desde, dur = 0.9) => tx.animar ? facil((t - desde) / dur) : 1;
-    ctx.textAlign = D.alinear; ctx.textBaseline = 'alphabetic';
-
-    // ----- Marca arriba: escarabajo + ATELIER&CO + "joyería de alta calidad" -----
-    const aM = aparece(0.1, 1.1);
-    if (aM > 0) {
-      ctx.save(); ctx.globalAlpha = aM;
-      const yTop = D.marca.y, lh = D.marca.lh, lw = lh * LOGO_W / LOGO_H;
-      ctx.save(); ctx.translate(D.apaisado ? x : x - lw / 2, yTop + (1 - aM) * 10 * u); ctx.scale(lh / LOGO_H, lh / LOGO_H); ctx.fillStyle = '#C49022'; ctx.fill(logoPath, 'evenodd'); ctx.restore();
-      ctx.fillStyle = tinta; ctx.font = `400 ${34 * u}px ${SERIF}`;
-      espaciado(ctx, 'ATELIER&CO', x, yTop + lh + 46 * u, 0.12 * 34 * u);
-      ctx.fillStyle = oro; ctx.font = `italic 400 ${22 * u}px ${SERIF}`;
-      ctx.fillText('joyería de alta calidad', x, yTop + lh + 80 * u);
-      ctx.restore();
-    }
-
-    // ----- Nombre de la pieza y detalles abajo -----
-    const aN = aparece(0.7, 1.0);
-    if (aN > 0 && (tx.nombre || tx.detalle || tx.precio)) {
-      ctx.save(); ctx.globalAlpha = aN; const sube = (1 - aN) * 24 * u;
-      let y = D.base + sube;
-      if (tx.precio) { ctx.fillStyle = tinta; ctx.font = `500 ${40 * u}px ${SERIF}`; ctx.fillText(tx.precio, x, y); y -= 62 * u; }
-      if (tx.detalle) { ctx.fillStyle = tinta2; ctx.font = `500 ${21 * u}px ${SANS}`; espaciado(ctx, tx.detalle.toUpperCase(), x, y, 0.16 * 21 * u); y -= 44 * u; }
-      // línea dorada fina, como el filete bajo la marca en la página
-      const ancho = 120 * u * aN; ctx.fillStyle = oro; ctx.globalAlpha = aN * 0.9; ctx.fillRect(D.apaisado ? x : x - ancho / 2, y, ancho, Math.max(1, 1.5 * u)); ctx.globalAlpha = aN;
-      y -= 30 * u;
-      if (tx.nombre) {
-        ctx.fillStyle = tinta; let tam = D.tamNombre; ctx.font = `500 ${tam}px ${SERIF}`;
-        const max = D.apaisado ? W * 0.34 : W * 0.86;
-        while (ctx.measureText(tx.nombre).width > max && tam > 24 * u) { tam -= 2 * u; ctx.font = `500 ${tam}px ${SERIF}`; }
-        ctx.fillText(tx.nombre, x, y);
-      }
-      ctx.restore();
-    }
-    const aP = aparece(1.3, 1.0);
-    if (aP > 0 && tx.pie) {
-      ctx.save(); ctx.globalAlpha = aP * 0.9; ctx.fillStyle = tinta2; ctx.font = `400 ${19 * u}px ${SANS}`;
-      if (D.apaisado) { ctx.textAlign = 'right'; espaciado(ctx, tx.pie, W - x, D.pie, 0.06 * 19 * u); }
-      else espaciado(ctx, tx.pie, x, D.pie, 0.06 * 19 * u);
-      ctx.restore();
-    }
-  }
-}
-
-function espaciado(ctx, texto, x, y, sep) {
-  const al = ctx.textAlign;
-  if ('letterSpacing' in ctx) { const prev = ctx.letterSpacing; ctx.letterSpacing = `${sep}px`; ctx.fillText(texto, x + (al === 'center' ? sep / 2 : al === 'right' ? sep : 0), y); ctx.letterSpacing = prev; return; }
-  const total = [...texto].reduce((s, c) => s + ctx.measureText(c).width, 0) + sep * (texto.length - 1);
-  let cx = al === 'center' ? x - total / 2 : al === 'right' ? x - total : x; ctx.textAlign = 'left';
-  for (const c of texto) { ctx.fillText(c, cx, y); cx += ctx.measureText(c).width + sep; }
-  ctx.textAlign = al;
 }
 
 function mezclar(a, b, t) {
