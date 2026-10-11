@@ -339,25 +339,33 @@ export class Estudio {
     if (this.ptSucio) { this.pt.setScene(this.escenaPT, this.camara); this.ptSucio = false; }
   }
 
-  // Renderiza el cuadro actual con trazado de rayos hasta llegar a las muestras pedidas
+  // Renderiza el cuadro actual con trazado de rayos hasta llegar a las muestras pedidas.
+  // Los cuadritos (tiles) se mandan a la tarjeta en tandas y se espera a que termine cada tanda antes de mandar otra:
+  // así nunca se acumula trabajo de más, la página sigue respondiendo y «Cancelar» actúa enseguida.
   async renderRealista(muestras, { alAvanzar, cancelado } = {}) {
     this.prepararPT();
-    const pt = this.pt;
+    const pt = this.pt, gl = this.renderer.getContext();
     pt.updateCamera(); pt.updateEnvironment(); pt.updateMaterials(); pt.reset();
-    let t0 = performance.now();
+    let tanda = 1, enCurso = null;
     while (pt.samples < muestras || pt.isCompiling) {
-      pt.renderSample();
-      // mientras se compila el shader (la primera vez puede tardar más de medio minuto) no se dibuja nada: se espera
-      // cuadro a cuadro, sin un tope de vueltas que corte antes de tiempo y deje en el lienzo la silueta de la máscara
-      if (pt.isCompiling || performance.now() - t0 > 40) {
-        alAvanzar?.(Math.min(1, pt.samples / muestras));
-        await new Promise(r => requestAnimationFrame(() => r()));
-        if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
-        t0 = performance.now();
-      }
+      const t0 = performance.now();
+      // mientras se compila el shader (la primera vez puede tardar más de medio minuto) no se dibuja nada: solo se espera
+      for (let i = 0; i < tanda && pt.samples < muestras && !pt.isCompiling; i++) pt.renderSample();
+      if (pt.isCompiling) pt.renderSample();
+      // una tanda en la tarjeta mientras se espera la anterior: la tarjeta no se queda quieta y tampoco se atrasa
+      const valla = vallaGPU(gl);
+      if (enCurso) await enCurso;
+      enCurso = valla;
+      // tandas de unos 25 a 60 ms: rápidas en una tarjeta potente, de a un cuadrito en una lenta
+      const dt = performance.now() - t0;
+      tanda = dt < 25 ? Math.min(tanda * 2, 256) : dt > 60 && tanda > 1 ? tanda >> 1 : tanda;
+      alAvanzar?.(Math.min(1, pt.samples / muestras));
+      if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
     }
+    await enCurso;
     alAvanzar?.(1);
   }
+
 
   // Dónde cae la sombra de contacto en la imagen (en píxeles)
   sombra() {
@@ -370,6 +378,20 @@ export class Estudio {
     const a = p(der.x * h, y, der.z * h), b = p(fwd.x * h, y, fwd.z * h);
     return { x: c.x, y: c.y, rx: Math.hypot(a.x - c.x, a.y - c.y), ry: Math.max(Math.hypot(b.x - c.x, b.y - c.y), 4) };
   }
+}
+
+// Promesa que se cumple cuando la tarjeta de video terminó todo lo que se le mandó hasta ahora (sin bloquear la página)
+function vallaGPU(gl) {
+  if (!gl.fenceSync) return new Promise(r => requestAnimationFrame(() => r()));
+  const valla = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  gl.flush();
+  return new Promise(r => {
+    const mirar = () => {
+      if (gl.isContextLost() || gl.getSyncParameter(valla, gl.SYNC_STATUS) === gl.SIGNALED) { gl.deleteSync(valla); r(); }
+      else setTimeout(mirar, 1);
+    };
+    setTimeout(mirar, 0);
+  });
 }
 
 function unir(a, b) {

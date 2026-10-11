@@ -421,7 +421,8 @@ function ajustarPrevia() {
   $('editor').style.setProperty('--aspecto', (f.w / f.h).toFixed(4));
   estado.sucio = true;
 }
-function cambio() { estado.sucio = true; estado.cancelar = estado.realista; }
+// cualquier cambio vuelve a dibujar la vista previa y detiene el cuadro hiperrealista (pero no anula un «Cancelar» en curso)
+function cambio() { estado.sucio = true; if (estado.realista) estado.cancelar = true; }
 
 // Franja libre de textos para encuadrar la joya (no depende del tiempo: la cámara no salta cuando entra un texto)
 let zonaGuardada = { k: '', z: null };
@@ -558,7 +559,8 @@ let bloqueo = null;
 async function trabajo(fn) {
   estado.ocupado = true; estado.cancelar = false; reproducir(false);
   for (const id of ['crear', 'foto', 'realista']) $(id).disabled = true;
-  $('progreso').hidden = false; $('barra').style.width = '0';
+  $('progreso').hidden = false; $('barra').style.width = '0'; $('cancelar').disabled = false;
+  $('progTexto').textContent = 'Preparando…'; $('progTiempo').textContent = '';
   try { bloqueo = await navigator.wakeLock?.request('screen'); } catch (e) { bloqueo = null; }
   const salida = document.createElement('canvas'), comp = new Compositor(salida);
   const f = FORMATOS[estado.formato];
@@ -574,8 +576,12 @@ async function trabajo(fn) {
     for (const id of ['crear', 'foto', 'realista']) $(id).disabled = !estudio.tieneModelo;
   }
 }
-const progreso = (p, texto, resta) => { $('barra').style.width = `${(p * 100).toFixed(1)}%`; $('progTexto').textContent = texto; $('progTiempo').textContent = resta != null ? `faltan ~${reloj(resta)}` : ''; };
-$('cancelar').addEventListener('click', () => { estado.cancelar = true; });
+const progreso = (p, texto, resta) => {
+  if (estado.cancelar) return;   // ya dice «Cancelando…»
+  $('barra').style.width = `${(p * 100).toFixed(1)}%`; $('progTexto').textContent = texto; $('progTiempo').textContent = resta != null ? `faltan ~${reloj(resta)}` : '';
+};
+// la tarjeta de video termina lo que tenga entre manos (puede tardar unos segundos): se avisa de inmediato
+$('cancelar').addEventListener('click', () => { estado.cancelar = true; $('cancelar').disabled = true; $('progTexto').textContent = 'Cancelando…'; $('progTiempo').textContent = ''; });
 const abortar = () => { if (estado.cancelar) throw new DOMException('Cancelado', 'AbortError'); };
 
 $('crear').addEventListener('click', () => trabajo(async (comp, salida, f) => {
