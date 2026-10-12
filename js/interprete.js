@@ -33,6 +33,31 @@ const ESTILOS_TEXTO = {
   titulo: ['serif', 76, 500, 0.044, 'auto'], subtitulo: ['sans-mayus', 24, 500, 0.3, 'oro'], detalle: ['sans-mayus', 21, 500, 0.16, 'auto'],
   precio: ['serif', 40, 500, 0, 'auto'], pie: ['sans', 19, 400, 0.06, 'auto'], gancho: ['sans', 64, 600, -0.01, 'auto'], libre: ['serif-italica', 46, 400, 0, 'auto'],
 };
+// Tamaños de los formatos (los de composicion.js) y alto aproximado de cada capa en el cuadro, en fracciones del alto: [arriba, abajo].
+// Son las mismas cuentas de textos.js (ascendente 0,78 del tamaño, una línea cada 1,18, filete dorado o pastilla; la marca es un
+// bloque de ~149 px que empieza en su y), para que un texto nuevo no se monte sobre otro aunque aquí no haya lienzo.
+const MEDIDAS_FORMATO = { reel: [1080, 1920], post: [1080, 1350], cuadrado: [1080, 1080], catalogo: [1920, 1080] };
+function cajaVertical(c, W, H) {
+  const u = Math.min(W, H) / 1080, y = (esNum(+c.y) ? +c.y : 0.5) * H;
+  if (c.tipo === 'marca') return [y / H, (y + 149 * (esNum(c.tam) ? c.tam : 34) / 34 * u) / H];
+  const [fuente, tamEstilo] = ESTILOS_TEXTO[c.estilo] || ESTILOS_TEXTO.libre;
+  const lineas = String(c.texto ?? '').split('\n');
+  const tamBase = esNum(c.tam) ? c.tam : c.estilo === 'titulo' && H / W <= 1.5 ? 64 : tamEstilo;
+  let tam = tamBase * u;
+  // un texto largo se achica para caber a lo ancho (no se parte en más líneas)
+  const ancho = Math.max(1, ...lineas.map(l => [...l].length)) * tam * 0.56;
+  const max = (esNum(c.ancho) ? c.ancho : W > H ? (c.estilo === 'titulo' ? 0.34 : 0.42) : 0.86) * W;
+  if (ancho > max) tam = Math.max(tam * 0.32, tam * max / ancho);
+  const mayus = (c.fuente || fuente) === 'sans-mayus', fondo = c.fondo || (c.estilo === 'titulo' ? 'linea-oro' : c.estilo === 'precio' ? 'pastilla' : 'ninguno');
+  const ultima = y + (lineas.length - 1) * tam * 1.18;
+  let a = y - tam * 0.78, b = ultima + tam * (mayus ? 0.08 : 0.22);
+  if (fondo === 'pastilla') { const py = Math.max(6 * u, tam * 0.3); a -= py; b += py; }
+  else if (fondo === 'linea-oro') b = Math.max(b, ultima + (30 * limitar(tamBase / 76, 0.55, 1.5) + 1.5) * u);
+  return [a / H, b / H];
+}
+
+const MAX_TEXTO_CAPA = 140;   // el mismo límite del panel de textos (un texto más corto ya no se reconoce como la misma capa)
+
 export const EFECTOS_IDS = Object.keys(EFECTOS_INFO);
 export const ESTILOS_MUSICA_IDS = Object.keys(MUSICA_INFO);
 export const ESTILOS_TEXTO_IDS = Object.keys(ESTILOS_TEXTO);
@@ -93,7 +118,7 @@ export function normalizarAcciones(crudo, { duracion = 8 } = {}) {
       const entra = r2(limitar(numero(c.entra, 0), 0, Math.max(0, D - 0.2)));
       let sale = numero(c.sale, -1);
       sale = sale < 0 || sale >= D - 1e-3 || sale <= entra + 0.1 ? -1 : r2(sale);
-      return { texto: c.texto.trim().slice(0, 120), estilo: de(ESTILOS_TEXTO, c.estilo, 'libre'), y: r4(limitar(numero(c.y, 0.5), 0.02, 0.98)), entra, sale, animacion: ANIMACIONES_IDS.includes(c.animacion) ? c.animacion : 'aparecer' };
+      return { texto: c.texto.trim().slice(0, MAX_TEXTO_CAPA), estilo: de(ESTILOS_TEXTO, c.estilo, 'libre'), y: r4(limitar(numero(c.y, 0.5), 0.02, 0.98)), entra, sale, animacion: ANIMACIONES_IDS.includes(c.animacion) ? c.animacion : 'aparecer' };
     });
   }
   const so = esObj(a.sonidos) ? a.sonidos : {};
@@ -104,7 +129,8 @@ export function normalizarAcciones(crudo, { duracion = 8 } = {}) {
       .sort((x, y) => x.t - y.t);
   }
   const mu = esObj(a.musica) ? a.musica : {};
-  const estilo = mu.estilo === 'ninguna' ? 'ninguna' : de(MUSICA_INFO, mu.estilo, null);
+  // «actual» = la música que ya hay (también la canción que subió la joyera): solo cambia el volumen
+  const estilo = mu.estilo === 'ninguna' || mu.estilo === 'actual' ? mu.estilo : de(MUSICA_INFO, mu.estilo, null);
   if (mu.cambiar === true && estilo) {
     const vol = numero(mu.volumen, 0);
     r.musica = { cambiar: true, estilo, volumen: estilo === 'ninguna' ? 0 : r2(vol > 0 ? limitar(vol, 0.05, 1) : 0.55) };
@@ -120,7 +146,7 @@ export function resumenAcciones(acciones) {
   if (a.bucle === 'si') out.push('∞ En bucle'); else if (a.bucle === 'no') out.push('→ Sin bucle');
   if (a.textos?.cambiar) out.push(a.textos.capas.length ? `Aa ${a.textos.capas.length} ${a.textos.capas.length === 1 ? 'texto' : 'textos'}` : 'Aa Sin textos');
   if (a.sonidos?.cambiar) out.push(a.sonidos.clips.length ? `♪ ${a.sonidos.clips.length} ${a.sonidos.clips.length === 1 ? 'sonido' : 'sonidos'}` : '♪ Sin efectos');
-  if (a.musica?.cambiar) out.push(a.musica.estilo === 'ninguna' ? '♫ Sin música' : `♫ ${MUSICA_INFO[a.musica.estilo]?.nombre || a.musica.estilo}`);
+  if (a.musica?.cambiar) out.push(a.musica.estilo === 'ninguna' ? '♫ Sin música' : a.musica.estilo === 'actual' ? `♫ Volumen ${Math.round(a.musica.volumen * 100)} %` : `♫ ${MUSICA_INFO[a.musica.estilo]?.nombre || a.musica.estilo}`);
   return out;
 }
 
@@ -147,14 +173,17 @@ export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAccion
   if (a.sonidos.cambiar) { proyecto.audio.clips = mezclarClips(proyecto.audio.clips, a.sonidos.clips.filter(c => c.t < D)); hecho.sonidos = true; }
   if (a.musica.cambiar) {
     const m = esObj(proyecto.audio.musica) ? proyecto.audio.musica : null, { estilo, volumen } = a.musica;
-    if (estilo === 'ninguna') proyecto.audio.musica = null;
-    else if (m && m.estilo === estilo && !m.archivo) m.volumen = volumen;   // mismo estilo: solo el volumen (conserva su ritmo)
+    if (estilo === 'actual') { if (m) { m.volumen = volumen; hecho.musica = true; } }   // la que hay (la canción subida no se pierde)
     else {
-      const base = typeof musicaNueva === 'function' ? musicaNueva(estilo, m) : null;
-      proyecto.audio.musica = esObj(base) ? { ...base, estilo, volumen }
-        : { estilo, bpm: MUSICA_INFO[estilo].bpm, volumen, inicio: 0, fundidoSalida: esNum(m?.fundidoSalida) ? m.fundidoSalida : 1.5, archivo: null };
+      if (estilo === 'ninguna') proyecto.audio.musica = null;
+      else if (m && m.estilo === estilo && !m.archivo) m.volumen = volumen;   // mismo estilo: solo el volumen (conserva su ritmo)
+      else {
+        const base = typeof musicaNueva === 'function' ? musicaNueva(estilo, m) : null;
+        proyecto.audio.musica = esObj(base) ? { ...base, estilo, volumen }
+          : { estilo, bpm: MUSICA_INFO[estilo].bpm, volumen, inicio: 0, fundidoSalida: esNum(m?.fundidoSalida) ? m.fundidoSalida : 1.5, archivo: null };
+      }
+      hecho.musica = true;
     }
-    hecho.musica = true;
   }
   hecho.algo = hecho.duracion || hecho.bucle || hecho.pistas.length > 0 || hecho.textos || hecho.sonidos || hecho.musica;
   return hecho;
@@ -218,7 +247,7 @@ export function resumenProyecto(proyecto = {}, info = {}) {
   }
   const textos = (Array.isArray(p.textos) ? p.textos : []).filter(esObj).slice(0, 16).map(c => c.tipo === 'marca'
     ? { marca: true, y: r2(+c.y || 0), entra: r2(+c.entra || 0) }
-    : { texto: String(c.texto ?? '').slice(0, 120), estilo: c.estilo || 'libre', y: r4(+c.y || 0), entra: r2(+c.entra || 0), sale: esNum(c.sale) ? r2(c.sale) : -1, animacion: c.animacion || 'aparecer', ...(c.oculta ? { oculta: true } : {}) });
+    : { texto: String(c.texto ?? '').slice(0, MAX_TEXTO_CAPA), estilo: c.estilo || 'libre', y: r4(+c.y || 0), entra: r2(+c.entra || 0), sale: esNum(c.sale) ? r2(c.sale) : -1, animacion: c.animacion || 'aparecer', ...(c.oculta ? { oculta: true } : {}) });
   const m = esObj(p.audio?.musica) ? p.audio.musica : null;
   const medidas = Array.isArray(i.medidas) ? { x: i.medidas[0], y: i.medidas[1], z: i.medidas[2] } : esObj(i.medidas) ? i.medidas : null;
   return {
@@ -250,10 +279,14 @@ export const AYUDA = 'Puedo mover la cámara, cambiar la duración y poner texto
 const PALABRAS = { un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, dieciocho: 18, veinte: 20, veinticinco: 25, treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, noventa: 90, cien: 100 };
 const COMPUESTOS = [[/\bciento\s+ochenta\b/g, '180'], [/\btrescientos\s+sesenta\b/g, '360'], [/\bsetecientos\s+veinte\b/g, '720'], [/\bdoscientos\s+setenta\b/g, '270'], [/\bcuarenta\s+y\s+cinco\b/g, '45'], [/\btreinta\s+y\s+(?:cinco|seis)\b/g, '35']];
 const PAL = Object.keys(PALABRAS).join('|');
+const ERRATAS = [[/\bbuelta(s?)\b/g, 'vuelta$1'], [/\bdiama[mn]?[mn]te(s?)\b/g, 'diamante$1'], [/\bdiamnte(s?)\b/g, 'diamante$1'], [/\bfr[ea]?nte\b/g, 'frente'],
+  [/\ba[sc]er[ck](?=[aeo])/g, 'acerc'], [/\baserqu/g, 'acerqu'], [/\bpiedar(s?)\b/g, 'piedra$1'], [/\bpeidra(s?)\b/g, 'piedra$1'], [/\bgriar?\b/g, 'gira'], [/\bmusic(?=\s|$)/g, 'musica']];
 
 // minúsculas, sin tildes, números escritos con palabras → cifras, fracciones de vuelta y de segundo
 function normalizar(s) {
   let x = ' ' + s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + ' ';
+  // errores de ortografía frecuentes en las palabras clave (b/v, letras que se saltan o se cambian)
+  for (const [re, v] of ERRATAS) x = x.replace(re, v);
   x = x.replace(/[¿¡"“”«»()]/g, ' ').replace(/[°º]/g, ' grados ').replace(/(\d),(\d)/g, '$1.$2');
   for (const [re, v] of COMPUESTOS) x = x.replace(re, v);
   x = x.replace(new RegExp(`\\b(${PAL})\\b(?=\\s+(?:vueltas?|segundos?|seg|grados?|giros?|cuartos?|veces)\\b)`, 'g'), (m, w) => PALABRAS[w]);
@@ -300,15 +333,18 @@ function extraer(original) {
 }
 
 // ---------- Partir en cláusulas ("primero…, luego…, y al final…") ----------
+// nombres de efectos: «whoosh al inicio y brillo cuando…» son dos pedidos, cada uno con su momento
+const EFECTOS_PALABRAS = 'whoosh|wo+sh|wu+sh|swoosh|riser|808|drop|impactos?|golpes?|boom|campanas?|campanitas?|ding|timbre|bling|sparkle|brillitos?|brillos?(?!\\s+dorad)|chispas?|chispitas?|glitch|latidos?|swipe|pop|clic|click|obturador|shutter|platillo|cha\\s*-?\\s*ching|caja\\s+registradora';
 const VERBOS = 'gir|rot|da\\b|dale|acerc|acerqu|aproxim|alej|sub|baj|termin|acab|enfoc|enfoqu|inclin|lade|muev|mov|fren|aceler|vuelv|volv|regres|muestr|ense|qued|pon|agreg|anad|mete|quit|usa\\b|cambi|haz|hag|empie|empez|comien|arranc|abr|cierr|cerr|zoom|vista|plano|balanc|orbit|rebot|revel|desliz|centr|ilumin|oscurec|aclar|desciend|elev';
 function partir(x) {
   let s = x
-    .replace(/\b(?:fren\w*|desaceler\w*|suave|lento|despacio)\s+al\s+final\b/g, ' frenafinal ')
+    .replace(/\b(?:fren(?!te\b)\w*|desaceler\w*|suave|lento|despacio)\s+al\s+final\b/g, ' frenafinal ')   // («de frente al final» no)
     .replace(/\b(?:rapido|fuerte|con\s+fuerza)\s+al\s+(?:inicio|principio|comienzo)\b|\b(?:arranca\w*|empieza\w*)\s+(?:rapido|con\s+fuerza)\b/g, ' rapidoinicio ')
     .replace(/(?:\.(?!\d)|[;!?\n])+/g, ' ¦ ').replace(/,/g, ' ¦ ')   // el punto de «0.5 vueltas» no parte la frase
     .replace(/\s+y\s+(al\s+mismo\s+tiempo|a\s+la\s+vez)\s+/g, ' | $1 ')   // «…y al mismo tiempo baja»: otra indicación en el mismo tramo
     .replace(/\b(?:y\s+)?(primero|luego|despues|entonces|finalmente|por\s+ultimo|para\s+terminar|para\s+cerrar|para\s+finalizar|al\s+final|a\s+continuacion)\b/g, ' | $1 ')
     .replace(new RegExp(`\\s+y\\s+(?=(?:se\\s+|que\\s+|la\\s+|lo\\s+|le\\s+)?(?:${VERBOS}))`, 'g'), ' | ')
+    .replace(new RegExp(`\\s+y\\s+(?=(?:(?:un|una|el|la|los|las|otro|otra)\\s+)?(?:${EFECTOS_PALABRAS})\\b)`, 'g'), ' | ')
     .replace(/\s+que\s+(?=(?:se\s+)?(?:gir|baj|sub|acerc|acerqu|alej|termin|acab|enfoc|qued|vuelv|regres|rot|inclin|desciend))/g, ' | ');
   const partes = []; let tras = '¦';
   for (const trozo of s.split(/([|¦])/)) {
@@ -393,7 +429,8 @@ function analizar(c0, citas) {
   // quitar cosas
   if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|sin|remueve)\s+(?:todos\s+)?(?:los\s+|las\s+)?(?:textos|letras|titulos|letreros|escritos)\b/)) k.quitar.textos = true;
   if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|sin)\s+(?:el\s+)?precio\b/)) k.quitar.precio = true;
-  if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|sin)\s+(?:todos\s+)?(?:los\s+)?(?:sonidos|efectos(?:\s+de\s+sonido)?|sfx)\b/)) k.quitar.sonidos = true;
+  const qs = sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|sin)\s+(la\s+musica\s+(?:y|e)\s+)?(?:todos\s+)?(?:los\s+)?(?:sonidos|efectos(?:\s+de\s+sonido)?|sfx)\b(\s+(?:y|e)\s+(?:la\s+)?musica\b)?/);
+  if (qs) { k.quitar.sonidos = true; if (qs[1] || qs[2]) k.musica = { estilo: 'ninguna' }; }
   if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|apaga\w*|silencia\w*)\s+(?:la\s+)?(?:musica|cancion)\b|\bsin\s+(?:musica|cancion)\b|\bsilencio\b/)) k.musica = { estilo: 'ninguna' };
   // duración del video
   let m = sacar(/\b(?:que\s+)?(?:dur[ea]n?|duracion(?:\s+de)?|hazlo\s+de|video\s+de|reel\s+de|largo\s+de|alargalo\s+a|acortalo\s+a)\s*(?:de\s+|a\s+)?(\d+(?:\.\d+)?)\s*(?:segundos?)?/) || sacar(/\b(\d+(?:\.\d+)?)\s+segundos\s+de\s+(?:duracion|largo|video)\b/);
@@ -408,15 +445,15 @@ function analizar(c0, citas) {
   const conMusica = hay(/\b(?:musica|cancion|ritmo|melodia|beat|base\s+musical|fondo\s+musical)\b/) || hay(/\b(?:phonk|trap|house|lo\s*-?\s*fi|lofi|reggaet\w*|regueton)\b/);
   if (conMusica && !k.musica) {
     for (const [id, re] of MUSICAS) if (hay(re)) { k.musica = { estilo: id }; r = r.replace(re, ' '); break; }
-    if (sacar(/\b(?:baja\w*|bajar)\s+(?:el\s+volumen\s+(?:de\s+)?)?(?:la\s+)?musica\b|\bmusica\s+(?:mas\s+)?(?:suave|bajita|baja|bajito|tenue|despacio|de\s+fondo)\b/)) k.musica = { ...(k.musica || {}), volumen: 0.3 };
-    else if (sacar(/\b(?:sube\w*|subir)\s+(?:el\s+volumen\s+(?:de\s+)?)?(?:la\s+)?musica\b|\bmusica\s+(?:mas\s+)?(?:fuerte|alta|duro)\b/)) k.musica = { ...(k.musica || {}), volumen: 0.85 };
+    if (sacar(/\b(?:baja\w*|bajar)\s+(?:el\s+volumen\s+(?:de\s+)?)?(?:la\s+)?musica\b|\bmusica\s+(?:mas\s+)?(?:suave|bajita|baja|bajito|tenue|despacio|de\s+fondo)\b|\b(?:pero\s+)?(?:mas\s+)?bajit[oa]\b|\bpero\s+(?:mas\s+)?(?:suave|baj[oa]|tenue)\b/)) k.musica = { ...(k.musica || {}), volumen: 0.3 };
+    else if (sacar(/\b(?:sube\w*|subir)\s+(?:el\s+volumen\s+(?:de\s+)?)?(?:la\s+)?musica\b|\bmusica\s+(?:mas\s+)?(?:fuerte|alta|duro)\b|\bpero\s+(?:mas\s+)?(?:fuerte|alt[oa])\b/)) k.musica = { ...(k.musica || {}), volumen: 0.85 };
     if (!k.musica && sacar(/\b(?:pon\w*|agrega\w*|añade|anade|mete\w*|usa)\s+(?:una\s+|la\s+|de\s+)?(?:musica|cancion)\b/)) k.musica = { estilo: 'auto' };
     r = r.replace(/\b(?:musica|cancion|ritmo|melodia|beat|de\s+fondo)\b/g, ' ');
     k.entendido ||= !!k.musica;
   }
   // luz (antes que los sonidos: «más brillo» es exposición, no el efecto)
-  if (sacar(/\bmas\s+(?:luz|brillo|brillante|clar[oa]|iluminad[oa]|exposicion)\b|\bilumina\w*|\baclar\w*|\bsube\s+la\s+(?:luz|exposicion)\b/)) k.metas.exposicion = { valor: 1.4 };
-  else if (sacar(/\bmenos\s+(?:luz|brillo|exposicion)\b|\bmas\s+oscur[oa]\b|\boscurec\w*|\bbaja\s+la\s+(?:luz|exposicion)\b/)) k.metas.exposicion = { valor: 0.9 };
+  if (sacar(/\bmas\s+(?:luz|brillo|brillante|clar[oa]|iluminad[oa]|exposicion)\b|\bilumina\w*|\baclar\w*|\b(?:sube|subir|subele|aumenta\w*|incrementa\w*)\s+(?:el\s+|la\s+)?(?:luz|brillo|exposicion)\b/)) k.metas.exposicion = { valor: 1.4 };
+  else if (sacar(/\bmenos\s+(?:luz|brillo|exposicion)\b|\bmas\s+oscur[oa]\b|\boscurec\w*|\b(?:baja|bajar|bajale|disminu\w*|reduce|reducir|reducele)\s+(?:el\s+|la\s+)?(?:luz|brillo|exposicion)\b/)) k.metas.exposicion = { valor: 0.9 };
   if (sacar(/\b(?:destellos?\s+de\s+luz|destello|flash(?!\s+de\s+foto)|fogonazo|resplandor)\b/)) k.metas.exposicion = { destello: true };
   // «que la piedra brille»: la cámara va a la piedra, destello de luz y sonido de brillo justo cuando llega
   if (sacar(/\b(?:brill(?:e|en|ando)|destell(?:e|en|ando)|resplandezca\w*|reluzca\w*|centell\w*)\b/)) {
@@ -923,16 +960,34 @@ function interpretarSinRed(texto, proyecto, info) {
   // ----- textos -----
   const textosNuevos = [];
   const quitarTextos = cls.some(k => k.quitar.textos), quitarPrecio = cls.some(k => k.quitar.precio);
-  let simples = quitarTextos ? [] : P.textos.filter(c => c.tipo !== 'marca' && typeof c.texto === 'string' && c.texto.trim()).map(c => ({
-    texto: c.texto, estilo: de(ESTILOS_TEXTO, c.estilo, 'libre'), y: limitar(+c.y || 0.5, 0.02, 0.98),
-    entra: r2(limitar((+c.entra || 0) * escala, 0, D)), sale: esNum(c.sale) ? r2(limitar(c.sale * escala, 0, D)) : -1, animacion: ANIMACIONES_IDS.includes(c.animacion) ? c.animacion : 'aparecer',
-  }));
+  const origen = new Map();   // capa simple → capa del proyecto (su tamaño, fondo y si está oculta: para medir su caja)
+  let simples = quitarTextos ? [] : P.textos.filter(c => c.tipo !== 'marca' && typeof c.texto === 'string' && c.texto.trim()).map(c => {
+    const s = {
+      texto: c.texto, estilo: de(ESTILOS_TEXTO, c.estilo, 'libre'), y: limitar(+c.y || 0.5, 0.02, 0.98),
+      entra: r2(limitar((+c.entra || 0) * escala, 0, D)), sale: esNum(c.sale) ? r2(limitar(c.sale * escala, 0, D)) : -1, animacion: ANIMACIONES_IDS.includes(c.animacion) ? c.animacion : 'aparecer',
+    };
+    origen.set(s, c); return s;
+  });
   if (quitarPrecio) simples = simples.filter(s => s.estilo !== 'precio');
-  // primer lugar libre de la zona pedida (sin pisar otra capa ni la marca); en 9:16 la joya ocupa el centro
+  // primer lugar libre de la zona pedida: con la caja real de cada capa (no solo su y: la marca mide casi 0,08 del alto hacia
+  // abajo) y solo contra las que se ven al mismo tiempo; en 9:16 la joya ocupa el centro
+  const [W, H] = MEDIDAS_FORMATO[info.formato] || MEDIDAS_FORMATO.reel, margen = 18 * Math.min(W, H) / 1080 / H;
   const HUECOS = { arriba: [0.17, 0.235, 0.3, 0.12, 0.36], abajo: [0.84, 0.78, 0.9, 0.72, 0.66], centro: [0.5, 0.44, 0.56] };
-  const hueco = pos => {
-    const ocupadas = simples.map(s => s.y).concat(P.textos.filter(c => c.tipo === 'marca').map(c => +c.y || 0.085));
-    return HUECOS[pos].find(y => ocupadas.every(o => Math.abs(o - y) > 0.05)) ?? HUECOS[pos][0];
+  const BANDAS = { arriba: [0.03, 0.44], abajo: [0.56, 0.97], centro: [0.36, 0.64] };
+  const tramo = o => [+o.entra || 0, esNum(o.sale) && o.sale >= 0 ? o.sale : D];
+  const hueco = (pos, nuevo) => {
+    const [n0, n1] = tramo(nuevo), juntas = o => { const [a, b] = tramo(o); return a < n1 && n0 < b; };
+    const marcas = P.textos.filter(c => c.tipo === 'marca').map(c => ({ ...c, entra: (+c.entra || 0) * escala, sale: esNum(c.sale) ? c.sale * escala : -1 }));
+    const otras = [...simples.map(s => ({ ...(origen.get(s) || {}), ...s })), ...marcas].filter(o => !o.oculta && juntas(o)).map(o => cajaVertical(o, W, H));
+    const caja = y => cajaVertical({ ...nuevo, y }, W, H);
+    const choque = y => { const [a, b] = caja(y); return otras.reduce((t, [c, d]) => t + Math.max(0, Math.min(b, d + margen) - Math.max(a, c - margen)), 0); };
+    const [lo, hi] = BANDAS[pos], [a5, b5] = caja(0.5), sube = 0.5 - a5, baja = b5 - 0.5;
+    const dentro = y => y >= lo && y <= hi && y - sube >= 0.02 && y + baja <= 0.98;
+    // además de los lugares de siempre, justo debajo o encima de cada capa que ya está
+    const ref = HUECOS[pos][0], junto = otras.flatMap(([c, d]) => [d + margen + sube + 1e-3, c - margen - baja - 1e-3]).sort((x, y) => Math.abs(x - ref) - Math.abs(y - ref));
+    const candidatos = [...HUECOS[pos], ...junto].filter(dentro);
+    const libre = candidatos.find(y => choque(y) === 0) ?? [...candidatos].sort((x, y) => choque(x) - choque(y))[0];
+    return r4(libre ?? HUECOS[pos][0]);
   };
   const tiempoTexto = (k, estilo) => {
     const T = k.t; let entra = 0.5, sale = -1;
@@ -949,14 +1004,17 @@ function interpretarSinRed(texto, proyecto, info) {
     const estilo = tx.estilo || ((tx.pos === 'arriba' || !tx.pos && /[?!¿¡]/.test(texto)) ? (/[?!¿¡]/.test(texto) || texto.length <= 18 ? 'gancho' : 'subtitulo') : texto.length <= 24 ? 'titulo' : 'detalle');
     const pos = tx.pos || (estilo === 'gancho' || estilo === 'subtitulo' ? 'arriba' : 'abajo');
     const { entra, sale } = tiempoTexto(k, estilo);
-    const s = { texto, estilo, y: hueco(pos), entra, sale, animacion: tx.anim || (estilo === 'gancho' ? 'zoom' : estilo === 'titulo' ? 'subir' : estilo === 'subtitulo' ? 'maquina' : 'aparecer') };
+    const s = { texto, estilo, y: hueco(pos, { texto, estilo, entra, sale }), entra, sale, animacion: tx.anim || (estilo === 'gancho' ? 'zoom' : estilo === 'titulo' ? 'subir' : estilo === 'subtitulo' ? 'maquina' : 'aparecer') };
     simples.push(s); textosNuevos.push(`«${texto}» ${pos === 'arriba' ? 'arriba' : pos === 'centro' ? 'en el centro' : 'abajo'}`);
   }
   if (precio) {
     const k = cls.find(c => c.precio) || { t: {}, precio: {} };
     const existente = simples.find(s => s.estilo === 'precio');
     if (existente) existente.texto = precio;
-    else { const { entra, sale } = tiempoTexto(k, 'precio'); simples.push({ texto: precio, estilo: 'precio', y: hueco(k.precio?.pos || 'abajo'), entra: k.t.a === undefined && !k.t.inicio && !k.t.final ? Math.min(1, D / 4) : entra, sale, animacion: k.precio?.anim || 'zoom' }); }
+    else {
+      const t = tiempoTexto(k, 'precio'), entra = k.t.a === undefined && !k.t.inicio && !k.t.final ? Math.min(1, D / 4) : t.entra, sale = t.sale;
+      simples.push({ texto: precio, estilo: 'precio', y: hueco(k.precio?.pos || 'abajo', { texto: precio, estilo: 'precio', entra, sale }), entra, sale, animacion: k.precio?.anim || 'zoom' });
+    }
     textosNuevos.push(`precio ${precio.replace(/\$ /, '$\u00a0')}`);   // en la respuesta el precio no se parte en dos líneas
   }
   if (textosNuevos.length || quitarTextos || quitarPrecio) salida.textos = { cambiar: true, capas: simples.slice(0, 10) };
@@ -1007,11 +1065,17 @@ function interpretarSinRed(texto, proyecto, info) {
   const mus = cls.map(k => k.musica).filter(Boolean).reduce((a, b) => ({ ...a, ...b }), null);
   const actual = P.audio.musica;
   let musicaTxt = '';
-  if (mus) {
-    let estilo = mus.estilo && mus.estilo !== 'auto' ? mus.estilo : actual?.estilo && Object.hasOwn(MUSICA_INFO, actual.estilo) ? actual.estilo : 'lujo';
+  const nombrada = !!mus?.estilo && mus.estilo !== 'auto';
+  const hayActual = esObj(actual) && (!!actual.archivo || Object.hasOwn(MUSICA_INFO, actual.estilo ?? ''));
+  if (mus && !nombrada && hayActual) {
+    // sin nombrar un estilo se conserva la música que hay (también la canción que subió) y solo cambia el volumen
+    if (mus.volumen !== undefined) { salida.musica = { cambiar: true, estilo: 'actual', volumen: mus.volumen }; musicaTxt = `${actual.archivo ? 'Tu canción' : 'La música'} ahora suena ${mus.volumen < 0.5 ? 'más suave' : 'más fuerte'}.`; }
+    else notas.push(actual.archivo ? 'Ya suena tu canción: la dejé como está.' : `Ya tiene música (${MUSICA_INFO[actual.estilo].nombre}): la dejé como está.`);
+  } else if (mus) {
+    const estilo = nombrada ? mus.estilo : 'lujo';
     const volumen = estilo === 'ninguna' ? 0 : mus.volumen ?? (actual && actual.estilo === estilo && esNum(actual.volumen) ? actual.volumen : 0.55);
     salida.musica = { cambiar: true, estilo, volumen };
-    musicaTxt = estilo === 'ninguna' ? 'Quité la música.' : mus.estilo && mus.estilo !== 'auto' ? `Música: ${MUSICA_INFO[estilo].nombre}${mus.volumen ? (mus.volumen < 0.5 ? ', suave' : ', fuerte') : ''}.` : mus.volumen ? `Música ${mus.volumen < 0.5 ? 'más suave' : 'más fuerte'}.` : `Música: ${MUSICA_INFO[estilo].nombre}.`;
+    musicaTxt = estilo === 'ninguna' ? 'Quité la música.' : nombrada ? `Música: ${MUSICA_INFO[estilo].nombre}${mus.volumen ? (mus.volumen < 0.5 ? ', suave' : ', fuerte') : ''}.` : mus.volumen ? `Música ${mus.volumen < 0.5 ? 'más suave' : 'más fuerte'}.` : `Música: ${MUSICA_INFO[estilo].nombre}.`;
   } else if (cls.some(k => k.elegante) && !actual) {
     salida.musica = { cambiar: true, estilo: 'lujo', volumen: 0.5 };
     musicaTxt = 'Le puse música de Lujo (piano suave).';
@@ -1039,7 +1103,12 @@ function interpretarSinRed(texto, proyecto, info) {
       else {
         const pg = [];
         const dir = g.dir || (g.reves ? -1 : 0);
-        if (g.delta !== undefined) pg.push(`gira ${vueltasTxt(g.delta)}${dir < 0 ? ' a la derecha' : dir > 0 ? ' a la izquierda' : ''}`);
+        if (g.delta !== undefined) {
+          // el giro tiene tope (±3 vueltas en total): se cuenta lo que de verdad gira, no lo que se pidió
+          const real = g.a !== undefined && g.de !== undefined && !g.frente && !g.lado && !g.detras ? Math.abs(g.a - g.de) : Math.abs(g.delta);
+          if (real < Math.abs(g.delta) - 1) notas.push(`El giro llega hasta 3 vueltas en total (${PISTAS.giro.max}°): no cabe más en la pista de giro.`);
+          pg.push(`gira ${vueltasTxt(real)}${dir < 0 ? ' a la derecha' : dir > 0 ? ' a la izquierda' : ''}`);
+        }
         if (g.lado) pg.push('queda de perfil'); else if (g.detras) pg.push('muestra la parte de atrás');
         if (pg.length) partes.push(pg.join(' y '));
       }
@@ -1093,7 +1162,7 @@ function interpretarSinRed(texto, proyecto, info) {
   if (sonidosTxt.length) frases.push(`agregué ${sonidosTxt.length === 1 ? 'un sonido' : 'sonidos'}: ${sonidosTxt.join(', ')}`);
   if (quitarSonidos) frases.push('quité los efectos de sonido');
   const cuerpo = frases.length ? frases.map((f, i) => i ? f : f[0].toUpperCase() + f.slice(1)).join('; ') + '.' : '';
-  const todo = ['Listo.', cuerpo, musicaTxt, ...notas].filter(Boolean).join(' ').replace(/[ \t\r\n]+/g, ' ').trim();   // sin tocar los espacios duros
+  const todo = ['Listo.', cuerpo, musicaTxt, ...new Set(notas)].filter(Boolean).join(' ').replace(/[ \t\r\n]+/g, ' ').trim();   // sin tocar los espacios duros
   // «más lento» en bucle alarga el video: todo lo calculado se lleva a la nueva duración
   if (alargar) {
     const f = alargar / D;

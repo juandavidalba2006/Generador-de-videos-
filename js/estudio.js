@@ -62,6 +62,10 @@ function paneles(oscuro) {
     const t = i * 2.399963 + 1.1, y = 0.9 - (i + 0.5) / 14 * 1.6, rr = Math.sqrt(1 - y * y);
     panel(0.45, 0.45, 26 + (i % 2) * 10, [Math.cos(t) * rr * 12, y * 12, Math.sin(t) * rr * 12]);
   }
+  if (oscuro) for (let i = 0; i < 36; i++) {
+    const t = i * 2.399963 + 0.4, y = -0.05 - (i + 0.5) / 36 * 0.9, rr = Math.sqrt(1 - y * y);
+    panel(2, 2, 8 + (i % 3) * 6, [Math.cos(t) * rr * 12, y * 12, Math.sin(t) * rr * 12], i % 4 === 1 ? 0xfff0d8 : 0xffffff);
+  }
   for (const p of P) {   // ejes del panel, que mira hacia el centro
     p.n = p.pos.clone().normalize(); p.dist = p.pos.length();
     const ref = Math.abs(p.n.y) > 0.99 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
@@ -301,17 +305,26 @@ export class Estudio {
     // corre la mira para que la pieza quede centrada en la franja libre, más la posición vertical y lateral de los keyframes
     const cy = 1 - (zona.arriba + zona.abajo) + p.altura, cx = p.lateral;
     const arribaCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1), derCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    // el "arriba" es el de la cámara ya orientada: en vista cenital la mira corrida puede pasar por la vertical y, con el
+    // arriba del mundo, la imagen se daría vuelta de golpe (con este arriba el encuadre normal queda igual)
+    cam.up.copy(arribaCam);
     cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist).addScaledVector(derCam, -cx * tv * cam.aspect * dist));
     cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
     cam.focusDistance = cam.position.distanceTo(foco);
-    // desenfoque 0 = todo nítido; 1 = macro con poca profundidad de campo (solo se ve con trazado de rayos)
-    cam.fStop = p.desenfoque > 0 ? M.lerp(22, 1.8, p.desenfoque) : 1e6;
+    // desenfoque 0 = todo nítido; 1 = macro con poca profundidad de campo (solo se ve con trazado de rayos).
+    // El trazador mide la apertura en metros (bokehSize · 0,5·10⁻³) y la pieza está en mm: la apertura se calcula con el tamaño
+    // de la pieza (hasta 0,3 de su radio), así se nota igual en un arete que en un anillo. Nunca es 0 exacto: pasar de 0 a otro
+    // valor obligaría a recompilar el shader a mitad del video.
+    cam.bokehSize = Math.max(1e-3, M.clamp(p.desenfoque || 0, 0, 1) * this.radio * 0.3 * 1000);
     this.renderer.toneMappingExposure = p.exposicion;
     // el HDRI que suba la usuaria puede venir girado: se suma al giro de la tornamesa
     const giroLuz = az + (this.rotacionHDRI || 0);
     for (const e of [this.escena, this.escenaPT]) e.environmentRotation.set(0, giroLuz, 0);
     this.luces.rotation.set(0, az, 0);
-    this.matP.envMapRotation.set(0, az, 0); this.matP2.envMapRotation.set(0, az, 0);
+    // el mapa de las piedras también "sube" con una cámara baja (contrapicado, «Héroe»): sus facetas siguen viendo la cúpula
+    // iluminada como a la altura normal (18°) y el pabellón no se ve negro en la vista rápida. Desde 18° hacia arriba no cambia.
+    const alza = Math.max(0, M.degToRad(18) - el);
+    this.matP.envMapRotation.set(-alza, az, 0); this.matP2.envMapRotation.set(-alza, az, 0);
   }
 
   renderRapido() {

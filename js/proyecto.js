@@ -169,6 +169,8 @@ export function claveEn(proyecto, pista, t, tol = TOLERANCIA) {
 }
 
 // Agrega un keyframe, o reemplaza el que ya esté en ese instante. Si se reemplaza y no se pasa curva, conserva la suya.
+// Uno nuevo sin curva hereda la del tramo que parte (la del keyframe de la izquierda), como en CapCut: marcar el valor
+// que ya tenía no cambia el movimiento (un giro lineal sigue lineal). Sin keyframe a la izquierda, 'suave'.
 export function ponerClave(proyecto, pista, t, v, curva) {
   const claves = lista(proyecto, pista), P = PISTAS[pista];
   const tt = r4(limitar(esNum(t) ? t : 0, 0, proyecto.duracion || 8));
@@ -176,7 +178,8 @@ export function ponerClave(proyecto, pista, t, v, curva) {
   const c = esCurva(curva) ? curva : undefined;
   const existente = claveEn(proyecto, pista, tt);
   if (existente) { existente.v = vv; if (c) existente.curva = c; return existente; }
-  const nueva = { t: tt, v: vv, curva: c || 'suave' };
+  const izquierda = claves.filter(k => k.t < tt).at(-1)?.curva;
+  const nueva = { t: tt, v: vv, curva: c || (esCurva(izquierda) ? izquierda : 'suave') };
   claves.push(nueva); ordenar(claves);
   return nueva;
 }

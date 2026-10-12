@@ -36,7 +36,8 @@ const estudio = new Estudio(lienzoGL);
 const previa = new Compositor($('lienzo'));
 const rep = new Reproductor();
 // t en segundos; sonido: la vista previa suena (empieza muda, como los videos que se reproducen solos)
-const estado = { fondo: 'perla', formato: 'reel', t: 0, reproduciendo: true, sucio: true, ocupado: false, cancelar: false, realista: false, pestana: 'modelo', sonido: false, silencioManual: false, medidas: null };
+// exportando: se está creando el video o la foto (la escena queda congelada hasta que termine)
+const estado = { fondo: 'perla', formato: 'reel', t: 0, reproduciendo: true, sucio: true, ocupado: false, exportando: false, cancelar: false, realista: false, pestana: 'modelo', sonido: false, silencioManual: false, medidas: null };
 // miniatura de la vista previa en el menú lateral (ver «Vista previa en miniatura» más abajo)
 const mini = { ver: false, fuera: false, sucio: true, alto: 0, ctx: $('miniLienzo').getContext('2d') };
 
@@ -55,17 +56,21 @@ const marcar = (cont, k) => cont.querySelectorAll('button[data-k]').forEach(x =>
 pastillas($('formatos'), Object.entries(FORMATOS).map(([k, f]) => [k, f.nombre]), k => cambiarFormato(k));
 $('fondos').innerHTML = Object.entries(FONDOS).map(([k, f]) => `<button type="button" data-k="${k}" aria-pressed="false"><i style="background:radial-gradient(circle at 50% 42%, ${f.centro}, ${f.borde} 78%)"></i>${f.nombre}</button>`).join('');
 $('fondos').addEventListener('click', e => {
-  const b = e.target.closest('button[data-k]'); if (!b) return;
+  const b = e.target.closest('button[data-k]'); if (!b || estado.exportando) return;
   estado.fondo = b.dataset.k; marcar($('fondos'), estado.fondo); cambio(); programarAutoguardado();
 });
 const verSombra = () => { $('sombra').parentElement.querySelector('output').textContent = `${Math.round($('sombra').value * 100)} %`; };
 $('sombra').addEventListener('input', () => { verSombra(); cambio(); programarAutoguardado(); });
 for (const id of ['metal', 'acabado', 'piedra']) $(id).addEventListener('change', () => {
+  if (estado.exportando) { $(id).value = estudio.ajustes[id]; return; }
   estudio.ajustes[id] = $(id).value; estudio.pintar();
   if (refrescarAutos()) { asentar(); panelTextos.render(); linea.render(); }
   panelTexturas.render(); cambio(); programarAutoguardado();
 });
 for (const id of ['calidad', 'fps']) $(id).addEventListener('change', () => { avisoCalidad(); programarAutoguardado(); });
+
+// los bitmaps se guardan con el proyecto (en sus ajustes): se crea antes de leer el autoguardado
+const panelTexturas = new PanelTexturas($('panelTexturas'), { estudio, alCambiar: () => { cambio(); programarAutoguardado(); } });
 
 function cambiarFormato(k) {
   if (!FORMATOS[k] || estado.ocupado) return;
@@ -108,6 +113,7 @@ const ajustesEscena = () => ({
   formato: estado.formato, fondo: estado.fondo, sombra: +$('sombra').value, fps: +$('fps').value, calidad: +$('calidad').value,
   metal: estudio.ajustes.metal, acabado: estudio.ajustes.acabado, piedra: estudio.ajustes.piedra,
   autos: { titulo: [...autos.titulo].slice(-20), detalle: [...autos.detalle].slice(-20), nombre: nombreActual },
+  texturas: panelTexturas.guardable(),
 });
 const archivoProyecto = () => { const d = JSON.parse(serializar(proyecto)); d.ajustes = ajustesEscena(); return JSON.stringify(d); };
 
@@ -122,18 +128,30 @@ function leerProyecto(texto) {
 }
 
 function aplicarAjustes(aj) {
-  if (!aj) return;
-  if (FORMATOS[aj.formato]) estado.formato = aj.formato;
-  if (FONDOS[aj.fondo]) estado.fondo = aj.fondo;
+  if (!aj || typeof aj !== 'object') return;
+  // (un archivo editado a mano o de otra versión no puede dejar la app a medias: solo se toma lo que es válido)
+  const clave = (lista, v) => (typeof v === 'string' && Object.hasOwn(lista, v) ? v : null);
+  if (clave(FORMATOS, aj.formato)) estado.formato = aj.formato;
+  if (clave(FONDOS, aj.fondo)) estado.fondo = aj.fondo;
   if (Number.isFinite(aj.sombra)) $('sombra').value = aj.sombra;
   for (const k of ['fps', 'calidad']) if ([...$(k).options].some(o => +o.value === aj[k])) $(k).value = String(aj[k]);
   for (const [k, lista] of [['metal', METALES], ['acabado', Object.keys(ACABADOS)], ['piedra', PIEDRAS]]) if (lista.includes(aj[k])) { estudio.ajustes[k] = aj[k]; $(k).value = aj[k]; }
-  if (aj.autos) {
-    for (const k of ['titulo', 'detalle']) for (const v of aj.autos[k] || []) if (typeof v === 'string') autos[k].add(v);
+  if (aj.autos && typeof aj.autos === 'object') {
+    for (const k of ['titulo', 'detalle']) for (const v of Array.isArray(aj.autos[k]) ? aj.autos[k] : []) if (typeof v === 'string') autos[k].add(v);
     if (typeof aj.autos.nombre === 'string' && aj.autos.nombre) nombreActual = aj.autos.nombre;
   }
+  // bitmaps de las piedras y del metal (lo que no se puede recuperar, como una imagen subida, vuelve en la lista)
+  const faltan = aj.texturas && typeof aj.texturas === 'object' ? panelTexturas.restaurar(aj.texturas) : [];
   estudio.pintar();
   pintarControles();
+  return faltan;
+}
+// Aviso al recuperar o abrir un proyecto: lo que no viaja en el archivo (la canción, las imágenes subidas) se pide de nuevo
+const cancionPerdida = () => { const a = proyecto?.audio?.musica?.archivo; return !!a && typeof a === 'object' && !a.buffer; };
+function avisoAbierto(inicio, faltan = []) {
+  const lista = [...(cancionPerdida() ? ['tu canción (pestaña Sonido)'] : []), ...faltan.map(f => f + ' (pestaña Materiales)')];
+  const y = lista.length > 1 ? lista.slice(0, -1).join(', ') + ' y ' + lista.at(-1) : lista[0];
+  aviso(lista.length ? `${inicio} Vuelve a subir ${y}.` : inicio, false);
 }
 function pintarControles() {
   marcar($('formatos'), estado.formato); marcar($('fondos'), estado.fondo); verSombra();
@@ -144,12 +162,18 @@ function pintarControles() {
 let proyecto = null;
 {
   const guardado = leerLocal(CLAVE_PROYECTO);
+  let faltan = [], fallo = false;
   if (guardado) {
-    try { const { p, aj } = leerProyecto(guardado); aplicarAjustes(aj); proyecto = p; adaptarAFormato(proyecto.textos, estado.formato); }
-    catch (e) { proyecto = null; }
+    try { const { p, aj } = leerProyecto(guardado); faltan = aplicarAjustes(aj); proyecto = p; adaptarAFormato(proyecto.textos, estado.formato); }
+    catch (e) {
+      // no se pudo leer: se guarda aparte (no se pierde al autoguardar el proyecto nuevo) y se avisa
+      console.error(e); proyecto = null; fallo = true; guardarLocal(CLAVE_PROYECTO + '-respaldo', guardado);
+    }
   }
-  if (!proyecto) proyecto = proyectoInicial();
-  else setTimeout(() => aviso('Se recuperó tu último proyecto.'), 600);
+  if (!proyecto) {
+    proyecto = proyectoInicial();
+    if (fallo) setTimeout(() => aviso('No se pudo recuperar tu último proyecto: empezamos uno nuevo (quedó una copia de respaldo en este equipo).', true), 600);
+  } else setTimeout(() => avisoAbierto('Se recuperó tu último proyecto.', faltan), 600);
 }
 pintarControles();
 
@@ -164,6 +188,10 @@ function anotarCambio() {
 function cerrarRafaga() { clearTimeout(tRafaga); tRafaga = 0; asentar(); linea.render(); }
 function programarAutoguardado() { clearTimeout(tGuardar); tGuardar = setTimeout(autoguardar, 900); }
 function autoguardar() { if (guardarLocal(CLAVE_PROYECTO, archivoProyecto())) $('guardado').textContent = 'Guardado en este equipo'; }
+// al cerrar o recargar la pestaña (o cambiar de app en el celular) no se espera el autoguardado: lo pendiente se guarda ya
+function guardarYa() { if (tRafaga) cerrarRafaga(); clearTimeout(tGuardar); autoguardar(); }
+addEventListener('pagehide', guardarYa);
+document.addEventListener('visibilitychange', () => { if (document.hidden) guardarYa(); });
 
 // después de cambiar el proyecto entero (abrir, nuevo, asistente, deshacer): todo se vuelve a dibujar
 function todoCambio({ linea: conLinea = true } = {}) {
@@ -176,6 +204,17 @@ function todoCambio({ linea: conLinea = true } = {}) {
   avisoCalidad(); asentar(); cambio();
 }
 
+// Deshacer o rehacer un «Abrir proyecto»: la foto trae los ajustes de la escena (formato, fondo, metal…) y también se devuelven
+function recuperarAjustes(motivo) {
+  if (!('ajustes' in proyecto)) return;
+  const aj = proyecto.ajustes; delete proyecto.ajustes;
+  if (!aj || typeof aj !== 'object') return;
+  // la foto del otro lado (para rehacer o volver a deshacer) se lleva los ajustes que hay ahora
+  const pila = motivo === 'deshacer' ? linea.rehechos : linea.historial, i = pila.length - 1;
+  if (i >= 0) try { const d = JSON.parse(pila[i]); d.ajustes = ajustesEscena(); pila[i] = JSON.stringify(d); } catch (e) { /* foto ilegible: se deja como está */ }
+  if (estado.exportando) ajustesPendientes = aj; else aplicarAjustes(aj);
+}
+
 let lineaPendiente = 0;
 const programarLinea = () => { if (!lineaPendiente) lineaPendiente = requestAnimationFrame(() => { lineaPendiente = 0; linea.render(); }); };
 
@@ -186,7 +225,7 @@ const linea = new LineaTiempo($('lineaTiempo'), {
   // los paneles de arriba cambian de alto al volver a dibujarse: la línea de tiempo se queda quieta bajo el puntero
   alCambiar: motivo => sinSaltar(() => {
     clearTimeout(tRafaga); tRafaga = 0;
-    if (motivo === 'deshacer' || motivo === 'rehacer') { todoCambio({ linea: false }); return; }
+    if (motivo === 'deshacer' || motivo === 'rehacer') { recuperarAjustes(motivo); todoCambio({ linea: false }); return; }
     if (motivo === 'textos' || motivo === 'duracion') panelTextos.render();
     if (motivo === 'audio' || motivo === 'duracion') { panelSonido.render(); rep.preparar(proyecto.audio, proyecto.duracion); }
     if (motivo === 'duracion') avisoCalidad();
@@ -253,7 +292,6 @@ if (typeof ResizeObserver !== 'undefined') {
 }
 
 // ---------- Paneles del inspector ----------
-const panelTexturas = new PanelTexturas($('panelTexturas'), { estudio, alCambiar: () => cambio() });
 
 const panelTextos = new PanelTextos($('panelTextos'), {
   obtenerProyecto: () => proyecto,
@@ -375,6 +413,7 @@ $('nav').addEventListener('click', e => {
 
 // ---------- Carga del modelo ----------
 async function cargarArchivos(archivos) {
+  if (estado.exportando) { aviso('Espera a que termine el video para abrir otro archivo.'); return; }
   const lista = [...archivos];
   const json = lista.find(f => /\.json$/i.test(f.name) || f.type === 'application/json');
   if (json && lista.length === 1) { abrirProyecto(json); return; }
@@ -409,6 +448,7 @@ zona.addEventListener('drop', e => { e.stopPropagation(); if (e.dataTransfer.fil
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files.length) cargarArchivos(e.dataTransfer.files); });
 function cargarEjemplo() {
+  if (estado.exportando) return;
   const { metal, piedra } = anilloEjemplo();
   const info = estudio.montar(metal, piedra);
   nuevoNombre('Solitario Aurora');
@@ -416,14 +456,15 @@ function cargarEjemplo() {
 }
 $('ejemplo').addEventListener('click', cargarEjemplo);
 $('ejemploVista').addEventListener('click', cargarEjemplo);
-document.querySelectorAll('[data-girar]').forEach(b => b.addEventListener('click', () => { estudio.girar(b.dataset.girar, Math.PI / 2); cambio(); }));
-$('restablecer').addEventListener('click', () => { estudio.orientar(estudio.orientacionInicial, 0, 0); cambio(); });
+document.querySelectorAll('[data-girar]').forEach(b => b.addEventListener('click', () => { if (estado.exportando) return; estudio.girar(b.dataset.girar, Math.PI / 2); cambio(); }));
+$('restablecer').addEventListener('click', () => { if (estado.exportando) return; estudio.orientar(estudio.orientacionInicial, 0, 0); cambio(); });
 
 // ---------- Vista previa ----------
 function ajustarPrevia() {
   const f = FORMATOS[estado.formato], k = PREVIA / Math.max(f.w, f.h);
   const w = Math.round(f.w * k / 2) * 2, h = Math.round(f.h * k / 2) * 2;
-  previa.tamano(w, h); estudio.tamano(w, h);
+  // mientras se crea el video el estudio renderiza al tamaño de la salida: no se le cambia a mitad (trabajo() lo devuelve al terminar)
+  previa.tamano(w, h); if (!estado.exportando) estudio.tamano(w, h);
   $('editor').style.setProperty('--aspecto', (f.w / f.h).toFixed(4));
   const m = $('miniLienzo'); m.width = w / 2; m.height = h / 2; verMini(true);
   estado.sucio = true;
@@ -471,6 +512,8 @@ function franja(capas, W, H) {
 // coloca la cámara del instante t (segundos) según los keyframes del proyecto
 const poner = (pr, t) => estudio.aplicarPose(evaluar(pr, t), franja(pr.textos, estudio.ancho, estudio.alto));
 const intensidadSombra = () => +$('sombra').value;
+// lo que se ve de la escena (fondo, sombra y formato); trabajo() lo copia al empezar para que el video no cambie a mitad
+const escenaActual = () => ({ fondo: estado.fondo, sombra: intensidadSombra(), formato: estado.formato });
 // el marco punteado de la capa elegida solo se ve mientras se editan los textos
 const capaElegida = () => estado.pestana === 'textos' && panelTextos.seleccion ? (proyecto.textos || []).find(c => c.id === panelTextos.seleccion) || null : null;
 
@@ -568,7 +611,8 @@ $('realista').addEventListener('click', async () => {
 function copiaProyecto() { const c = deserializar(serializar(proyecto)); c.textos = normalizarCapas(c.textos); return c; }
 
 // Render con trazado de rayos + máscara para la sombra + composición de marca
-async function componerRealista(comp, pr, muestras, { sombra, t, img, masc, alAvanzar, cancelado }) {
+// escena: { fondo, sombra } congelados al empezar un video (por defecto, los que se ven ahora)
+async function componerRealista(comp, pr, muestras, { sombra, t, img, masc, alAvanzar, cancelado, escena = escenaActual() }) {
   const W = lienzoGL.width, H = lienzoGL.height;
   img.width = masc.width = W; img.height = masc.height = H;
   estudio.renderMascara();
@@ -576,7 +620,7 @@ async function componerRealista(comp, pr, muestras, { sombra, t, img, masc, alAv
   const ci = img.getContext('2d');
   const pintar = () => {
     ci.clearRect(0, 0, W, H); ci.drawImage(lienzoGL, 0, 0);
-    comp.cuadro({ fondo: estado.fondo, render3D: img, sombra, intensidadSombra: intensidadSombra(), mascara: masc, capas: pr.textos, t, duracion: pr.duracion });
+    comp.cuadro({ fondo: escena.fondo, render3D: img, sombra, intensidadSombra: escena.sombra, mascara: masc, capas: pr.textos, t, duracion: pr.duracion });
     if (comp === previa) previaPintada(t);
   };
   let ultimoPintado = 0;
@@ -597,25 +641,46 @@ function avisoCalidad() {
 const slug = s => (s || 'joya').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'joya';
 const reloj = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h} h ${m} min` : m ? `${m} min ${String(x).padStart(2, '0')} s` : `${x} s`; };
 
-let bloqueo = null;
+// Mientras se crea el video, lo que cambia la escena (abrir otro proyecto o joya, el fondo, la sombra, el metal, la orientación,
+// los bitmaps) queda bloqueado: el render no lee el proyecto vivo sino copias congeladas, pero la escena 3D es una sola.
+// (los keyframes, los textos y el sonido sí se pueden seguir editando: el video usa su propia copia del proyecto)
+const BLOQUEADOS = ['nuevo', 'abrir', 'archivo', 'separar', 'ejemplo', 'ejemploVista', 'restablecer', 'metal', 'acabado', 'piedra', 'sombra', 'calidad', 'fps', 'conSonido'];
+function bloquearEscena(si) {
+  const controles = [...BLOQUEADOS.map($), ...document.querySelectorAll('#fondos button, #formatos button, [data-girar]')];
+  for (const el of controles) {
+    if (!el) continue;
+    if (si) { el.dataset.antes = el.disabled ? '1' : ''; el.disabled = true; }
+    else if ('antes' in el.dataset) { el.disabled = el.dataset.antes === '1'; delete el.dataset.antes; }
+  }
+  $('abrir').closest('label')?.classList.toggle('bloqueado', si);
+  $('soltar').classList.toggle('bloqueado', si);
+  const tx = $('panelTexturas'); tx.inert = si; tx.classList.toggle('bloqueado', si);
+}
+
+let bloqueo = null, ajustesPendientes = null;
 async function trabajo(fn) {
-  estado.ocupado = true; estado.cancelar = false; reproducir(false);
+  estado.ocupado = true; estado.exportando = true; estado.cancelar = false; reproducir(false);
   for (const id of ['crear', 'foto', 'realista']) $(id).disabled = true;
+  bloquearEscena(true);
   $('progreso').hidden = false; $('barra').style.width = '0'; $('cancelar').disabled = false;
   $('progTexto').textContent = 'Preparando…'; $('progTiempo').textContent = '';
   try { bloqueo = await navigator.wakeLock?.request('screen'); } catch (e) { bloqueo = null; }
   const salida = document.createElement('canvas'), comp = new Compositor(salida);
-  const f = FORMATOS[estado.formato];
+  // fondo, sombra, formato y nombre congelados: tocar la pestaña mientras se espera no cambia los cuadros que faltan
+  const escena = { ...escenaActual(), nombre: nombreDelProyecto() }, f = FORMATOS[escena.formato];
   comp.tamano(f.w, f.h); estudio.tamano(f.w, f.h);
-  try { await fn(comp, salida, f); }
+  try { await fn(comp, salida, f, escena); }
   catch (e) {
     if (e.name === 'AbortError') { aviso('Se canceló.'); nota(NOTA_BASE); }
     else { console.error(e); aviso(e.message || 'Algo salió mal al crear el video.', true); nota('Hubo un error al crear el video.', 'error'); }
   } finally {
     try { await bloqueo?.release(); } catch (e) { /* nada */ }
+    estado.exportando = false; bloquearEscena(false);
     ajustarPrevia(); estado.ocupado = false; estado.sucio = true;
     $('progreso').hidden = true;
     for (const id of ['crear', 'foto', 'realista']) $(id).disabled = !estudio.tieneModelo;
+    // ajustes que llegaron mientras tanto (deshacer o rehacer un «Abrir proyecto»): se aplican ahora
+    if (ajustesPendientes) { const aj = ajustesPendientes; ajustesPendientes = null; aplicarAjustes(aj); todoCambio(); }
   }
 }
 const progreso = (p, texto, resta) => {
@@ -626,7 +691,13 @@ const progreso = (p, texto, resta) => {
 $('cancelar').addEventListener('click', () => { estado.cancelar = true; $('cancelar').disabled = true; $('progTexto').textContent = 'Cancelando…'; $('progTiempo').textContent = ''; });
 const abortar = () => { if (estado.cancelar) throw new DOMException('Cancelado', 'AbortError'); };
 
-$('crear').addEventListener('click', () => trabajo(async (comp, salida, f) => {
+// la canción subida no se guarda con el proyecto: si falta, se avisa antes de crear el video (no sale con otra música)
+$('crear').addEventListener('click', () => {
+  if (estado.exportando) return;
+  if (cancionPerdida() && $('conSonido').checked && !confirm(`Tu canción «${proyecto.audio.musica.archivo.nombre || 'mi canción'}» no está cargada en este equipo: el video saldría sin música.\n¿Crearlo así? (Cancelar para volver a subirla en la pestaña Sonido)`)) { abrirPestana('sonido', { desplazar: true }); return; }
+  crearVideo();
+});
+const crearVideo = () => trabajo(async (comp, salida, f, escena) => {
   if (!puedeCodificar()) throw new Error('Este navegador no puede crear video. Usa Chrome, Edge o Safari actualizados.');
   await cargarFuentes();
   const pr = copiaProyecto(), D = pr.duracion;
@@ -652,10 +723,10 @@ $('crear').addEventListener('click', () => trabajo(async (comp, salida, f) => {
       poner(pr, t);
       if (muestras > 0) {
         const sombra = estudio.sombra();
-        await componerRealista(comp, pr, muestras, { sombra, t, img, masc, cancelado: () => estado.cancelar, alAvanzar: p => { const hechos = i + p, seg = (performance.now() - inicio) / 1000; progreso(hechos / n, `Cuadro ${i + 1} de ${n} · ${Math.round(p * 100)} %`, hechos > 0.3 ? seg / hechos * (n - hechos) : null); } });
+        await componerRealista(comp, pr, muestras, { sombra, t, img, masc, escena, cancelado: () => estado.cancelar, alAvanzar: p => { const hechos = i + p, seg = (performance.now() - inicio) / 1000; progreso(hechos / n, `Cuadro ${i + 1} de ${n} · ${Math.round(p * 100)} %`, hechos > 0.3 ? seg / hechos * (n - hechos) : null); } });
       } else {
         estudio.renderRapido();
-        comp.cuadro({ fondo: estado.fondo, render3D: lienzoGL, sombra: estudio.sombra(), intensidadSombra: intensidadSombra(), capas: pr.textos, t, duracion: D });
+        comp.cuadro({ fondo: escena.fondo, render3D: lienzoGL, sombra: estudio.sombra(), intensidadSombra: escena.sombra, capas: pr.textos, t, duracion: D });
         if (i % 6 === 0) { const seg = (performance.now() - inicio) / 1000; progreso((i + 1) / n, `Cuadro ${i + 1} de ${n}`, i > 5 ? seg / (i + 1) * (n - i - 1) : null); await new Promise(r => setTimeout(r)); }
       }
       // muestra en la vista previa (y en la línea de tiempo) el cuadro que se acaba de terminar
@@ -664,14 +735,14 @@ $('crear').addEventListener('click', () => trabajo(async (comp, salida, f) => {
     }
     progreso(1, 'Guardando el archivo…');
     const blob = await cod.terminar();
-    mostrarVideo(blob, `${slug(nombreDelProyecto())}-${estado.formato}.${cod.extension}`);
+    mostrarVideo(blob, `${slug(escena.nombre)}-${escena.formato}.${cod.extension}`);
     const seg = (performance.now() - inicio) / 1000;
     if (cod.extension === 'webm') aviso(`Este navegador solo pudo crear WebM (sirve para la web y el catálogo)${sinSonido ? ' y sin sonido' : ''}. Para Instagram crea el video en Chrome, Edge o Safari.`, true);
     else if (sinSonido) aviso('Video listo, pero este navegador no pudo agregarle el sonido.', true);
     else aviso(`Video listo en ${reloj(seg)}.`);
     nota(`Video listo (${(blob.size / 1048576).toFixed(1)} MB${cod.conSonido ? ', con sonido' : ''}).`);
   } catch (e) { cod.cancelar(); throw e; }
-}));
+});
 
 function mostrarVideo(blob, nombre) {
   const url = URL.createObjectURL(blob), v = $('video');
@@ -686,16 +757,16 @@ function mostrarVideo(blob, nombre) {
   $('resultado').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-$('foto').addEventListener('click', () => trabajo(async (comp, salida, f) => {
+$('foto').addEventListener('click', () => trabajo(async (comp, salida, f, escena) => {
   await cargarFuentes();
   const muestras = Math.max(+$('calidad').value, 64) * 2, t = estado.t, pr = copiaProyecto();
   nota('Calculando la foto hiperrealista…', 'trabajando');
   poner(pr, t);
   const sombra = estudio.sombra(), inicio = performance.now();
-  await componerRealista(comp, pr, muestras, { sombra, t, img: document.createElement('canvas'), masc: document.createElement('canvas'), cancelado: () => estado.cancelar, alAvanzar: p => { const seg = (performance.now() - inicio) / 1000; progreso(p, `Foto · ${Math.round(p * 100)} %`, p > 0.05 ? seg / p * (1 - p) : null); } });
+  await componerRealista(comp, pr, muestras, { sombra, t, escena, img: document.createElement('canvas'), masc: document.createElement('canvas'), cancelado: () => estado.cancelar, alAvanzar: p => { const seg = (performance.now() - inicio) / 1000; progreso(p, `Foto · ${Math.round(p * 100)} %`, p > 0.05 ? seg / p * (1 - p) : null); } });
   previa.ctx.drawImage(salida, 0, 0, previa.lienzo.width, previa.lienzo.height); previaPintada(t);
   const blob = await new Promise(r => salida.toBlob(r, 'image/png'));
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${slug(nombreDelProyecto())}-${estado.formato}.png`; a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${slug(escena.nombre)}-${escena.formato}.png`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   aviso('Foto descargada.'); nota('Foto lista.');
 }));
@@ -714,18 +785,24 @@ function reemplazarProyecto(p) {
   todoCambio();
 }
 async function abrirProyecto(archivo) {
+  if (estado.exportando) { aviso('Espera a que termine el video para abrir otro proyecto.'); return; }
   try {
     const { p, aj } = leerProyecto(await archivo.text());
-    cerrarRafaga(); linea.guardarHistorial();
-    aplicarAjustes(aj);
+    // Deshacer devuelve también el formato, el fondo y el metal de antes (los cambia el archivo): la foto lleva los ajustes
+    cerrarRafaga(); linea.guardarHistorial(archivoProyecto());
+    const faltan = aplicarAjustes(aj);
     reemplazarProyecto(p);
     estado.t = 0; buscar(0);
-    aviso(p.audio?.musica?.archivo ? 'Proyecto abierto. Vuelve a subir tu canción en la pestaña Sonido.' : 'Proyecto abierto.');
-  } catch (e) { aviso(e.message || 'No se pudo abrir el proyecto.', true); }
+    avisoAbierto('Proyecto abierto.', faltan);
+  } catch (e) {
+    // los errores propios ya vienen en español; uno inesperado del navegador (en inglés) se cambia por un mensaje claro
+    console.error(e); aviso(e?.constructor === Error && e.message ? e.message : 'No se pudo abrir el proyecto: el archivo está dañado o es de otra versión.', true);
+  }
 }
 $('guardar').addEventListener('click', guardarProyecto);
 $('abrir').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) abrirProyecto(f); });
 $('nuevo').addEventListener('click', () => {
+  if (estado.exportando) return;
   if (!confirm('¿Empezar un proyecto nuevo?\nSe cambian los keyframes, los textos y los sonidos por los de un proyecto en blanco (puedes deshacerlo).')) return;
   cerrarRafaga(); linea.guardarHistorial();
   reemplazarProyecto(proyectoInicial());

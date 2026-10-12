@@ -38,10 +38,9 @@ const grafemas = s => (segmentador ? Array.from(segmentador.segment(s), g => g.s
 
 // ---------- Modelo de capa ----------
 let contador = 0;
-function nuevoId(capas = []) {
-  for (const c of capas) { const m = /^tx(\d+)$/.exec(c?.id || ''); if (m) contador = Math.max(contador, +m[1]); }
-  return 'tx' + (++contador);
-}
+// el contador sigue siempre por encima de los ids que ya existen (proyecto recuperado, abierto o del deshacer): un id nunca se repite
+function sembrar(capas = []) { for (const c of capas) { const m = /^tx(\d+)$/.exec(c?.id || ''); if (m) contador = Math.max(contador, +m[1]); } }
+function nuevoId(capas = []) { sembrar(capas); return 'tx' + (++contador); }
 
 const MARCA = { estilo: 'libre', fuente: 'serif', tam: 34, peso: 400, espaciado: 0.12, color: 'auto' };
 
@@ -78,7 +77,14 @@ export function normalizarCapa(c = {}) {
     formato: MEDIDAS[c.formato] ? c.formato : 'reel',
   };
 }
-export const normalizarCapas = capas => (Array.isArray(capas) ? capas.filter(c => c && typeof c === 'object').map(normalizarCapa) : []);
+export function normalizarCapas(capas) {
+  if (!Array.isArray(capas)) return [];
+  const lista = capas.filter(c => c && typeof c === 'object');
+  sembrar(lista);
+  // si un archivo viejo trae dos capas con el mismo id, la segunda recibe uno nuevo (borrar o arrastrar una no toca la otra)
+  const vistos = new Set();
+  return lista.map(c => { const n = normalizarCapa(c); if (vistos.has(n.id)) n.id = nuevoId(); vistos.add(n.id); return n; });
+}
 
 // Capa nueva a partir de un estilo: crearCapa({ estilo: 'precio', texto: '$ 4.800.000', y: 0.8 })
 export function crearCapa(props = {}) {
@@ -175,6 +181,7 @@ export function textosPorDefecto(nombre = 'Solitario Aurora', detalle = '', extr
 // en capas completas. Conserva la marca que ya hubiera si el asistente no la menciona.
 export function textosDesdeAcciones(simples = [], { formato = 'reel', capasActuales = [] } = {}) {
   const f = claveFormato(formato) || 'reel', B = anclas(...MEDIDAS[f]);
+  sembrar(Array.isArray(capasActuales) ? capasActuales : []);   // las capas nuevas no repiten el id de una que ya está
   const nuevas = (Array.isArray(simples) ? simples : []).filter(s => s && typeof s.texto === 'string' && s.texto.trim()).map(s => {
     const estilo = ESTILOS[s.estilo] ? s.estilo : 'libre';
     const c = crearCapa({ estilo, texto: s.texto.trim(), y: c01(num(s.y, 0.5)), entra: Math.max(0, num(s.entra, 0)), sale: num(s.sale, -1) < 0 ? null : s.sale, animacion: ANIMACIONES[s.animacion] ? s.animacion : 'aparecer', formato: f, fondo: estilo === 'titulo' ? 'linea-oro' : estilo === 'precio' ? 'pastilla' : 'ninguno' });
@@ -532,7 +539,9 @@ export function arrastrarEnLienzo(lienzo, { obtenerCapas, alMover, alSeleccionar
   const val = v => (typeof v === 'function' ? v() : v);
   const dims = () => ({ W: lienzo.width || val(W), H: lienzo.height || val(H) });
   const ctx = () => (lienzo.getContext ? lienzo.getContext('2d') : null) || ctxMedidas();
-  const aLienzo = e => { const r = lienzo.getBoundingClientRect(), d = dims(); return { x: (e.clientX - r.left) / r.width * d.W, y: (e.clientY - r.top) / r.height * d.H, kx: d.W / r.width, d }; };
+  // r: la caja del lienzo en pantalla; durante un arrastre se usa la del momento en que se tocó (si la página se desplaza
+  // mientras tanto, el texto sigue al dedo y no se suma lo que se movió la página)
+  const aLienzo = (e, r = lienzo.getBoundingClientRect()) => { const d = dims(); return { x: (e.clientX - r.left) / r.width * d.W, y: (e.clientY - r.top) / r.height * d.H, kx: d.W / r.width, d, r }; };
 
   // la capa de más arriba que esté bajo el puntero (prefiere las que se ven en el momento actual)
   function buscar(p) {
@@ -550,14 +559,14 @@ export function arrastrarEnLienzo(lienzo, { obtenerCapas, alMover, alSeleccionar
     const p = aLienzo(e), capa = buscar(p); if (!capa) return;
     e.preventDefault();
     alSeleccionar?.(capa.id);
-    arrastre = { id: capa.id, capa, x0: p.x, y0: p.y, cx: capa.x, cy: capa.y, auto: capa.auto !== false, movio: false, puntero: e.pointerId };
+    arrastre = { id: capa.id, capa, x0: p.x, y0: p.y, cx: capa.x, cy: capa.y, auto: capa.auto !== false, movio: false, puntero: e.pointerId, r: p.r };
     try { lienzo.setPointerCapture(e.pointerId); } catch (err) { /* nada */ }
     lienzo.style.cursor = 'grabbing';
   };
   const mover = e => {
-    const p = aLienzo(e);
-    if (!arrastre) { lienzo.style.cursor = buscar(p) ? 'grab' : ''; return; }
+    if (!arrastre) { lienzo.style.cursor = buscar(aLienzo(e)) ? 'grab' : ''; return; }
     if (e.pointerId !== arrastre.puntero) return;
+    const p = aLienzo(e, arrastre.r);
     const ddx = p.x - arrastre.x0, ddy = p.y - arrastre.y0;
     if (!arrastre.movio && Math.hypot(ddx, ddy) < 3 * p.kx) return;
     arrastre.movio = true;
@@ -662,7 +671,9 @@ export class PanelTextos {
     if (id != null && !this.capa(id)) return;
     this.sel = id;
     this.render();
-    this.$lista.querySelector(`[data-id="${CSS.escape(String(id))}"]`)?.scrollIntoView({ block: 'nearest' });
+    // al instante (sin la animación suave de la página): así quien llama puede compensar el desplazamiento en el mismo
+    // momento, y arrastrar un texto en la vista previa del celular no mueve la página bajo el dedo
+    this.$lista.querySelector(`[data-id="${CSS.escape(String(id))}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   }
 
   render() {
@@ -810,6 +821,7 @@ export class PanelTextos {
   aplicarPlantilla(clave) {
     const fn = PLANTILLAS[clave]; if (!fn) return;
     const capas = this.capas();
+    sembrar(capas);
     this.guardarRespaldo(`Plantilla «${fn.nombre}» aplicada.`);
     const nuevas = adaptarAFormato(fn(this.datos()), this.formato());
     capas.splice(0, capas.length, ...nuevas);

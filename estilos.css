@@ -190,6 +190,8 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 #aviso{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--tinta);color:var(--papel);padding:11px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;max-width:calc(100vw - 32px);text-align:center}
 #aviso.ver{opacity:1;transform:translateX(-50%) translateY(0)}
 #aviso.mal{background:var(--gra);color:#fff}
+/* mientras se crea el video, lo que cambiaría la escena (abrir, la joya, los bitmaps) se ve apagado */
+.bloqueado{opacity:.45;pointer-events:none}
 
 /* Portátiles: el menú lateral se angosta un poco para dejarle espacio a la línea de tiempo */
 @media (max-width:1366px){

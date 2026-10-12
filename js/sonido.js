@@ -937,6 +937,9 @@ function gananciaArchivo(buffer) {
 const tieneBuffer = a => !!(a?.buffer && typeof a.buffer.getChannelData === 'function');
 function normalizarMusica(m) {
   if (!esObj(m)) return null;
+  // una canción subida que ya no está cargada (proyecto recuperado o reabierto) suena a silencio, no a la música de antes:
+  // el panel la muestra elegida («vuelve a subirla») y no puede salir otra música en el video sin que nadie lo note
+  if (esObj(m.archivo) && !tieneBuffer(m.archivo)) return null;
   const archivo = tieneBuffer(m.archivo) ? m.archivo : null, E = ESTILOS_MUSICA[m.estilo] && Object.hasOwn(ESTILOS_MUSICA, m.estilo) ? ESTILOS_MUSICA[m.estilo] : null;
   if (!archivo && !E) return null;
   const bpm = esNum(+m.bpm) && +m.bpm > 0 ? +m.bpm : E?.bpm ?? 120;
@@ -1157,16 +1160,20 @@ export function ajustarAlRitmo(proyecto, { textos = false } = {}) {
   const D = proyecto.duracion || 8, tol = 1 / 60;
   for (const claves of Object.values(proyecto.pistas || {})) {
     if (!Array.isArray(claves)) continue;
+    // los keyframes nunca cambian de orden: uno se pega a su pulso solo si queda después del anterior (ya ajustado) y antes
+    // del siguiente; si no, se queda donde está (dos keyframes que caerían en el mismo pulso no se cruzan)
+    const orden = [...claves].sort((a, b) => a.t - b.t);
     let anterior = -Infinity;
-    for (const c of [...claves].sort((a, b) => a.t - b.t)) {
+    orden.forEach((c, i) => {
+      const siguiente = orden[i + 1]?.t ?? Infinity;
       // el primero y el último cuadro no se mueven: de eso depende que el bucle cierre
-      if (c.t < tol || c.t > D - tol) { anterior = c.t; continue; }
+      if (c.t < tol || c.t > D - tol) { anterior = c.t; return; }
       let nt = alPulso(c.t, R);
-      if (nt <= tol || nt >= D - tol || nt - anterior < tol) { anterior = c.t; continue; }
+      if (nt <= tol || nt >= D - tol || nt - anterior < tol || siguiente - nt < tol) { anterior = c.t; return; }
       nt = r4(nt);
       if (Math.abs(nt - c.t) > 1e-4) { c.t = nt; resultado.claves++; }
       anterior = c.t;
-    }
+    });
     claves.sort((a, b) => a.t - b.t);
   }
   for (const c of proyecto.audio?.clips || []) {
@@ -1507,7 +1514,8 @@ export class PanelSonido {
   seleccionar(id) {
     this.sel = id;
     this.pintarClips();
-    this.$lista.querySelector(`[data-id="${CSS.escape(String(id))}"]`)?.scrollIntoView({ block: 'nearest' });
+    // al instante: main.js compensa el desplazamiento en el mismo momento (con el suave, la página se movería bajo el dedo)
+    this.$lista.querySelector(`[data-id="${CSS.escape(String(id))}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   }
 
   render() {

@@ -943,6 +943,30 @@ export class PanelTexturas {
   // Para main.js: después de cargar otro modelo (las uv se generan en la geometría nueva)
   reaplicar() { this.aplicar(); this.render(); }
 
+  // Lo que se guarda con el proyecto: los presets y sus ajustes (las imágenes y el panorama subidos no caben en el JSON;
+  // solo se anota que estaban, para pedir que se vuelvan a subir)
+  guardable() {
+    const e = this.estado, g = s => ({ preset: s.preset, intensidad: s.intensidad, escala: s.escala });
+    return { piedra: { ...g(e.piedra), modo: e.piedra.modo }, metal: g(e.metal), hdri: e.hdri.textura ? { nombre: e.hdri.nombre || 'Tu panorama', intensidad: e.hdri.intensidad, rotacion: e.hdri.rotacion } : null };
+  }
+  // Vuelve a poner lo guardado con guardable(). Devuelve lo que hay que volver a subir (para avisarle a la joyera).
+  restaurar(d) {
+    const faltan = [], num = (v, a, b, def) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(b, Math.max(a, v)) : def);
+    if (!d || typeof d !== 'object') return faltan;
+    for (const g of ['piedra', 'metal']) {
+      const v = d[g], s = this.estado[g]; if (!v || typeof v !== 'object') continue;
+      const id = v.preset === 'propia' ? (s.propia ? 'propia' : null) : typeof v.preset === 'string' && Object.hasOwn(GRUPOS[g].presets, v.preset) ? v.preset : null;
+      if (v.preset === 'propia' && !s.propia) faltan.push(g === 'piedra' ? 'la imagen de las piedras' : 'la imagen del metal');
+      Object.assign(s, { preset: id, intensidad: num(v.intensidad, 0, 1, s.intensidad), escala: num(v.escala, 0.2, 5, s.escala) });
+      if (g === 'piedra' && Object.hasOwn(MODOS, v.modo)) s.modo = v.modo;
+    }
+    // el panorama subido no se puede recuperar: se sigue con el que haya (o el estudio Atelier) y se avisa
+    if (d.hdri && !this.estado.hdri.textura) faltan.push('tu panorama HDRI');
+    if (this.estudio?.tieneModelo) this.aplicar();
+    this.render();
+    return faltan;
+  }
+
   error(g, txt) { const p = this.cont.querySelector(`[data-error="${g}"]`); if (!p) return; p.textContent = txt || ''; p.hidden = !txt; }
 
   async alClic(e) {
