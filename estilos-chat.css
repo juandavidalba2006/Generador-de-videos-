@@ -56,8 +56,9 @@
 .cht-reintentar:hover{background:var(--gra);color:#fff}
 .cht-reintentar:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
 
-/* Ideas para pedir: con la conversación empezada pasan a una sola fila deslizable */
-.cht-ideas{display:flex;flex-wrap:wrap;gap:7px}
+/* Ideas para pedir: con la conversación empezada pasan a una sola fila deslizable (flex:none: la fila con scroll no se
+   encoge cuando crece la conversación, las ideas no quedan cortadas por la mitad) */
+.cht-ideas{display:flex;flex-wrap:wrap;gap:7px;flex:none}
 .cht-ideas button{cursor:pointer;border:1px solid var(--linea);background:var(--papel);color:var(--tinta);border-radius:999px;padding:6px 13px;font-size:13px;line-height:1.3;text-align:left;transition:background-color .18s,border-color .18s,color .18s}
 .cht-ideas button:hover{border-color:var(--oro);background:var(--oro-suave)}
 .cht-ideas button:disabled{opacity:.5;cursor:default}

@@ -66,8 +66,11 @@ function dibujoCurva(id) {
 
 const leerLocal = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
 const guardarLocal = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* sin almacenamiento: no pasa nada */ } };
-const editable = el => !!el && (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' ||
+// en un campo de texto Ctrl+Z es el deshacer del propio campo; un <select> no tiene deshacer (ahí Ctrl+Z deshace el proyecto,
+// también justo después de elegir la duración o el movimiento base), pero Supr y Retroceso no borran keyframes desde él
+const campoTexto = el => !!el && (el.isContentEditable || el.tagName === 'TEXTAREA' ||
   (el.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button', 'color', 'file'].includes(el.type)));
+const editable = el => campoTexto(el) || el?.tagName === 'SELECT';
 
 let instancias = 0;
 
@@ -734,10 +737,11 @@ export class LineaTiempo {
 
   // ---------- Teclado ----------
   tecla(e) {
-    if (!this.raiz.isConnected || editable(e.target)) return;
+    if (!this.raiz.isConnected || campoTexto(e.target)) return;
     const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
     if (mod && k === 'z' && !e.altKey) { e.preventDefault(); e.shiftKey ? this.rehacer() : this.deshacer(); return; }
     if (mod && k === 'y') { e.preventDefault(); this.rehacer(); return; }
+    if (editable(e.target)) return;
     const aqui = !document.activeElement || document.activeElement === document.body || this.raiz.contains(document.activeElement);
     if ((e.key === 'Delete' || e.key === 'Backspace') && this._sel && !mod && aqui) { e.preventDefault(); this.quitarSeleccion(); }
   }

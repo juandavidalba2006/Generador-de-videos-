@@ -1296,10 +1296,19 @@ export class Reproductor {
   }
 
   get sonando() { return !!(this.quiere && this.fuente && this.ctx?.state === 'running'); }
-  // segundo del video que está sonando
+  // segundo del video que se OYE en este instante (para la imagen de la vista previa). currentTime es lo que se está
+  // programando; la salida de audio lo entrega un poco después (≈ 30 ms en el computador, 150–300 ms con audífonos
+  // Bluetooth): sin restarlo la imagen va adelantada al sonido y un whoosh alineado «de oído» quedaría antes de tiempo.
   get posicion() {
-    if (this.sonando && this.duracion > 0) return (this.desdeFuente + this.ctx.currentTime - this.inicioFuente) % this.duracion;
+    if (this.sonando && this.duracion > 0) {
+      const c = this.ctx, retraso = Math.max(0, (c.outputLatency || 0) + (c.baseLatency || 0));
+      return this.posicionProgramada(retraso);
+    }
     return this.posicionDeseada();
+  }
+  // lo que se está programando (menos `retraso` s); antes de que empiece a sonar se queda en el punto de partida
+  posicionProgramada(retraso = 0) {
+    return (this.desdeFuente + Math.max(0, this.ctx.currentTime - retraso - this.inicioFuente)) % this.duracion;
   }
   posicionDeseada() {
     const d = this.duracion || 1, t = this.quiere ? this.ancla.t + ahora() - this.ancla.reloj : this.ancla.t;
@@ -1318,7 +1327,8 @@ export class Reproductor {
         try {
           const b = hayAudio(copia) ? await mezclar(copia, duracion) : null;
           if (v !== this.version) return ok(false);
-          const pos = this.sonando ? this.posicion : null;
+          // la mezcla nueva sigue justo donde va la que se está programando (con la que se oye, repetiría el retraso)
+          const pos = this.sonando ? this.posicionProgramada() : null;
           this.buffer = b; this.duracion = +duracion || 8;
           if (pos !== null) this.ancla = { t: pos, reloj: ahora() };
           if (this.quiere) this.arrancar(); else this.quitarFuente();

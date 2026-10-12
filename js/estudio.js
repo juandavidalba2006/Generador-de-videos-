@@ -301,6 +301,7 @@ export class Estudio {
     // cámara ladeada (roll): se gira el "arriba" alrededor de la dirección en que mira
     const mira = foco.clone().sub(cam.position).normalize();
     cam.up.set(0, 1, 0).applyAxisAngle(mira, M.degToRad(p.rodar || 0));
+    const arribaLadeado = cam.up.clone();
     cam.lookAt(foco); cam.updateMatrixWorld(true);
     // corre la mira para que la pieza quede centrada en la franja libre, más la posición vertical y lateral de los keyframes
     const cy = 1 - (zona.arriba + zona.abajo) + p.altura, cx = p.lateral;
@@ -309,6 +310,7 @@ export class Estudio {
     // arriba del mundo, la imagen se daría vuelta de golpe (con este arriba el encuadre normal queda igual)
     cam.up.copy(arribaCam);
     cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist).addScaledVector(derCam, -cx * tv * cam.aspect * dist));
+    cam.up.copy(arribaLadeado);   // la orientación ya quedó calculada: camera.up vuelve a ser el «arriba» ladeado por el roll
     cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
     cam.focusDistance = cam.position.distanceTo(foco);
     // desenfoque 0 = todo nítido; 1 = macro con poca profundidad de campo (solo se ve con trazado de rayos).
@@ -392,7 +394,8 @@ export class Estudio {
     const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
     const der = new THREE.Vector3(-fwd.z, 0, fwd.x);
     const a = p(der.x * h, y, der.z * h), b = p(fwd.x * h, y, fwd.z * h);
-    return { x: c.x, y: c.y, rx: Math.hypot(a.x - c.x, a.y - c.y), ry: Math.max(Math.hypot(b.x - c.x, b.y - c.y), 4) };
+    // ang: el piso se ve girado cuando la cámara se ladea (roll): la elipse gira con él y sigue pegada a la base del aro
+    return { x: c.x, y: c.y, rx: Math.hypot(a.x - c.x, a.y - c.y), ry: Math.max(Math.hypot(b.x - c.x, b.y - c.y), 4), ang: Math.atan2(a.y - c.y, a.x - c.x) };
   }
 }
 

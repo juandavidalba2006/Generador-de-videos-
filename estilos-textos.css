@@ -57,7 +57,7 @@
 .ptx-campo textarea{resize:vertical;min-height:64px;font-size:16px;line-height:1.35;font-family:var(--sans)}
 .ptx-nota{margin:0;padding:10px 12px;background:var(--perla);border-radius:8px}
 .ptx-grupo{display:flex;flex-direction:column;gap:10px;min-width:0}
-.ptx-et{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--oro)}
+.ptx-et{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--oro-texto, var(--oro))}
 .ptx-seg{display:flex;gap:3px;background:var(--perla);border:1px solid var(--linea);border-radius:999px;padding:3px;min-width:0}
 .ptx-seg button{all:unset;cursor:pointer;flex:1 1 0;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;border-radius:999px;font-size:13px;font-weight:500;line-height:1.2;color:var(--tinta2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background-color .18s,color .18s}
 .ptx-seg button:hover{color:var(--tinta)}

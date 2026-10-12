@@ -150,27 +150,56 @@ export function resumenAcciones(acciones) {
   return out;
 }
 
+// ---------- Foto del proyecto al mandar un pedido ----------
+// La IA tarda unos segundos y responde sobre el proyecto como estaba al mandarle el pedido. Con esta foto, lo que la joyera
+// agregue o mueva mientras tanto (un texto, un sonido, la duración) no se pierde al llegar la respuesta.
+export function fotoProyecto(proyecto) {
+  const p = esObj(proyecto) ? proyecto : {};
+  const copia = (lista, campos) => new Map((Array.isArray(lista) ? lista : []).filter(o => esObj(o) && o.id != null).map(o => [o.id, Object.fromEntries(campos.map(k => [k, o[k]]))]));
+  return { duracion: esNum(p.duracion) && p.duracion > 0 ? p.duracion : 8, textos: copia(p.textos, ['texto', 'estilo', 'y', 'entra', 'sale', 'animacion']), clips: copia(p.audio?.clips, ['efecto', 't', 'volumen']) };
+}
+const por = (x, k) => (esNum(x) && x >= 0 ? r4(x * k) : x);   // un tiempo llevado a otra duración (-1 / null = hasta el final)
+function escalarFoto(f, k) {
+  const m = (mapa, fn) => new Map([...mapa].map(([id, o]) => [id, fn(o)]));
+  return { ...f, textos: m(f.textos, o => ({ ...o, entra: por(o.entra, k), sale: por(o.sale, k) })), clips: m(f.clips, o => ({ ...o, t: por(o.t, k) })) };
+}
+function escalarAcciones(a, k) {
+  for (const p of a.pistas) for (const c of p.claves) c.t = por(c.t, k);
+  for (const c of a.textos.capas) { c.entra = por(c.entra, k); c.sale = por(c.sale, k); }
+  for (const c of a.sonidos.clips) c.t = por(c.t, k);
+}
+
 // ---------- Aplicar acciones al proyecto (lo llama main.js; muta el proyecto) ----------
 // textosDesdeAcciones (de textos.js) convierte las capas simples en capas completas; formato = 'reel' | 'post' | …
 // musicaNueva (de sonido.js, opcional) arma la música por defecto de un estilo.
-export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato = 'reel', musicaNueva } = {}) {
+// foto (de fotoProyecto, opcional): el proyecto como estaba al mandar el pedido; sin ella, se compara con el de ahora.
+export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato = 'reel', musicaNueva, foto } = {}) {
   const hecho = { duracion: false, bucle: false, pistas: [], textos: false, sonidos: false, musica: false, algo: false };
   if (!esObj(proyecto)) return hecho;
   const antes = esNum(proyecto.duracion) ? proyecto.duracion : 8;
-  const a = normalizarAcciones(acciones, { duracion: antes });
+  const base = esObj(foto) && esNum(foto.duracion) && foto.duracion > 0 ? foto.duracion : antes;
+  const a = normalizarAcciones(acciones, { duracion: base });
   // primero la duración: estira todo lo que ya había; los tiempos nuevos ya vienen en la duración final
   if (a.duracion && Math.abs(a.duracion - antes) > 1e-3) { escalarTiempo(proyecto, a.duracion); hecho.duracion = true; }
   const D = proyecto.duracion || 8;
+  // si ella cambió la duración mientras la IA pensaba, los tiempos de la respuesta (y de la foto) se llevan a la de ahora
+  if (!a.duracion && Math.abs(D - base) > 1e-3) escalarAcciones(a, D / base);
+  const f = esObj(foto) && foto.textos instanceof Map && foto.clips instanceof Map ? (Math.abs(D - base) > 1e-3 ? escalarFoto(foto, D / base) : foto) : null;
   if (a.bucle !== 'igual' && proyecto.bucle !== (a.bucle === 'si')) { proyecto.bucle = a.bucle === 'si'; hecho.bucle = true; }
   proyecto.pistas = esObj(proyecto.pistas) ? proyecto.pistas : {};
   for (const { pista, claves } of a.pistas) {
     proyecto.pistas[pista] = claves.filter(c => c.t <= D + 1e-6).map(c => ({ t: r4(Math.min(c.t, D)), v: c.v, curva: c.curva }));
     hecho.pistas.push(pista);
   }
-  if (a.textos.cambiar) { proyecto.textos = mezclarTextos(proyecto.textos, a.textos.capas, { textosDesdeAcciones, formato }); hecho.textos = true; }
+  // (la IA manda la lista COMPLETA de textos y de sonidos: lo que se agregó después de la foto no estaba en ella y se conserva)
+  const conservar = (previas, nuevas, enFoto) => [...nuevas, ...(f ? previas.filter(o => esObj(o) && !enFoto.has(o.id) && !nuevas.some(n => n.id === o.id)) : [])];
+  if (a.textos.cambiar) {
+    const previas = Array.isArray(proyecto.textos) ? [...proyecto.textos] : [];
+    proyecto.textos = conservar(previas, mezclarTextos(previas, a.textos.capas, { textosDesdeAcciones, formato, foto: f }), f?.textos); hecho.textos = true;
+  }
   proyecto.audio = esObj(proyecto.audio) ? proyecto.audio : { clips: [], musica: null };
   if (!Array.isArray(proyecto.audio.clips)) proyecto.audio.clips = [];
-  if (a.sonidos.cambiar) { proyecto.audio.clips = mezclarClips(proyecto.audio.clips, a.sonidos.clips.filter(c => c.t < D)); hecho.sonidos = true; }
+  if (a.sonidos.cambiar) { proyecto.audio.clips = conservar(proyecto.audio.clips, mezclarClips(proyecto.audio.clips, a.sonidos.clips.filter(c => c.t < D), f), f?.clips); hecho.sonidos = true; }
   if (a.musica.cambiar) {
     const m = esObj(proyecto.audio.musica) ? proyecto.audio.musica : null, { estilo, volumen } = a.musica;
     if (estilo === 'actual') { if (m) { m.volumen = volumen; hecho.musica = true; } }   // la que hay (la canción subida no se pierde)
@@ -191,11 +220,14 @@ export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAccion
 
 const mismoTexto = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 
-// Las capas que siguen iguales se conservan tal cual (con su fuente, color y posición x); las nuevas se crean
-function mezclarTextos(actuales, simples, { textosDesdeAcciones, formato }) {
+// Las capas que siguen iguales se conservan tal cual (con su fuente, color y posición x); las nuevas se crean.
+// Con la foto, una capa se reconoce también por cómo era al mandar el pedido, y solo cambia lo que el pedido cambió.
+function mezclarTextos(actuales, simples, { textosDesdeAcciones, formato, foto }) {
   const lista = (Array.isArray(actuales) ? actuales : []).filter(esObj), usadas = new Set(), plan = [], nuevas = [];
+  const era = c => foto?.textos.get(c.id) || c;
+  const coincide = (o, s) => mismoTexto(o.texto, s.texto) && (o.estilo || 'libre') === s.estilo;
   for (const s of simples) {
-    const igual = lista.find(c => c.tipo !== 'marca' && !usadas.has(c) && mismoTexto(c.texto, s.texto) && (c.estilo || 'libre') === s.estilo);
+    const igual = lista.find(c => c.tipo !== 'marca' && !usadas.has(c) && (coincide(c, s) || coincide(era(c), s)));
     if (igual) { usadas.add(igual); plan.push({ capa: igual, s }); } else { plan.push({ s }); nuevas.push(s); }
   }
   let creadas = typeof textosDesdeAcciones === 'function' ? textosDesdeAcciones(nuevas, { formato, capasActuales: lista }) : null;
@@ -204,11 +236,12 @@ function mezclarTextos(actuales, simples, { textosDesdeAcciones, formato }) {
   let i = 0;
   const resto = plan.map(({ capa, s }) => {
     if (!capa) return creadas[i++];
-    if (Math.abs((capa.y ?? 0.5) - s.y) > 0.002) capa.y = s.y;
-    if (Math.abs((capa.entra ?? 0) - s.entra) > 0.01) capa.entra = s.entra;
+    const e = era(capa);
+    if (Math.abs((e.y ?? 0.5) - s.y) > 0.002) capa.y = s.y;
+    if (Math.abs((e.entra ?? 0) - s.entra) > 0.01) capa.entra = s.entra;
     const sale = s.sale < 0 ? null : s.sale;
-    if ((capa.sale ?? null) === null ? sale !== null : sale === null || Math.abs(capa.sale - sale) > 0.01) capa.sale = sale;
-    if (s.animacion && capa.animacion !== s.animacion) capa.animacion = s.animacion;
+    if ((e.sale ?? null) === null ? sale !== null : sale === null || Math.abs(e.sale - sale) > 0.01) capa.sale = sale;
+    if (s.animacion && e.animacion !== s.animacion) capa.animacion = s.animacion;
     return capa;
   }).filter(Boolean);
   return [...marcas, ...resto];
@@ -224,14 +257,20 @@ const capaBasica = existentes => {
   };
 };
 
-// Los sonidos que ya estaban (mismo efecto y momento) conservan su id y su tono
-function mezclarClips(actuales, nuevos) {
+// Los sonidos que ya estaban (mismo efecto y momento) conservan su id y su tono. Con la foto, uno que ella movió mientras
+// la IA pensaba se reconoce por donde estaba, y se queda donde lo dejó si el pedido no lo movió.
+function mezclarClips(actuales, nuevos, foto) {
   const lista = (Array.isArray(actuales) ? actuales : []).filter(esObj), usados = new Set();
   let n = 0;
   for (const c of lista) { const m = /^au(\d+)$/.exec(c?.id || ''); if (m) n = Math.max(n, +m[1]); }
+  const cerca = (o, c) => !!o && Math.abs((+o.t || 0) - c.t) < 0.02;
   return nuevos.map(c => {
-    const igual = lista.find(o => !usados.has(o) && o.efecto === c.efecto && Math.abs((+o.t || 0) - c.t) < 0.02);
-    if (igual) { usados.add(igual); return { ...igual, t: c.t, volumen: c.volumen }; }
+    const igual = lista.find(o => !usados.has(o) && o.efecto === c.efecto && (cerca(o, c) || cerca(foto?.clips.get(o.id), c)));
+    if (igual) {
+      usados.add(igual);
+      const e = foto?.clips.get(igual.id);
+      return { ...igual, t: cerca(e, c) ? igual.t : c.t, volumen: e && Math.abs((+e.volumen || 0) - c.volumen) < 0.01 ? igual.volumen : c.volumen };
+    }
     return { id: 'au' + (++n), efecto: c.efecto, t: c.t, volumen: c.volumen, tono: 0 };
   });
 }
@@ -326,9 +365,12 @@ function extraer(original) {
   s = s.replace(/["“«]([^"“”«»\n]{1,120})["”»]/g, (m, t) => cita(t));
   s = s.replace(/(^|[\s(:])['‘]([^'‘’\n]{1,120})['’](?=$|[\s.,;:!?)])/g, (m, pre, t) => pre + cita(t));
   // sin comillas: «el texto que diga Nueva colección arriba» o «agrega el título Solitario Aurora abajo»
-  s = s.replace(new RegExp(`\\b${CLAVE_TEXTO}(\\s+que\\s+diga|\\s+que\\s+dice|\\s+diciendo|\\s*:)\\s*(?!\\s*§)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, clave, con, t) => `${clave} ${cita(t)}`);
-  // (el verbo puede faltar si el mensaje empieza con «el texto …»)
-  s = s.replace(new RegExp(`(?:^\\s*|\\b(agrega|añade|anade|pon|ponle|escribe|coloca|mete|incluye)\\s+)(?:el|un|una|la)?\\s*${CLAVE_TEXTO}\\s+(?!(?:que|con|de|del|en|al|arriba|abajo|y|§)\\b)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, v, clave, t) => `${v || ''} ${clave} ${cita(t)}`);
+  // («texto arriba: ¿Para quién es? 💍»: el lugar se queda en la frase)
+  s = s.replace(new RegExp(`\\b${CLAVE_TEXTO}(\\s+(?:arriba|abajo))?(\\s+que\\s+diga|\\s+que\\s+dice|\\s+diciendo|\\s*:)\\s*(?!\\s*§)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, clave, lugar, con, t) => `${clave}${lugar || ''} ${cita(t)}`);
+  // (el verbo puede faltar si el mensaje empieza con «el texto …»; «pon arriba el texto …» también vale)
+  s = s.replace(new RegExp(`(?:^\\s*|\\b(agrega|añade|anade|pon|ponle|escribe|coloca|mete|incluye)\\s+(?:(arriba|abajo)\\s+)?)(?:el|un|una|la)?\\s*${CLAVE_TEXTO}\\s+(?!(?:que|con|de|del|en|al|arriba|abajo|y|§)\\b)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, v, lugar, clave, t) => `${v || ''} ${lugar || ''} ${clave} ${cita(t)}`);
+  // «… arriba y el título Anillo Luna abajo»: otro texto en la misma frase sin repetir el verbo
+  s = s.replace(new RegExp(`\\s(?:y|e)\\s+(el|la|un|una|otro|otra)\\s+${CLAVE_TEXTO}\\s+(?!(?:que|con|de|del|en|al|arriba|abajo|y|§)\\b)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, art, clave, t) => ` y ${art} ${clave} ${cita(t)}`);
   return { s, citas, precio };
 }
 
@@ -344,7 +386,10 @@ function partir(x) {
     .replace(/\s+y\s+(al\s+mismo\s+tiempo|a\s+la\s+vez)\s+/g, ' | $1 ')   // «…y al mismo tiempo baja»: otra indicación en el mismo tramo
     .replace(/\b(?:y\s+)?(primero|luego|despues|entonces|finalmente|por\s+ultimo|para\s+terminar|para\s+cerrar|para\s+finalizar|al\s+final|a\s+continuacion)\b/g, ' | $1 ')
     .replace(new RegExp(`\\s+y\\s+(?=(?:se\\s+|que\\s+|la\\s+|lo\\s+|le\\s+)?(?:${VERBOS}))`, 'g'), ' | ')
-    .replace(new RegExp(`\\s+y\\s+(?=(?:(?:un|una|el|la|los|las|otro|otra)\\s+)?(?:${EFECTOS_PALABRAS})\\b)`, 'g'), ' | ')
+    // (no si el efecto va «antes»/«también»: es el mismo momento que el anterior, «un impacto cuando haga zoom y un riser antes»)
+    .replace(new RegExp(`\\s+y\\s+(?=(?:(?:un|una|el|la|los|las|otro|otra)\\s+)?(?:${EFECTOS_PALABRAS})\\b(?!\\s+(?:justo\\s+)?(?:antes|tambien|igual)\\b))`, 'g'), ' | ')
+    // «…arriba y el título "X" abajo»: cada texto con su lugar y su estilo
+    .replace(/\s+y\s+(?=(?:el|la|un|una|otro|otra)\s+(?:texto|titulo|subtitulo|frase|letrero|mensaje|gancho|leyenda)\s+§)/g, ' | ')
     .replace(/\s+que\s+(?=(?:se\s+)?(?:gir|baj|sub|acerc|acerqu|alej|termin|acab|enfoc|qued|vuelv|regres|rot|inclin|desciend))/g, ' | ');
   const partes = []; let tras = '¦';
   for (const trozo of s.split(/([|¦])/)) {

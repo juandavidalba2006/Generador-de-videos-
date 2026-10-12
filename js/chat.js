@@ -2,7 +2,7 @@
 // asistente lo convierte en keyframes, textos, sonidos y música. Con IA (api/chat.js en Vercel) o, si no hay IA
 // (sitio local, sin clave o sin conexión), con el intérprete por reglas de interprete.js.
 import { escarabajo } from './marca.js';
-import { interpretar, normalizarAcciones, resumenAcciones, resumenProyecto, hayCambios } from './interprete.js';
+import { interpretar, normalizarAcciones, resumenAcciones, resumenProyecto, hayCambios, fotoProyecto } from './interprete.js';
 
 // main.js puede importar la función pura desde aquí o desde interprete.js
 export { aplicarAccionesAProyecto } from './interprete.js';
@@ -48,8 +48,9 @@ export class Chat {
     Object.assign(this, { obtenerProyecto, obtenerInfo, aplicarAcciones });
     this.url = url || (typeof document !== 'undefined' ? new URL('api/chat', document.baseURI).href : '/api/chat');
     this.estado = 'comprobando';
+    this.sinRed = false;              // el último «¿hay IA?» falló por la red (no porque el sitio no tenga IA): se vuelve a preguntar
     this.ocupado = false;
-    this.mensajes = this.leer();      // { rol: 'user' | 'assistant' | 'error', texto, etiquetas?, basico?, reintento? }
+    this.mensajes = this.leer();      // { rol: 'user' | 'assistant' | 'error', texto, etiquetas?, basico?, reintento?, fallido? }
     this.vistos = this.mensajes.length;   // las que ya estaban (de la sesión) no se animan al entrar
     contenedor.classList.add('cht');
     contenedor.innerHTML = `
@@ -88,6 +89,8 @@ export class Chat {
     this.pintarEstado();
     this.render();
     this.comprobar();
+    // volvió la conexión: si el modo básico era por falta de red, se revisa otra vez si hay IA
+    if (typeof addEventListener === 'function') addEventListener('online', () => { if (this.sinRed && !this.ocupado) this.comprobar(); });
   }
 
   // ---------- ¿Hay IA? ----------
@@ -96,8 +99,10 @@ export class Chat {
     try {
       const res = await pedir(this.url, { headers: { Accept: 'application/json' }, cache: 'no-store' }, ESPERA_ESTADO);
       const d = res.ok ? await jsonSeguro(res) : null;   // 404/501 de un servidor local, o 200 sin clave → modo básico
+      this.sinRed = false;
       this.ponerEstado(d?.disponible === true ? 'ia' : 'basico');
     } catch {
+      this.sinRed = true;   // sin conexión: modo básico por ahora (con el siguiente pedido o al volver la red se pregunta otra vez)
       this.ponerEstado('basico');
     }
     return this.estado;
@@ -115,29 +120,39 @@ export class Chat {
   async enviar(texto) {
     texto = String(texto ?? '').trim().slice(0, 1500);
     if (!texto || this.ocupado) return;
-    this.agregar({ rol: 'user', texto });
+    const pedido = { rol: 'user', texto };
+    this.agregar(pedido);
     this.$texto.value = ''; this.ajustarTexto();
-    await this.responder(texto);
+    await this.responder(texto, pedido);
   }
 
-  // Vuelve a intentar el último pedido que falló (sin repetir la burbuja de la usuaria)
+  // Vuelve a intentar un pedido que falló: su burbuja pasa al final de la conversación (la IA lo recibe como el último turno)
   async reintentar(i) {
     const m = this.mensajes[i];
     if (this.ocupado || !m || m.rol !== 'error' || !m.reintento) return;
+    // la burbuja de la usuaria que originó el error (la última antes de él con ese texto)
+    let j = i - 1;
+    while (j >= 0 && !(this.mensajes[j].rol === 'user' && this.mensajes[j].texto === m.reintento)) j--;
     this.mensajes.splice(i, 1);
-    this.vistos = Math.min(this.vistos, this.mensajes.length);
-    this.render(); this.guardar();
-    await this.responder(m.reintento);
+    const pedido = j >= 0 ? this.mensajes.splice(j, 1)[0] : { rol: 'user', texto: m.reintento };
+    delete pedido.fallido;
+    this.vistos = this.mensajes.length;   // solo la burbuja que vuelve al final entra animada
+    this.agregar(pedido);
+    await this.responder(m.reintento, pedido);
   }
 
-  async responder(texto) {
+  // pedido: la burbuja de la usuaria; si termina en error se marca «fallido» y no se le manda a la IA en los siguientes pedidos
+  // (si no, se juntaría con el siguiente y la IA haría los dos)
+  async responder(texto, pedido = null) {
     this.ocupar(true);
     let acciones = null, basico = false, aviso = false, error = '';
-    const proyecto = this.obtenerProyecto?.() || {}, info = this.obtenerInfo?.() || {};
+    const fallo = mensaje => { if (pedido) pedido.fallido = true; this.agregar({ rol: 'error', texto: mensaje, reintento: texto }); };
     try {
-      if (this.estado === 'comprobando') await this.comprobar();
+      if (this.estado === 'comprobando' || this.sinRed) await this.comprobar();
+      // el proyecto como está al mandar el pedido: lo que ella cambie mientras la IA piensa no se pierde (ver fotoProyecto)
+      const proyecto = this.obtenerProyecto?.() || {}, info = this.obtenerInfo?.() || {}, foto = fotoProyecto(proyecto);
       if (this.estado === 'ia') {
-        const r = await this.preguntarIA(proyecto, info);
+        const r = await this.preguntarIA(proyecto, info, foto.duracion);
         if (r.acciones) acciones = r.acciones;
         else {
           if (r.sinIA) this.ponerEstado('basico');
@@ -147,17 +162,18 @@ export class Chat {
       if (!acciones) {
         // modo básico: el intérprete por reglas (si la IA falló y el intérprete tampoco entiende, se muestra el error)
         const local = interpretar(texto, proyecto, info);
-        if (error && !hayCambios(local)) { this.agregar({ rol: 'error', texto: error, reintento: texto }); return; }
+        if (error && !hayCambios(local)) { fallo(error); return; }
         acciones = local; basico = true;
       }
       if (hayCambios(acciones)) {
-        try { await this.aplicarAcciones?.(acciones); }
+        try { await this.aplicarAcciones?.(acciones, { foto }); }
         catch (e) {
           console.error(e);
-          this.agregar({ rol: 'error', texto: 'Entendí el pedido, pero no pude aplicar los cambios al video' + (e?.message ? `: ${e.message}` : '.'), reintento: texto });
+          fallo('Entendí el pedido, pero no pude aplicar los cambios al video' + (e?.message ? `: ${e.message}` : '.'));
           return;
         }
       }
+      if (pedido) delete pedido.fallido;
       // si había IA y respondió el intérprete, se avisa en la burbuja (en modo básico ya lo dice la línea de estado)
       this.agregar({ rol: 'assistant', texto: acciones.respuesta || 'Listo.', etiquetas: resumenAcciones(acciones), basico: basico && aviso ? 'Modo básico · la IA no respondió' : '' });
     } finally {
@@ -165,9 +181,10 @@ export class Chat {
     }
   }
 
-  // POST a api/chat → { acciones } o { error, sinIA }
-  async preguntarIA(proyecto, info) {
-    const historial = this.mensajes.filter(m => m.rol === 'user' || m.rol === 'assistant').slice(-MAX_HISTORIAL).map(m => ({ role: m.rol, content: m.texto }));
+  // POST a api/chat → { acciones } o { error, sinIA }. duracion: la del proyecto al mandar el pedido (la de la foto)
+  async preguntarIA(proyecto, info, duracion = proyecto.duracion) {
+    // los pedidos que terminaron en error no se mandan (el que se está reintentando ya no está marcado)
+    const historial = this.mensajes.filter(m => (m.rol === 'user' && !m.fallido) || m.rol === 'assistant').slice(-MAX_HISTORIAL).map(m => ({ role: m.rol, content: m.texto }));
     let res;
     try {
       res = await pedir(this.url, {
@@ -176,12 +193,13 @@ export class Chat {
         body: JSON.stringify({ mensajes: historial, contexto: resumenProyecto(proyecto, info) }),
       });
     } catch (e) {
-      // sin conexión o el servidor no existe: modo básico; si se acabó el tiempo, se avisa
-      return e?.name === 'AbortError' ? { error: 'La IA tardó demasiado en responder. Inténtalo de nuevo.' } : { sinIA: true };
+      // se acabó el tiempo, o se cortó la conexión (pasa en el celular): es pasajero, así que se sigue con IA y se ofrece
+      // reintentar. Solo un sitio sin IA (404/405/501 o sin clave, abajo) deja el chat en modo básico.
+      return e?.name === 'AbortError' ? { error: 'La IA tardó demasiado en responder. Inténtalo de nuevo.' } : { error: 'Se perdió la conexión con el asistente. Revisa tu internet e inténtalo de nuevo.' };
     }
     const d = await jsonSeguro(res);
     if (res.ok && d && typeof d === 'object' && typeof d.respuesta === 'string') {
-      return { acciones: { ...normalizarAcciones(d, { duracion: proyecto.duracion }), respuesta: d.respuesta || 'Listo.' } };
+      return { acciones: { ...normalizarAcciones(d, { duracion }), respuesta: d.respuesta || 'Listo.' } };
     }
     // un sitio estático (404/405/501) o la función sin clave (503 sinIA) → no hay IA en este sitio
     if ([404, 405, 501].includes(res.status) || d?.sinIA) return { sinIA: true };
@@ -218,10 +236,12 @@ export class Chat {
   render() {
     const avatar = `<span class="cht-avatar">${escarabajo('currentColor')}</span>`;
     const bienvenida = `<div class="cht-msg assistant cht-bienvenida">${avatar}<div class="cht-burbuja"><p><b>Hola, soy tu asistente de cámara.</b> Cuéntame con tus palabras cómo quieres que se mueva la joya y lo convierto en keyframes. También pongo textos, efectos de sonido y música. Si algo no te gusta, usa <b>Deshacer</b> en la línea de tiempo.</p></div></div>`;
+    // «Reintentar» solo en el último error (los de antes ya quedaron atrás en la conversación)
+    const ultimoError = this.mensajes.map(m => m.rol).lastIndexOf('error');
     const html = this.mensajes.map((m, i) => {
       const nuevo = i >= this.vistos ? ' nuevo' : '';
       if (m.rol === 'user') return `<div class="cht-msg user${nuevo}"><div class="cht-burbuja">${esc(m.texto)}</div></div>`;
-      if (m.rol === 'error') return `<div class="cht-msg error${nuevo}">${avatar}<div class="cht-burbuja">${icono('aviso')}<div><p>${esc(m.texto)}</p>${m.reintento ? `<button type="button" class="cht-reintentar" data-accion="reintentar" data-i="${i}">Reintentar</button>` : ''}</div></div></div>`;
+      if (m.rol === 'error') return `<div class="cht-msg error${nuevo}">${avatar}<div class="cht-burbuja">${icono('aviso')}<div><p>${esc(m.texto)}</p>${m.reintento && i === ultimoError ? `<button type="button" class="cht-reintentar" data-accion="reintentar" data-i="${i}">Reintentar</button>` : ''}</div></div></div>`;
       const etiquetas = (m.etiquetas || []).map(e => `<li>${esc(e)}</li>`).join('');
       return `<div class="cht-msg assistant${nuevo}">${avatar}<div class="cht-cuerpo"><div class="cht-burbuja">${esc(m.texto)}</div>${etiquetas || m.basico ? `<div class="cht-meta">${etiquetas ? `<ul class="cht-cambios" aria-label="Cambios">${etiquetas}</ul>` : ''}${m.basico ? `<span class="cht-modo">${esc(m.basico)}</span>` : ''}</div>` : ''}</div></div>`;
     }).join('');

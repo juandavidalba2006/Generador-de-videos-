@@ -69,6 +69,12 @@ Cuando funciona, el chat dice **«Asistente con IA»**. **Sin la clave** (o abri
 sin Vercel) el chat igual funciona en **«Modo básico (sin IA)»**: entiende las frases más comunes de cámara,
 tiempos, textos, sonidos y música, aunque con menos libertad.
 
+La clave es tuya y cada pedido a la IA cuesta, así que la función solo responde a la página del estudio (otro sitio
+no puede usarla desde el navegador de sus visitas) y acepta hasta 8 pedidos por minuto y 60 por hora desde una misma
+conexión. Si publicas el estudio también en un dominio propio, agrégalo en la variable `ORIGENES_PERMITIDOS`
+(por ejemplo `https://www.tudominio.com`; varios, separados por comas). En Anthropic Console también puedes ponerle
+un tope de gasto mensual a la clave.
+
 ## Bitmaps y luz (pestaña Materiales)
 
 - **Bitmaps de las piedras**: le dan realismo a la gema con inclusiones y textura. Escoge *Seda e inclusiones*,

@@ -2,6 +2,7 @@
 :root{
   --perla:#F1EFEA; --papel:#FCFBF8; --tinta:#1E1B15; --tinta2:#5E5A50; --linea:#DDD8CE;
   --oro:#B8871F; --oro-suave:#F4E7C8; --oro-vivo:#C49022; --esm:#1E5B4B; --esm-suave:#DDEBE5;
+  --oro-texto:#86621A;   /* el dorado para letra pequeña (≥ 4,8:1 sobre papel y perla); --oro queda para adornos y rombos */
   --gra:#8E2F3A; --gra-suave:#F4E2E4; --bosque:#17150F; --rosa:#C9A3A8;
   --campo:#fff; --campo-borde:#C7CFCA;
   --serif:'Bodoni Moda', Didot, 'Times New Roman', serif;
@@ -120,6 +121,8 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .marco .vacio-vista b{display:block;font-family:var(--serif);font-weight:500;font-size:22px;color:var(--tinta);margin-bottom:4px}
 .marco .vacio-vista .btn{display:flex;margin:16px auto 0;white-space:normal}
 .etiqueta-vista{position:absolute;top:10px;left:10px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;background:rgba(23,21,15,.72);color:#F4E7C8;padding:4px 10px;border-radius:999px;pointer-events:none}
+/* en 16:9 la marca va arriba a la izquierda: la etiqueta se pasa a la derecha para no taparla */
+.marco[data-formato=catalogo] .etiqueta-vista{left:auto;right:10px}
 .transporte{display:flex;gap:10px;align-items:center;flex:none}
 .transporte input{flex:1;min-width:40px}
 .reloj-vista{display:inline-flex;align-items:baseline;gap:5px;font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--tinta2);white-space:nowrap}
@@ -187,8 +190,10 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .resultado{display:flex;flex-direction:column;gap:10px}
 .aviso-cal{font-size:13px;color:var(--tinta2);background:var(--oro-suave);border-radius:8px;padding:10px 12px;margin:0}
 
-#aviso{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--tinta);color:var(--papel);padding:11px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;max-width:calc(100vw - 32px);text-align:center}
-#aviso.ver{opacity:1;transform:translateX(-50%) translateY(0)}
+/* centrado con left/right + margin auto (con left:50% el ancho se ajustaba a la mitad derecha de la pantalla y en el celular
+   un aviso largo quedaba como un óvalo angosto); varias líneas se ven como una tarjeta redondeada, no como una píldora */
+#aviso{position:fixed;left:16px;right:16px;bottom:24px;margin-inline:auto;width:fit-content;max-width:640px;transform:translateY(20px);background:var(--tinta);color:var(--papel);padding:11px 20px;border-radius:22px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;text-align:center}
+#aviso.ver{opacity:1;transform:none}
 #aviso.mal{background:var(--gra);color:#fff}
 /* mientras se crea el video, lo que cambiaría la escena (abrir, la joya, los bitmaps) se ve apagado */
 .bloqueado{opacity:.45;pointer-events:none}
@@ -245,7 +250,7 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 @media (prefers-color-scheme: dark){
   :root{
     --perla:#121110; --papel:#1D1B17; --tinta:#F4F1EA; --tinta2:#B8B2A4; --linea:#3E3A31;
-    --oro:#E3B54A; --oro-suave:#3E3418; --oro-vivo:#E3B54A; --esm:#6FDCAB; --esm-suave:#12352A;
+    --oro:#E3B54A; --oro-suave:#3E3418; --oro-vivo:#E3B54A; --oro-texto:#E3B54A; --esm:#6FDCAB; --esm-suave:#12352A;
     --gra:#FF8A95; --gra-suave:#43222A; --bosque:#0E0D0A; --rosa:#E0959D;
     --campo:#15140F; --campo-borde:#544E42;
   }
@@ -254,6 +259,8 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   .btn.sec{background:#26231C;color:var(--tinta);border-color:#645C4C}
   .btn.sec:hover{background:#33302A;border-color:var(--oro);color:var(--oro)}
   .btn.peligro{color:var(--gra);border-color:#6B3038;background:transparent}
+  /* los errores: blanco sobre el granate de la marca (sobre el rosa claro de --gra el texto blanco casi no se leía) */
+  #aviso.mal{background:#8E2F3A;color:#fff}
   .panel{border-color:#3E3A31}
   .marco{background:#24211A}
   .soltar{border-color:#5A5446;background:linear-gradient(180deg,rgba(62,52,24,.4),transparent)}

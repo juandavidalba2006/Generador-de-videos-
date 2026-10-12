@@ -103,7 +103,7 @@
 .lt-ico-marca{width:11px;height:auto;flex:none;color:var(--oro-vivo)}
 
 /* grupos plegables: Cámara, Textos, Sonido */
-.lt-et.lt-grupo{border:0;border-right:1px solid var(--linea);border-top:1px solid var(--linea);margin:0;font:inherit;width:100%;height:28px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--oro);gap:6px;padding-left:8px}
+.lt-et.lt-grupo{border:0;border-right:1px solid var(--linea);border-top:1px solid var(--linea);margin:0;font:inherit;width:100%;height:28px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--oro-texto, var(--oro));gap:6px;padding-left:8px}
 .lt-grupo small .lt-mini-rombo{width:6px;height:6px;margin-right:6px;vertical-align:1px}
 .lt-grupo small{margin-left:auto;text-transform:none;letter-spacing:0;color:var(--tinta2);font-weight:400;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .lt-grupo:focus-visible{outline:2px solid var(--oro);outline-offset:-2px}

@@ -61,7 +61,7 @@ export class Compositor {
     ctx.drawImage(this.fondo(fondo), 0, 0);
     if (sombra && intensidadSombra > 0) {
       const capa = this.capa; capa.width = W; capa.height = H; const c = capa.getContext('2d');
-      c.save(); c.translate(sombra.x, sombra.y); c.scale(1, sombra.ry / sombra.rx);
+      c.save(); c.translate(sombra.x, sombra.y); c.rotate(sombra.ang || 0); c.scale(1, sombra.ry / sombra.rx);
       const g = c.createRadialGradient(0, 0, 0, 0, 0, sombra.rx * 1.25), a = f.sombra * intensidadSombra;
       g.addColorStop(0, `rgba(12,9,4,${a})`); g.addColorStop(0.35, `rgba(12,9,4,${a * 0.55})`); g.addColorStop(1, 'rgba(12,9,4,0)');
       c.fillStyle = g; c.fillRect(-sombra.rx * 1.3, -sombra.rx * 1.3, sombra.rx * 2.6, sombra.rx * 2.6); c.restore();

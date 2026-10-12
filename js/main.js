@@ -167,7 +167,7 @@ let proyecto = null;
     try { const { p, aj } = leerProyecto(guardado); faltan = aplicarAjustes(aj); proyecto = p; adaptarAFormato(proyecto.textos, estado.formato); }
     catch (e) {
       // no se pudo leer: se guarda aparte (no se pierde al autoguardar el proyecto nuevo) y se avisa
-      console.error(e); proyecto = null; fallo = true; guardarLocal(CLAVE_PROYECTO + '-respaldo', guardado);
+      console.warn(e); proyecto = null; fallo = true; guardarLocal(CLAVE_PROYECTO + '-respaldo', guardado);
     }
   }
   if (!proyecto) {
@@ -181,10 +181,13 @@ pintarControles();
 // Los cambios de los paneles (textos, sonido, arrastrar en la vista previa) se agrupan: un paso por ráfaga de cambios
 let fotoEstable = '', tRafaga = 0, tGuardar = 0;
 function asentar() { fotoEstable = serializar(proyecto); programarAutoguardado(); }
+// arrastrandoTexto: mientras el dedo o el mouse sigue sobre un texto, una pausa no cierra el paso (Deshacer vuelve a donde estaba)
+let arrastrandoTexto = false;
 function anotarCambio() {
   if (!tRafaga && fotoEstable) linea.guardarHistorial(fotoEstable);
-  clearTimeout(tRafaga); tRafaga = setTimeout(cerrarRafaga, 800);
+  clearTimeout(tRafaga); tRafaga = setTimeout(cerrarPorPausa, 800);
 }
+function cerrarPorPausa() { if (arrastrandoTexto) tRafaga = setTimeout(cerrarPorPausa, 800); else cerrarRafaga(); }
 function cerrarRafaga() { clearTimeout(tRafaga); tRafaga = 0; asentar(); linea.render(); }
 function programarAutoguardado() { clearTimeout(tGuardar); tGuardar = setTimeout(autoguardar, 900); }
 function autoguardar() { if (guardarLocal(CLAVE_PROYECTO, archivoProyecto())) $('guardado').textContent = 'Guardado en este equipo'; }
@@ -331,11 +334,12 @@ function obtenerInfo() {
   };
 }
 
-// Lo que pidió el asistente: se guarda para deshacer, se mezcla en el proyecto y se ve desde el principio
-function aplicarAcciones(acciones) {
+// Lo que pidió el asistente: se guarda para deshacer, se mezcla en el proyecto y se ve desde el principio.
+// foto: el proyecto como estaba al mandar el pedido (lo que se editó mientras la IA pensaba se conserva)
+function aplicarAcciones(acciones, { foto } = {}) {
   cerrarRafaga();
   const antes = serializar(proyecto);
-  const hecho = aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato: estado.formato, musicaNueva });
+  const hecho = aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato: estado.formato, musicaNueva, foto });
   if (!hecho.algo) return hecho;
   linea.guardarHistorial(antes);
   todoCambio();
@@ -358,10 +362,10 @@ arrastrarEnLienzo($('lienzo'), {
     estado.sucio = true;
   },
   alMover: () => {
-    anotarCambio(); estado.sucio = true;
+    arrastrandoTexto = true; anotarCambio(); estado.sucio = true;
     if (!textoPendiente) textoPendiente = requestAnimationFrame(() => { textoPendiente = 0; panelTextos.render(); });
   },
-  alSoltar: () => cerrarRafaga(),
+  alSoltar: () => { arrastrandoTexto = false; cerrarRafaga(); },
 });
 
 // ---------- Pestañas del inspector (y el menú lateral) ----------
@@ -466,6 +470,7 @@ function ajustarPrevia() {
   // mientras se crea el video el estudio renderiza al tamaño de la salida: no se le cambia a mitad (trabajo() lo devuelve al terminar)
   previa.tamano(w, h); if (!estado.exportando) estudio.tamano(w, h);
   $('editor').style.setProperty('--aspecto', (f.w / f.h).toFixed(4));
+  $('marco').dataset.formato = estado.formato;   // (la etiqueta «Vista rápida» no tapa la marca en 16:9)
   const m = $('miniLienzo'); m.width = w / 2; m.height = h / 2; verMini(true);
   estado.sucio = true;
 }
@@ -795,8 +800,11 @@ async function abrirProyecto(archivo) {
     estado.t = 0; buscar(0);
     avisoAbierto('Proyecto abierto.', faltan);
   } catch (e) {
-    // los errores propios ya vienen en español; uno inesperado del navegador (en inglés) se cambia por un mensaje claro
-    console.error(e); aviso(e?.constructor === Error && e.message ? e.message : 'No se pudo abrir el proyecto: el archivo está dañado o es de otra versión.', true);
+    // los errores propios ya vienen en español (el archivo no es un proyecto: no es un fallo de la app, no va a la consola);
+    // uno inesperado del navegador (en inglés) se anota en la consola y se cambia por un mensaje claro
+    const propio = e?.constructor === Error && !!e.message;
+    if (!propio) console.warn(e);
+    aviso(propio ? e.message : 'No se pudo abrir el proyecto: el archivo está dañado o es de otra versión.', true);
   }
 }
 $('guardar').addEventListener('click', guardarProyecto);

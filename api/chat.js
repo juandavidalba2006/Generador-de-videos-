@@ -10,8 +10,10 @@ export const MAX_CUERPO = 64 * 1024;       // bytes
 export const MAX_MENSAJES = 12;            // historial que se manda a la IA
 const MAX_TEXTO = 2000, MAX_CONTEXTO = 24 * 1024;
 
-// En Vercel la función puede durar hasta 60 s; el cliente de la IA corta antes para alcanzar a responder el error
+// En Vercel la función puede durar hasta 60 s. Todo lo que se espera a la IA (con su único reintento, si cabe) termina antes de
+// PLAZO, para alcanzar a responder el error en español en vez de que la plataforma corte con un 504 sin explicación.
 export const config = { maxDuration: 60 };
+export const PLAZO = 55_000;   // ms
 
 // ---------- Forma de la respuesta (salida estructurada) ----------
 // Reglas de las salidas estructuradas: todo objeto con additionalProperties: false y todas sus propiedades en required;
@@ -53,7 +55,7 @@ export const ESQUEMA = obj({
   }),
   musica: obj({
     cambiar: { type: 'boolean', description: 'true solo si el pedido toca la música.' },
-    estilo: { type: 'string', enum: [...ESTILOS_MUSICA_IDS, 'ninguna'] },
+    estilo: { type: 'string', enum: [...ESTILOS_MUSICA_IDS, 'ninguna', 'actual'], description: '«actual» = la música que ya tiene (también su canción subida): solo cambia el volumen.' },
     volumen: num('0.05 a 1; lo normal es 0.55. Con «ninguna» va 0.'),
   }),
 });
@@ -131,6 +133,9 @@ elastico = se pasa y vuelve como un resorte; escalon = corte seco (se queda quie
 - Solo si la pide (o pide algo «viral» y no hay música): musica.cambiar = true. Estilos: lujo (piano suave y pad, 76 bpm, el de la marca),
   lofi (relajado, 82), trap (808 y hi-hats, 140), house (para bailar, 122), phonk (cencerro y 808 distorsionado, 130, el del drift viral),
   popViral (palmas y sintes alegres, 116), cinematico (dron, cuerdas y golpes, 90). «ninguna» quita la música. Volumen normal 0.55.
+- «actual» conserva la música que ya tiene y solo cambia el volumen: úsalo cuando pide subir o bajar la música sin nombrar otro estilo.
+  Si en <proyecto> la música es «cancion-propia», es una canción que ella subió: nunca la cambies por un estilo a menos que lo pida con
+  esas palabras (para el volumen, «actual»).
 - Si quiere una canción de moda en particular: no se puede generar; dile que exporte sin música y la agregue desde la biblioteca de Instagram.
 
 # Cada mensaje
@@ -192,9 +197,19 @@ export function errorIA(e) {
   return { estado: 500, error: 'Error inesperado del asistente.' };
 }
 
+// Un solo reintento, y solo para una falla rápida y pasajera (IA saturada, límite de velocidad, conexión): devuelve cuánto
+// esperar (ms) o null. Un tiempo agotado no se reintenta: se cobraría dos veces y se pasaría del plazo de la función.
+function esperaReintento(e) {
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return null;
+  if (e instanceof Anthropic.RateLimitError) { const s = Number(e.headers?.get?.('retry-after')); return !Number.isFinite(s) || s < 0 ? 1000 : s <= 5 ? s * 1000 : null; }
+  if (e instanceof Anthropic.InternalServerError || e instanceof Anthropic.APIConnectionError) return 800;
+  return null;
+}
+const dormir = ms => new Promise(ok => setTimeout(ok, ms));
+
 // ---------- El núcleo: cuerpo del pedido + cliente de Anthropic → { estado, datos } (nunca lanza) ----------
 /** @param {import('@anthropic-ai/sdk').default} cliente */
-export async function responder(cuerpo, cliente) {
+export async function responder(cuerpo, cliente, { plazo = PLAZO } = {}) {
   let historial;
   try {
     if (!cuerpo || typeof cuerpo !== 'object' || Array.isArray(cuerpo)) throw new ErrorPedido(400, 'El pedido no es válido.');
@@ -203,21 +218,30 @@ export async function responder(cuerpo, cliente) {
     return { estado: e.estado || 400, datos: { error: e.message } };
   }
   const duracion = Number(cuerpo.contexto?.duracion) || 8;
+  const parametros = {
+    model: MODELO,
+    max_tokens: 16000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: ESQUEMA } },
+    system: [{ type: 'text', text: SISTEMA, cache_control: { type: 'ephemeral' } }],
+    messages: historial,
+  };
+  const inicio = Date.now(), queda = () => plazo - (Date.now() - inicio);
   let response;
-  try {
-    response = await cliente.beta.messages.create({
-      model: MODELO,
-      max_tokens: 16000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: 'medium', format: { type: 'json_schema', schema: ESQUEMA } },
-      system: [{ type: 'text', text: SISTEMA, cache_control: { type: 'ephemeral' } }],
-      messages: historial,
-    });
-  } catch (e) {
-    const { estado, ...datos } = errorIA(e);
-    console.error('[api/chat] error de la IA:', e?.status ?? '', e?.name ?? '', e?.message ?? e);
-    return { estado, datos };
+  for (let intento = 1; ; intento++) {
+    try {
+      // el tiempo de cada intento es lo que queda del plazo (sin los reintentos automáticos del SDK, que no lo respetan)
+      response = await cliente.beta.messages.create(parametros, { timeout: Math.max(1000, queda()), maxRetries: 0 });
+      break;
+    } catch (e) {
+      const espera = esperaReintento(e);
+      // el reintento solo vale si después de esperar queda tiempo para una respuesta completa
+      if (intento === 1 && espera !== null && queda() - espera > 30_000) { await dormir(espera); continue; }
+      const { estado, ...datos } = errorIA(e);
+      console.error('[api/chat] error de la IA:', e?.status ?? '', e?.name ?? '', e?.message ?? e);
+      return { estado, datos };
+    }
   }
   // un rechazo no trae el JSON: se responde amable y sin cambios
   if (response?.stop_reason === 'refusal') {
@@ -270,15 +294,45 @@ async function leerCuerpo(req) {
   return crudo;
 }
 
+// ---------- Quién la puede usar ----------
+// La clave es de la joyera y cada pedido a la IA cuesta. Un navegador en OTRO sitio siempre manda su Origin: esos pedidos se
+// rechazan (así ninguna página ajena gasta la clave con las visitas de sus usuarios). Sin Origin ni Referer no es un navegador
+// (curl, un script): lo frena el tope por IP. El tope vive en la memoria de cada instancia (Vercel puede tener varias): no es
+// exacto, pero corta a quien mande pedidos en bucle sin necesitar una base de datos. Otros dominios propios: ORIGENES_PERMITIDOS.
+const soloHost = x => String(x || '').split(',')[0].trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+export function origenPermitido(headers = {}) {
+  const origen = headers.origin || headers.referer;
+  if (!origen) return true;
+  let host;
+  try { host = new URL(origen).host.toLowerCase(); } catch { return false; }
+  const propios = [headers['x-forwarded-host'], headers.host, process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL, ...String(process.env.ORIGENES_PERMITIDOS || '').split(',')].map(soloHost).filter(Boolean);
+  return propios.includes(host);
+}
+export const TOPE = { minuto: 8, hora: 60 };   // pedidos por IP (una conversación normal no llega ni cerca)
+const pedidosPorIP = new Map();                // ip → instantes (ms) de sus pedidos de la última hora
+// 0 si puede seguir; si no, los segundos que tiene que esperar
+export function esperaPorIP(ip, ahora = Date.now()) {
+  const lista = (pedidosPorIP.get(ip) || []).filter(t => ahora - t < 3_600_000), minuto = lista.filter(t => ahora - t < 60_000);
+  if (minuto.length >= TOPE.minuto) { pedidosPorIP.set(ip, lista); return Math.max(1, Math.ceil((minuto[0] + 60_000 - ahora) / 1000)); }
+  if (lista.length >= TOPE.hora) { pedidosPorIP.set(ip, lista); return Math.max(1, Math.ceil((lista[0] + 3_600_000 - ahora) / 1000)); }
+  lista.push(ahora); pedidosPorIP.set(ip, lista);
+  if (pedidosPorIP.size > 5000) for (const [k, v] of pedidosPorIP) if (!v.length || ahora - v[v.length - 1] > 3_600_000) pedidosPorIP.delete(k);
+  return 0;
+}
+const ipDe = req => soloHost(req.headers?.['x-forwarded-for']) || String(req.headers?.['x-real-ip'] || req.socket?.remoteAddress || 'desconocida');
+
 let cliente = null;   // se crea al primer pedido (y se reutiliza mientras la función siga caliente)
 
 export default async function handler(req, res) {
   if (req.method === 'GET' || req.method === 'HEAD') return enviar(res, 200, { disponible: Boolean(process.env.ANTHROPIC_API_KEY), modelo: MODELO });
   if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return enviar(res, 405, { error: 'Usa POST para hablar con el asistente.' }); }
+  if (!origenPermitido(req.headers || {})) return enviar(res, 403, { error: 'El asistente solo responde desde la página del estudio.' });
   let cuerpo;
   try { cuerpo = await leerCuerpo(req); } catch (e) { return enviar(res, e.estado || 400, { error: e.message || 'El pedido no es válido.' }); }
   if (!process.env.ANTHROPIC_API_KEY) return enviar(res, 503, { error: 'El asistente con IA no está configurado (falta ANTHROPIC_API_KEY).', sinIA: true });
-  cliente ||= new Anthropic({ timeout: 45_000, maxRetries: 1 });   // un reintento solo alcanza si el primer intento falla rápido (429, 529)
+  const espera = esperaPorIP(ipDe(req));
+  if (espera) { res.setHeader('Retry-After', String(espera)); return enviar(res, 429, { error: `Hiciste muchos pedidos seguidos. Espera ${espera < 90 ? `${espera} s` : `${Math.ceil(espera / 60)} min`} y vuelve a intentarlo.`, reintentarEn: espera }); }
+  cliente ||= new Anthropic({ timeout: PLAZO, maxRetries: 0 });   // el plazo y el único reintento los maneja responder()
   const { estado, datos } = await responder(cuerpo, cliente);
   if ('reintentarEn' in datos && datos.reintentarEn) res.setHeader('Retry-After', String(datos.reintentarEn));
   enviar(res, estado, datos);
