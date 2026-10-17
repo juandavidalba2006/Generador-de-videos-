@@ -212,9 +212,10 @@ function recuperarAjustes(motivo) {
   if (!('ajustes' in proyecto)) return;
   const aj = proyecto.ajustes; delete proyecto.ajustes;
   if (!aj || typeof aj !== 'object') return;
-  // la foto del otro lado (para rehacer o volver a deshacer) se lleva los ajustes que hay ahora
+  // la foto del otro lado (para rehacer o volver a deshacer) se lleva los ajustes que hay ahora (durante un video, los que
+  // quedaron pendientes de un deshacer anterior: son los que tiene el proyecto aunque la escena todavía no los muestre)
   const pila = motivo === 'deshacer' ? linea.rehechos : linea.historial, i = pila.length - 1;
-  if (i >= 0) try { const d = JSON.parse(pila[i]); d.ajustes = ajustesEscena(); pila[i] = JSON.stringify(d); } catch (e) { /* foto ilegible: se deja como está */ }
+  if (i >= 0) try { const d = JSON.parse(pila[i]); d.ajustes = ajustesPendientes || ajustesEscena(); pila[i] = JSON.stringify(d); } catch (e) { /* foto ilegible: se deja como está */ }
   if (estado.exportando) ajustesPendientes = aj; else aplicarAjustes(aj);
 }
 
