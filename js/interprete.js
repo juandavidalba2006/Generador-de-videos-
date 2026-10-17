@@ -1,7 +1,8 @@
 // Asistente sin conexión: entiende pedidos sencillos en español («gira 2 vueltas y acércate a la piedra») y los convierte
-// en las mismas acciones que devuelve la IA (keyframes, textos, sonidos y música). Aquí también se validan y se aplican
+// en las mismas acciones que devuelve la IA (keyframes, cortes, escena, textos, sonidos y música). Aquí también se validan y se aplican
 // esas acciones al proyecto. Es puro (sin DOM): lo usan el chat, la función de Vercel (api/chat.js) y las pruebas en Node.
-import { PISTAS, CURVAS, MOVIMIENTOS, evaluar, escalarTiempo, TOLERANCIA, DURACION_MIN, DURACION_MAX } from './proyecto.js';
+import { PISTAS, CURVAS, MOVIMIENTOS, TRANSICIONES, evaluar, escalarTiempo, normalizarCortes, separarPlanos, unirPlanos, TOLERANCIA, DURACION_MIN, DURACION_MAX } from './proyecto.js';
+import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RANGOS, ESCENA_INICIAL, escenaDe, normalizarEscena } from './escenas.js';
 
 // ---------- Catálogos ----------
 // Copias de los ids de sonido.js y textos.js: esos módulos usan Web Audio y el DOM, y este tiene que correr en Node.
@@ -64,6 +65,8 @@ export const ESTILOS_TEXTO_IDS = Object.keys(ESTILOS_TEXTO);
 export const ANIMACIONES_IDS = ['aparecer', 'subir', 'maquina', 'zoom', 'brillo', 'deslizar', 'ninguna'];
 export const PISTAS_IDS = Object.keys(PISTAS);
 export const CURVAS_IDS = Object.keys(CURVAS);
+export const TRANSICIONES_IDS = Object.keys(TRANSICIONES);
+export const ESCENAS_IDS = Object.keys(ESCENAS);
 
 const r4 = x => Math.round(x * 1e4) / 1e4;
 const r2 = x => Math.round(x * 100) / 100;
@@ -79,10 +82,12 @@ export function accionesVacias(respuesta = '') {
   return {
     respuesta, duracion: 0, bucle: 'igual', pistas: [],
     textos: { cambiar: false, capas: [] }, sonidos: { cambiar: false, clips: [] }, musica: { cambiar: false, estilo: 'ninguna', volumen: 0 },
+    cortes: { cambiar: false, lista: [] },             // lista COMPLETA de cortes { t, transicion }
+    escena: { cambiar: false, id: 'actual', cambios: null },   // id: una escena lista, 'ninguna' o 'actual'; cambios: lo que se toca encima
   };
 }
 
-export const hayCambios = a => !!a && (a.duracion > 0 || (a.bucle && a.bucle !== 'igual') || a.pistas?.length > 0 || !!a.textos?.cambiar || !!a.sonidos?.cambiar || !!a.musica?.cambiar);
+export const hayCambios = a => !!a && (a.duracion > 0 || (a.bucle && a.bucle !== 'igual') || a.pistas?.length > 0 || !!a.textos?.cambiar || !!a.sonidos?.cambiar || !!a.musica?.cambiar || !!a.cortes?.cambiar || !!a.escena?.cambiar);
 
 // Valida lo que llegue (de la IA o de cualquier lado): completa campos, recorta números a los rangos de PISTAS,
 // descarta pistas, efectos o estilos desconocidos y ordena los keyframes. Nunca lanza.
@@ -135,7 +140,82 @@ export function normalizarAcciones(crudo, { duracion = 8 } = {}) {
     const vol = numero(mu.volumen, 0);
     r.musica = { cambiar: true, estilo, volumen: estilo === 'ninguna' ? 0 : r2(vol > 0 ? limitar(vol, 0.05, 1) : 0.55) };
   }
+  const co = esObj(a.cortes) ? a.cortes : {};
+  if (co.cambiar === true) {
+    r.cortes = { cambiar: true, lista: normalizarCortes((Array.isArray(co.lista) ? co.lista : []).map(c => (esObj(c) ? { t: numero(c.t, NaN), transicion: c.transicion } : numero(c, NaN))), D) };
+  }
+  const es = esObj(a.escena) ? a.escena : {};
+  const idEscena = es.id === 'actual' || es.id === 'personalizada' ? 'actual' : de(ESCENAS, es.id, null);
+  if (es.cambiar === true && idEscena) r.escena = { cambiar: true, id: idEscena, cambios: idEscena === 'ninguna' ? null : cambiosEscena(es) };
   return r;
+}
+
+// Los cambios de una escena, validados: acepta la forma del intérprete ({ cambios: { superficie: {material}, luz: {angulo} } })
+// y la de la IA (cada grupo con su «cambiar»: si es true trae TODOS sus campos; si es false, se ignora). Nunca lanza.
+function cambiosEscena(es) {
+  const fuente = esObj(es.cambios) ? es.cambios : es, out = {};
+  const grupo = (g, campos) => {
+    const o = esObj(fuente[g]) ? fuente[g] : null;
+    if (!o || o.cambiar === false) return;
+    const r = {};
+    for (const [k, tipo] of Object.entries(campos)) {
+      const v = o[k];
+      if (tipo === 'num') { const x = numero(v, NaN); if (esNum(x)) r[k] = r4(limitar(x, RANGOS[k].min, RANGOS[k].max)); }
+      else if (tipo === 'color') { if (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v.trim())) r[k] = v.trim().toUpperCase(); }
+      else if (typeof v === 'string' && Object.hasOwn(tipo, v)) r[k] = v;
+    }
+    if (Object.keys(r).length) out[g] = r;
+  };
+  grupo('superficie', { forma: FORMAS_SUPERFICIE, material: MATERIALES_ESCENA, color: 'color', tamano: 'num', altura: 'num' });
+  grupo('fondo', { forma: FORMAS_FONDO, material: MATERIALES_ESCENA, color: 'color', distancia: 'num' });
+  grupo('luz', { gobo: GOBOS, angulo: 'num', elevacion: 'num', suavidad: 'num', intensidad: 'num', calidez: 'num' });
+  const amb = numero(fuente.ambiente, NaN);   // -1 = sin cambio (así lo manda la IA)
+  if (esNum(amb) && amb >= 0) out.ambiente = r4(limitar(amb, RANGOS.ambiente.min, RANGOS.ambiente.max));
+  return Object.keys(out).length ? out : null;
+}
+
+// La escena lista que mejor va con unos cambios, para cuando no hay una escena 3D puesta («en mármol» → Mármol blanco)
+function escenaPara(cambios) {
+  const c = esObj(cambios) ? cambios : {}, lista = Object.entries(ESCENAS).filter(([, e]) => !e.ninguna);
+  const con = fn => lista.find(([, e]) => fn(e))?.[0];
+  return (c.superficie?.material && con(e => e.superficie.material === c.superficie.material))
+    || (c.luz?.gobo && con(e => e.luz.gobo === c.luz.gobo))
+    || (c.fondo?.forma === 'arco' && 'arco') || (c.superficie?.forma && c.superficie.forma !== 'cilindro' && con(e => e.superficie.forma === c.superficie.forma))
+    || ESCENA_INICIAL;
+}
+
+// La configuración de escena que resulta de una acción (la que main.js le pasa a estudio.ponerEscena), partiendo de la que
+// hay ahora (actual: configuración, id o null). 'actual' sin una escena 3D puesta parte de la escena lista que mejor va.
+export function escenaDesdeAccion(accion, actual) {
+  const a = esObj(accion) ? accion : {};
+  if (a.id === 'ninguna') return { id: 'ninguna' };
+  const act = typeof actual === 'string' ? { id: actual } : esObj(actual) ? actual : null;
+  const c = esObj(a.cambios) ? a.cambios : {};
+  let base;
+  if (a.id && a.id !== 'actual' && Object.hasOwn(ESCENAS, a.id)) base = escenaDe(a.id);
+  else if (act && act.id !== 'ninguna' && (Object.hasOwn(ESCENAS, act.id) || act.id === 'personalizada')) base = normalizarEscena(act);
+  else base = escenaDe(escenaPara(c));
+  const idBase = base.id === 'personalizada' ? base.base : base.id;
+  return normalizarEscena({
+    id: idBase, superficie: { ...base.superficie, ...(c.superficie || {}) }, fondo: { ...base.fondo, ...(c.fondo || {}) },
+    luz: { ...base.luz, ...(c.luz || {}) }, ambiente: esNum(c.ambiente) ? c.ambiente : base.ambiente,
+  });
+}
+
+// Nombre corto de lo que cambia en la escena (para los chips y las respuestas)
+function nombreEscena(e) {
+  if (!e?.cambiar) return '';
+  if (e.id === 'ninguna') return 'Fondo liso';
+  const c = e.cambios || {};
+  if (!e.cambios && ESCENAS[e.id]) return ESCENAS[e.id].nombre;
+  if (c.superficie?.material) return MATERIALES_ESCENA[c.superficie.material];
+  if (c.superficie?.forma) return FORMAS_SUPERFICIE[c.superficie.forma];
+  if (c.luz?.gobo) return GOBOS[c.luz.gobo];
+  if (c.fondo?.color || c.fondo?.material || c.fondo?.forma || c.fondo?.distancia) return 'Fondo nuevo';
+  if (c.superficie?.altura || c.superficie?.tamano) return 'Tamaño del pedestal';
+  if (c.superficie?.color) return 'Color de la superficie';
+  if (c.luz) return 'Luz de la escena';
+  return ESCENAS[e.id]?.nombre || 'Escena ajustada';
 }
 
 // Etiquetas cortas de lo que cambió (para los chips bajo la respuesta del asistente)
@@ -147,6 +227,8 @@ export function resumenAcciones(acciones) {
   if (a.textos?.cambiar) out.push(a.textos.capas.length ? `Aa ${a.textos.capas.length} ${a.textos.capas.length === 1 ? 'texto' : 'textos'}` : 'Aa Sin textos');
   if (a.sonidos?.cambiar) out.push(a.sonidos.clips.length ? `♪ ${a.sonidos.clips.length} ${a.sonidos.clips.length === 1 ? 'sonido' : 'sonidos'}` : '♪ Sin efectos');
   if (a.musica?.cambiar) out.push(a.musica.estilo === 'ninguna' ? '♫ Sin música' : a.musica.estilo === 'actual' ? `♫ Volumen ${Math.round(a.musica.volumen * 100)} %` : `♫ ${MUSICA_INFO[a.musica.estilo]?.nombre || a.musica.estilo}`);
+  if (a.cortes?.cambiar) { const n = a.cortes.lista?.length || 0; out.push(n ? `✂ ${n} ${n === 1 ? 'corte' : 'cortes'}` : '✂ Sin cortes'); }
+  if (a.escena?.cambiar) out.push(`◐ ${nombreEscena(a.escena)}`);
   return out;
 }
 
@@ -167,14 +249,18 @@ function escalarAcciones(a, k) {
   for (const p of a.pistas) for (const c of p.claves) c.t = por(c.t, k);
   for (const c of a.textos.capas) { c.entra = por(c.entra, k); c.sale = por(c.sale, k); }
   for (const c of a.sonidos.clips) c.t = por(c.t, k);
+  for (const c of a.cortes.lista) c.t = por(c.t, k);
 }
 
 // ---------- Aplicar acciones al proyecto (lo llama main.js; muta el proyecto) ----------
 // textosDesdeAcciones (de textos.js) convierte las capas simples en capas completas; formato = 'reel' | 'post' | …
 // musicaNueva (de sonido.js, opcional) arma la música por defecto de un estilo.
 // foto (de fotoProyecto, opcional): el proyecto como estaba al mandar el pedido; sin ella, se compara con el de ahora.
-export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato = 'reel', musicaNueva, foto } = {}) {
-  const hecho = { duracion: false, bucle: false, pistas: [], textos: false, sonidos: false, musica: false, algo: false };
+// La escena no vive en el proyecto: si la acción la cambia, se le pasa la configuración final a alEscena(cfg, accion) (main.js
+// la pone en el estudio). escenaActual: la escena de ahora (configuración, o una función que la devuelve). Sin alEscena, la
+// escena no cambia.
+export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato = 'reel', musicaNueva, foto, alEscena, escenaActual } = {}) {
+  const hecho = { duracion: false, bucle: false, pistas: [], textos: false, sonidos: false, musica: false, cortes: false, escena: false, algo: false };
   if (!esObj(proyecto)) return hecho;
   const antes = esNum(proyecto.duracion) ? proyecto.duracion : 8;
   const base = esObj(foto) && esNum(foto.duracion) && foto.duracion > 0 ? foto.duracion : antes;
@@ -214,7 +300,13 @@ export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAccion
       hecho.musica = true;
     }
   }
-  hecho.algo = hecho.duracion || hecho.bucle || hecho.pistas.length > 0 || hecho.textos || hecho.sonidos || hecho.musica;
+  if (a.cortes.cambiar) { proyecto.cortes = normalizarCortes(a.cortes.lista, D); hecho.cortes = true; }
+  if (a.escena.cambiar && typeof alEscena === 'function') {
+    const cfg = escenaDesdeAccion(a.escena, typeof escenaActual === 'function' ? escenaActual() : escenaActual);
+    alEscena(cfg, a.escena);
+    hecho.escena = true; hecho.escenaCfg = cfg;
+  }
+  hecho.algo = hecho.duracion || hecho.bucle || hecho.pistas.length > 0 || hecho.textos || hecho.sonidos || hecho.musica || hecho.cortes || hecho.escena;
   return hecho;
 }
 
@@ -297,6 +389,8 @@ export function resumenProyecto(proyecto = {}, info = {}) {
       musica: m ? { estilo: m.archivo ? 'cancion-propia' : m.estilo || null, ...(m.archivo?.nombre ? { cancion: String(m.archivo.nombre).slice(0, 60) } : {}), bpm: esNum(m.bpm) ? r2(m.bpm) : null, volumen: esNum(m.volumen) ? r2(m.volumen) : 0.55 } : null,
       clips: (Array.isArray(p.audio?.clips) ? p.audio.clips : []).filter(esObj).slice(0, 30).map(c => ({ efecto: c.efecto, t: r2(+c.t || 0), volumen: r2(esNum(c.volumen) ? c.volumen : 0.8) })),
     },
+    cortes: (Array.isArray(p.cortes) ? p.cortes : []).filter(c => esObj(c) && esNum(c.t)).slice(0, 60).map(c => ({ t: r2(c.t), transicion: Object.hasOwn(TRANSICIONES, c.transicion) ? c.transicion : 'seco' })),
+    escena: i.escena === undefined || i.escena === null ? null : normalizarEscena(i.escena),
     modelo: {
       cargado: i.cargado !== false,
       medidasMm: medidas ? Object.fromEntries(['x', 'y', 'z'].map(k => [k, r2(+medidas[k] || 0)])) : null,
@@ -311,8 +405,9 @@ export function resumenProyecto(proyecto = {}, info = {}) {
 // =====================================================================================================
 // ---------- Intérprete por reglas ----------
 // =====================================================================================================
-export const AYUDA = 'Puedo mover la cámara, cambiar la duración y poner textos, sonidos o música. Prueba con frases como: ' +
+export const AYUDA = 'Puedo mover la cámara, poner cortes, cambiar la escena y la duración, y poner textos, sonidos o música. Prueba con frases como: ' +
   '«gira 2 vueltas y termina enfocando la piedra», «empieza desde arriba y baja hasta quedar de frente», «acércate al diamante en 3 segundos», ' +
+  '«pon un corte con flash a los 3 segundos», «pon la joya en un pedestal de mármol», «fondo con sombras de palmera», ' +
   '«pon un whoosh al inicio», «música phonk», «dura 10 segundos» o «agrega el texto "Nueva colección" arriba».';
 
 const PALABRAS = { un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, dieciocho: 18, veinte: 20, veinticinco: 25, treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, noventa: 90, cien: 100 };
@@ -328,7 +423,7 @@ function normalizar(s) {
   for (const [re, v] of ERRATAS) x = x.replace(re, v);
   x = x.replace(/[¿¡"“”«»()]/g, ' ').replace(/[°º]/g, ' grados ').replace(/(\d),(\d)/g, '$1.$2');
   for (const [re, v] of COMPUESTOS) x = x.replace(re, v);
-  x = x.replace(new RegExp(`\\b(${PAL})\\b(?=\\s+(?:vueltas?|segundos?|seg|grados?|giros?|cuartos?|veces)\\b)`, 'g'), (m, w) => PALABRAS[w]);
+  x = x.replace(new RegExp(`\\b(${PAL})\\b(?=\\s+(?:vueltas?|segundos?|seg|grados?|giros?|cuartos?|veces|cortes?|planos?|tomas?)\\b)`, 'g'), (m, w) => PALABRAS[w]);
   x = x.replace(new RegExp(`\\b(segundo|los\\s+primeros|los\\s+ultimos)\\s+(${PAL})\\b`, 'g'), (m, a, w) => `${a} ${PALABRAS[w]}`);
   x = x.replace(/(\d)\s*(?:s|seg|segs|sg)\b\.?/g, '$1 segundos');
   x = x.replace(/\b(\d+(?:\.\d+)?)\s+vueltas?\s+y\s+media\b/g, (m, n) => `${+n + 0.5} vueltas`)
@@ -383,6 +478,7 @@ function partir(x) {
   let s = x
     .replace(/\b(?:fren(?!te\b)\w*|desaceler\w*|suave|lento|despacio)\s+al\s+final\b/g, ' frenafinal ')   // («de frente al final» no)
     .replace(/\b(?:rapido|fuerte|con\s+fuerza)\s+al\s+(?:inicio|principio|comienzo)\b|\b(?:arranca\w*|empieza\w*)\s+(?:rapido|con\s+fuerza)\b/g, ' rapidoinicio ')
+    .replace(/(\d)\s*,\s*(?=\d)/g, '$1 y ')   // «cortes en 2, 4 y 6»: una lista de tiempos no parte la frase
     .replace(/(?:\.(?!\d)|[;!?\n])+/g, ' ¦ ').replace(/,/g, ' ¦ ')   // el punto de «0.5 vueltas» no parte la frase
     .replace(/\s+y\s+(al\s+mismo\s+tiempo|a\s+la\s+vez)\s+/g, ' | $1 ')   // «…y al mismo tiempo baja»: otra indicación en el mismo tramo
     .replace(/\b(?:y\s+)?(primero|luego|despues|entonces|finalmente|por\s+ultimo|para\s+terminar|para\s+cerrar|para\s+finalizar|al\s+final|a\s+continuacion)\b/g, ' | $1 ')
@@ -391,6 +487,7 @@ function partir(x) {
     .replace(new RegExp(`\\s+y\\s+(?=(?:(?:un|una|el|la|los|las|otro|otra)\\s+)?(?:${EFECTOS_PALABRAS})\\b(?!\\s+(?:justo\\s+)?(?:antes|tambien|igual)\\b))`, 'g'), ' | ')
     // «…arriba y el título "X" abajo»: cada texto con su lugar y su estilo
     .replace(/\s+y\s+(?=(?:el|la|un|una|otro|otra)\s+(?:texto|titulo|subtitulo|frase|letrero|mensaje|gancho|leyenda)\s+§)/g, ' | ')
+    .replace(/\s+y\s+(?=(?:a\s+los|al\s+segundo|en\s+el\s+segundo|desde\s+el\s+segundo)\s+\d)/g, ' | ')   // «gira 2 vueltas y a los 4 segundos…»: otro tramo
     .replace(/\s+que\s+(?=(?:se\s+)?(?:gir|baj|sub|acerc|acerqu|alej|termin|acab|enfoc|qued|vuelv|regres|rot|inclin|desciend))/g, ' | ');
   const partes = []; let tras = '¦';
   for (const trozo of s.split(/([|¦])/)) {
@@ -451,6 +548,157 @@ const PRESETS = [
 ];
 const NOMBRES_PIEDRA = { diamante: 'el diamante', diamantes: 'los diamantes', esmeralda: 'la esmeralda', rubi: 'el rubí', zafiro: 'el zafiro', brillante: 'el brillante', solitario: 'el solitario', gema: 'la gema', perla: 'la perla', moissanita: 'la moissanita', amatista: 'la amatista', topacio: 'el topacio', aguamarina: 'la aguamarina' };
 
+// ---------- Escena y cortes: vocabulario ----------
+// colores con nombre (los compuestos primero: «gris oscuro» antes que «gris»)
+const COLORES = [
+  ['#4A4845', /\bgris\s+oscuro\b|\bcarbon\b|\bgrafito\b/, 'gris oscuro'], ['#A9A6A0', /\bgris(?:\s+claro)?\b/, 'gris'],
+  ['#DDB7B2', /\bpalo\s+de\s+rosa\b|\brosa\s+empolvado\b/, 'palo de rosa'], ['#EACFCB', /\brosad[oa]\b|\brosa\b/, 'rosado'],
+  ['#A9B49A', /\bverde\s+salvia\b|\bsalvia\b/, 'verde salvia'], ['#1F4D3F', /\bverde(?:\s+esmeralda|\s+oscuro)?\b/, 'verde esmeralda'],
+  ['#BFCCD6', /\bazul\s+claro\b|\bceleste\b/, 'azul claro'], ['#2F4A66', /\bazul(?:\s+oscuro)?\b/, 'azul'],
+  ['#1D1C1B', /\bnegr[oa]\b/, 'negro'], ['#2A2724', /\boscur[oa]\b/, 'oscuro'], ['#F1EEEA', /\bblanc[oa]\b/, 'blanco'], ['#ECE7E0', /\bperla\b|\bclar[oa]\b/, 'perla'],
+  ['#EFE4D2', /\bcrema\b|\bmarfil\b/, 'crema'], ['#D8C7B0', /\bbeige\b|\bnude\b/, 'beige'], ['#B8A592', /\btaupe\b|\bvison\b/, 'taupe'],
+  ['#B86A4B', /\bterracota\b|\bladrillo\b/, 'terracota'], ['#C9A15B', /\bdorad[oa]\b|\bcolor\s+oro\b/, 'dorado'], ['#6B4E3A', /\bcafe\b|\bmarron\b|\bchocolate\b/, 'café'],
+  ['#5A1F2B', /\bvinotinto\b|\bvino\b|\bburdeos\b/, 'vinotinto'],
+];
+const NOMBRE_COLOR = Object.fromEntries(COLORES.map(([h, , n]) => [h, n]));
+const RE_COLOR = new RegExp(COLORES.map(([, re]) => re.source).join('|'));
+const colorDe = txt => COLORES.find(([, re]) => re.test(txt))?.[0] || null;
+// el color que va con cada material (si ella no dice otro)
+const COLOR_MATERIAL = { yeso: '#E1D5C5', travertino: '#E4D6C1', marmolBlanco: '#F1EEEA', marmolNegro: '#1D1C1B', concreto: '#B9B5AE', terciopelo: '#1F4D3F', lino: '#E3DACB', arena: '#E5D3B5', madera: '#C8A57E', acrilico: '#F3F1EE' };
+const MATERIALES_PALABRAS = [
+  ['marmolNegro', /\bmarmol\s+(?:negro|oscuro|nero)\b/], ['marmolBlanco', /\bmarmol(?:\s+blanco|\s+carrara)?\b/], ['travertino', /\btravertino\b/],
+  ['yeso', /\byeso\b|\bestuco\b/], ['concreto', /\bconcreto\b|\bcemento\b|\bmicrocemento\b/], ['terciopelo', /\bterciopelo\b|\bvelvet\b|\bgamuza\b/],
+  ['lino', /\blino\b|\btela\b/], ['arena', /\barena\b/], ['madera', /\bmadera\b/], ['acrilico', /\bacrilico\b|\bespejo\b|\bvidrio\b|\bcristal\b/],
+];
+const FORMAS_PALABRAS = [
+  ['escalones', /\bescalones\b|\bpodio\b|\bgradas\b|\bniveles\b/], ['cojin', /\bcojin\b|\balmohad\w*\b|\bestuche\b/],
+  ['losa', /\blosa\b|\bplancha\b|\bbandeja\b|\bplaca\b/], ['cubo', /\bbloque\b|\bcubo\b/],
+  ['piso', /\b(?:en|sobre)\s+el\s+(?:piso|suelo)\b|\bdirecto\s+(?:en|sobre)\b|\bsin\s+pedestal\b/],
+  ['cilindro', /\bpedestal(?:\s+redondo)?\b|\bcolumna\b|\bcilindro\b|\bbase\s+redonda\b/],
+];
+const SUSTANTIVO_FONDO = /\b(?:fondo|pared|nicho|muro|telon)\b/g;
+const SUSTANTIVO_SUPERFICIE = /\b(?:pedestal|superficie|base|bloque|cubo|losa|cojin|podio|escalones|columna|mesa|piso|suelo|bandeja|placa|plancha)\b/g;
+const GOBOS_PALABRAS = [
+  ['arco', /\bventana(?:l)?\s+(?:con\s+)?(?:arco|arquead[oa])\b/], ['hojas', /\bpalmeras?\b|\bhojas\b|\bfollaje\b|\bplantas?\b|\bramas\b/],
+  ['persiana', /\bpersianas?\b|\brejilla\b|\blineas\s+de\s+luz\b|\brayas\s+de\s+luz\b/], ['ventana', /\bventana(?:l|s)?\b/],
+  ['foco', /\bun\s+foco\s+de\s+luz\b|\bluz\s+de\s+foco\b|\bspot\b|\breflector\b|\bcirculo\s+de\s+luz\b|\bcenital\s+de\s+luz\b/],
+];
+// nombres de las escenas listas tal como se dicen
+const ESCENAS_PALABRAS = [
+  ['pedestal-arena', /\bpedestal\s+arena\b/], ['marmol-negro', /\b(?:escena|ambiente|estilo)\s+(?:mas\s+)?(?:oscur[oa]|nocturn[oa]|negr[oa]|dark)\b|\bescena\s+de\s+noche\b/],
+  ['escalones', /\bpodio\s+de\s+escalones\b/], ['arco', /\bnicho\s+con\s+arco\b/],
+  ['terciopelo', /\bterciopelo\s+esmeralda\b/], ['espejo', /\bacrilico\s+espejo\b/], ['playa', /\barena\s+y\s+sol\b|\b(?:en\s+la\s+)?playa\b/], ['rosa', /\brosa\s+empolvado\b/],
+];
+// a qué se refiere un material o un color: al sustantivo de escena más cercano antes de él (o justo después)
+function destino(r, i) {
+  let fondo = -1, sup = -1;
+  for (const m of r.matchAll(SUSTANTIVO_FONDO)) if (m.index <= i) fondo = Math.max(fondo, m.index);
+  for (const m of r.matchAll(SUSTANTIVO_SUPERFICIE)) if (m.index <= i) sup = Math.max(sup, m.index);
+  if (fondo < 0 && sup < 0) {   // «de mármol el fondo»: lo que venga después
+    const f = r.slice(i).search(SUSTANTIVO_FONDO), s = r.slice(i).search(SUSTANTIVO_SUPERFICIE);
+    return f >= 0 && (s < 0 || f < s) ? 'fondo' : 'superficie';
+  }
+  return fondo > sup ? 'fondo' : 'superficie';
+}
+const HAY_ESCENA = /\b(?:escena|fondo|degradado|pared|nicho|pedestal|superficie|podio|escalones|cojin|losa|bloque|marmol|travertino|yeso|concreto|cemento|terciopelo|lino|madera|acrilico|espejo|palmeras?|persianas?|ventana\w*|sombras?|gobo|playa|luz\s+(?:desde|de\s+la|de\s+lado|por|que\s+viene|lateral|mas|suave|difusa|dura|calida|fria|dorada|alta|baja|rasante|fuerte|intensa|debil|tenue)|contraluz|mas\s+suave\s+la\s+luz|suaviza\w*\s+la\s+luz)\b/;
+
+// Lo que la cláusula pide de la escena: { ninguna, preset, superficie: {...}, fondo: {...}, luz: {...relativos}, txt: [...] }
+function analizarEscena(k, r0) {
+  let r = r0;
+  if (!HAY_ESCENA.test(r) || /\b(?:musica|cancion|melodia|sonido)\s+de\s+fondo\b|\bde\s+fondo\s+(?:musical|sonoro)\b/.test(r) && !/\b(?:pedestal|superficie|marmol|escena)\b/.test(r)) return r;
+  const sacar = re => { const m = r.match(re); if (m) r = r.replace(re, ' '); return m; };
+  const e = { superficie: {}, fondo: {}, luz: {} };
+  // sin escena: el fondo liso de marca de siempre
+  if (sacar(/\b(?:sin\s+(?:fondo|escena|pedestal|superficie|decorado)|fondo\s+(?:liso|plano|de\s+(?:la\s+)?marca|normal|de\s+siempre|sencillo|simple)|quita\w*\s+(?:el\s+|la\s+)?(?:fondo|escena|pedestal|superficie|decorado)|(?:el\s+)?degradado\s+de\s+(?:la\s+)?marca)\b/)) {
+    e.ninguna = true;
+  } else {
+    for (const [id, re] of ESCENAS_PALABRAS) if (sacar(re)) { e.preset = id; break; }
+    // «que no sea un fondo blanco», «ponle una escena»: la escena de siempre
+    if (sacar(/\bque\s+no\s+sea\s+(?:un\s+)?fondo\s+(?:blanco|liso|plano)\b|\b(?:pon\w*|agrega\w*|usa|quiero)\s+(?:una\s+|la\s+)?(?:escena|superficie)\b/)) e.generica = true;
+    // tamaño del pedestal y distancia del fondo («pedestal más alto», «el fondo más lejos»): antes que la forma
+    const SUP = '(?:el\\s+|la\\s+)?(?:pedestal|superficie|base|bloque|cubo|losa|cojin|podio|escalones|columna)';
+    const tam = (palabras, k, signo) => { if (sacar(new RegExp(`\\b${SUP}\\s+(?:mas\\s+)?(?:${palabras})\\b|\\bmas\\s+(?:${palabras})\\s+${SUP}\\b`))) e.superficie[k] = signo; };
+    tam('alt[oa]', 'altura', '+'); tam('baj[oa]|chat[oa]', 'altura', '-');
+    tam('grande|anch[oa]', 'tamano', '+'); tam('pequen[oa]|chic[oa]|angost[oa]|delgad[oa]', 'tamano', '-');
+    if (sacar(/\b(?:el\s+)?fondo\s+mas\s+(?:lejos|lejano|atras)\b|\baleja\w*\s+el\s+fondo\b/)) e.fondo.distancia = '+';
+    else if (sacar(/\b(?:el\s+)?fondo\s+mas\s+(?:cerca|cercano|adelante)\b|\bacerca\w*\s+el\s+fondo\b/)) e.fondo.distancia = '-';
+    // forma de la superficie y del fondo
+    for (const [id, re] of FORMAS_PALABRAS) { const m = r.match(re); if (m) { e.superficie.forma = id; break; } }
+    if (/\bnicho\b|\barco\b(?!\s+de\s+luz)/.test(r) && !/\bventana\w*\s+(?:con\s+)?(?:arco|arquead)/.test(r)) e.fondo.forma = 'arco';
+    else if (/\bfondo\s+curvo\b|\bfondo\s+infinito\b|\bsin\s+esquinas\b|\bciclorama\b/.test(r)) e.fondo.forma = 'curva';
+    else if (/\b(?:una\s+|la\s+)?pared\b/.test(r)) e.fondo.forma = 'pared';
+    // materiales (del pedestal o del fondo, según a qué se refiera)
+    for (const [id, re] of MATERIALES_PALABRAS) {
+      const m = r.match(re); if (!m) continue;
+      const a = destino(r, m.index);
+      if (!e[a].material) e[a].material = id;
+      r = r.replace(re, ' ');
+    }
+    // colores con su sustantivo: «fondo negro», «el fondo a rosa», «pedestal color crema»
+    const PREFIJO = '(?:\\s+(?:de\\s+)?color(?:\\s+de)?|\\s+(?:a|en|de|al))*\\s+';
+    for (const [lugar, nombres] of [['fondo', 'fondo|pared|nicho|muro'], ['superficie', 'pedestal|superficie|base|bloque|cubo|losa|cojin|podio|escalones|columna|mesa']]) {
+      const m = r.match(new RegExp(`\\b(?:${nombres})${PREFIJO}(?:${RE_COLOR.source})`));
+      if (m) { e[lugar].color = colorDe(m[0].replace(new RegExp(`^\\s*(?:${nombres})`), ' ')); r = r.replace(m[0], ' '); }
+    }
+    // la luz
+    const hablaDeLuz = /\b(?:luz|sol|ventana\w*|contraluz)\b/.test(r);
+    if (sacar(/\bmas\s+suave\s+la\s+luz\b|\bla\s+luz\s+mas\s+suave\b|\bluz\s+(?:mas\s+)?(?:suave|difusa|tenue\s+y\s+suave)\b|\bsuaviza\w*\s+(?:la\s+luz|las\s+sombras)\b|\bsombras?\s+(?:mas\s+)?(?:suaves?|difusas?|ligeras?)\b/)) e.luz.suavidad = '+';
+    else if (sacar(/\bmas\s+dura\s+la\s+luz\b|\bluz\s+(?:mas\s+)?(?:dura|de\s+sol|directa)\b|\bsombras?\s+(?:mas\s+)?(?:duras?|marcadas?|definidas?|fuertes?)\b/)) e.luz.suavidad = '-';
+    if (sacar(/\bluz\s+(?:mas\s+)?(?:calida|calidez|dorada|de\s+atardecer|naranja|amarilla)\b|\bmas\s+calida\s+la\s+luz\b/)) e.luz.calidez = '+';
+    else if (sacar(/\bluz\s+(?:mas\s+)?(?:fria|azul|azulada|neutra|blanca)\b|\bmas\s+fria\s+la\s+luz\b/)) e.luz.calidez = '-';
+    if (sacar(/\bluz\s+(?:mas\s+)?(?:fuerte|intensa)\b|\bmas\s+(?:fuerte|intensa)\s+la\s+luz\b/)) e.luz.intensidad = '+';
+    else if (sacar(/\bluz\s+(?:mas\s+)?(?:debil|tenue|baja\s+intensidad)\b|\bmenos\s+intensa\s+la\s+luz\b/)) e.luz.intensidad = '-';
+    if (sacar(/\bluz\s+(?:mas\s+)?(?:alta|desde\s+arriba|de\s+arriba|cenital)\b/)) e.luz.elevacion = 70;
+    else if (sacar(/\bluz\s+(?:mas\s+)?(?:baja|rasante|desde\s+abajo)\b/)) e.luz.elevacion = 18;
+    // de dónde viene (después de «cálida», «suave»…: «luz cálida desde la izquierda»)
+    const m = hablaDeLuz && sacar(/\b(?:(?:la\s+)?(?:luz|sol|ventana)\s+)?(?:que\s+(?:viene|entra|llega)\s+|entrando\s+|viene\s+)?(?:desde|por)\s+(?:la\s+|el\s+)?(derecha|izquierda|atras|detras|frente|adelante|lado)\b|\b(?:luz|sol)\s+de\s+(?:la\s+)?(derecha|izquierda|atras|frente|lado)\b|\bluz\s+(?:a\s+la\s+)?(derecha|izquierda)\b|\b(contraluz)\b|\bluz\s+(lateral|frontal)\b/);
+    if (m) {
+      const lado = m[1] || m[2] || m[3] || m[4] || m[5];
+      e.luz.angulo = /derecha|lado|lateral/.test(lado) ? 45 : /izquierda/.test(lado) ? -45 : /atras|detras|contraluz/.test(lado) ? 165 : 0;
+      e.luz.lado = lado === 'lateral' || lado === 'lado' ? 'derecha' : lado;
+    }
+    // sombras de ventana, persiana, palmera…
+    if (sacar(/\bsin\s+sombras\b|\bsin\s+gobo\b|\bluz\s+pareja\b/)) e.luz.gobo = 'ninguno';
+    else for (const [id, re] of GOBOS_PALABRAS) if (sacar(re)) { e.luz.gobo = id; break; }
+    if (e.preset === 'hojas') e.luz.gobo ||= 'hojas';
+    // lo que ya se entendió no lo vuelven a leer la cámara ni la luz de la cámara
+    r = r.replace(/\b(?:la\s+)?(?:joya|pieza|anillo)\s+(?:en|sobre)\s+(?:un|una|el|la)?\b/g, ' ')
+      .replace(/\b(?:escena|fondo|pared|nicho|pedestal|superficie|base|bloque|cubo|losa|cojin|podio|escalones|columna|sombras?|arco|curvo|redondo|liso|gobo)\b/g, ' ');
+  }
+  const algo = e.ninguna || e.preset || e.generica || ['superficie', 'fondo', 'luz'].some(g => Object.keys(e[g]).length);
+  if (!algo) return r0;
+  k.escena = e; k.entendido = true;
+  return r;
+}
+
+// Lo que la cláusula pide de los cortes: { tiempos, n, cada, ritmo, transicion, quitar }
+function analizarCortes(k, r0) {
+  let r = r0;
+  const sacar = re => { const m = r.match(re); if (m) r = r.replace(re, ' '); return m; };
+  // «un whoosh en cada corte»: es cuándo suena el sonido, no un corte nuevo
+  if (SONIDOS.some(([, re]) => re.test(r)) && sacar(/\b(?:en|con|a)\s+(?:cada\s+|todos\s+los\s+|los\s+)cortes?\b/)) { k.cuando = 'cortes'; k.entendido = true; return r; }
+  if (!/\bcortes?\b|\bjump\s*cuts?\b|\bcort(?:a|ar|alo|ala)\s+(?:el\s+video\s+|la\s+toma\s+)?(?:en|cada|al\s+ritmo)\b|\bcorta\s+a\s+(?:un|una|el|la)\s+(?:primer\s+plano|plano|toma|vista|detalle|acercamiento)\b/.test(r)) return r;
+  const c = { tiempos: [], n: 0, cada: 0, ritmo: false, transicion: null, quitar: false };
+  if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|sin)\s+(?:todos\s+)?(?:los\s+|el\s+|las\s+)?(?:cortes?|jump\s*cuts?|transiciones)\b|\bno\s+(?:quiero\s+)?(?:mas\s+)?cortes\b/)) c.quitar = true;
+  if (sacar(/\b(?:con\s+)?(?:un\s+|una\s+)?(?:flash(?:\s+blanco)?|destellos?(?:\s+blancos?)?|fogonazos?|(?:en|a)\s+blanco)\b/)) c.transicion = 'flash';
+  else if (sacar(/\b(?:con\s+)?(?:un\s+)?(?:fundidos?\s+(?:a|en|de)\s+negro|fundidos?|(?:en|a)\s+negro|fade(?:\s+to\s+black)?|parpadeo)\b/)) c.transicion = 'negro';
+  else if (sacar(/\b(?:con\s+)?(?:un\s+)?(?:barridos?|latigazos?|whip(?:\s*pan)?|swipe)\b/)) c.transicion = 'barrido';
+  else if (sacar(/\b(?:secos?|directos?|sin\s+(?:transicion|efecto))\b/)) c.transicion = 'seco';
+  if (sacar(/\b(?:al|con\s+el|siguiendo\s+el|a)\s+(?:ritmo|compas|beat|tiempo)(?:\s+(?:de\s+)?(?:la\s+)?(?:musica|cancion))?\b|\bsincronizad\w*\s+con\s+(?:la\s+)?(?:musica|cancion)\b|\ben\s+(?:cada|los)\s+(?:beats?|golpes\s+de\s+la\s+musica)\b/)) c.ritmo = true;
+  let m = sacar(/\bcada\s+(\d+(?:\.\d+)?)\s+segundos?\b/); if (m) c.cada = +m[1];
+  m = sacar(/\b(\d+)\s+(?:cortes?|planos?|tomas?|jump\s*cuts?)\b/); if (m) c.n = +m[1];
+  if (sacar(/\b(?:a|en)\s+la\s+mitad(?:\s+del\s+video)?\b/)) c.tiempos.push('mitad');
+  // con un movimiento de cámara en la misma frase, «en 2 segundos» es cuánto dura el movimiento (no dónde va el corte)
+  const conCamara = /\b(?:gir|rot|acerc|acerqu|aproxim|alej|sub|baj|enfoc|enfoqu|inclin|muestr|revel|zoom|vista|plano\s+(?:detalle|general|abierto)|primer\s+plano|desciend|elev)\w*/.test(r);
+  const reT = conCamara ? /\b(?:a\s+los|al\s+segundo|en\s+el\s+segundo|desde\s+el\s+segundo)\s+(\d+(?:\.\d+)?)(?:\s+segundos?)?\b/g
+    : /\b(?:a\s+los|al|en\s+el|en\s+los|en|a|y|e|desde\s+el|del)\s+(?:segundos?\s+)?(\d+(?:\.\d+)?)(?:\s+segundos?)?\b/g;
+  r = r.replace(reT, (x, t) => { c.tiempos.push(+t); return ' '; });
+  // palabras de relleno del pedido de cortes (el resto de la frase sigue: «…y acércate a la piedra»)
+  r = r.replace(/\b(?:cortes?|jump\s*cuts?|cort(?:a|ar|alo|ala))\b|\b(?:pon\w*|agrega\w*|añade|anade|mete\w*|haz|hazle|hacer|hagan|quiero|usa|con|de|un|una|el|los|las|del|al|video|reel|segundos?)\b(?=(?:\s+(?:un|una|el|los|las|del|al|con|de|video|reel))*\s*$)/g, ' ');
+  k.cortes = c; k.entendido = true;
+  return r;
+}
+
 // ---------- Análisis de una cláusula ----------
 function analizar(c0, citas) {
   const k = { c: c0, metas: {}, mods: {}, curva: null, peso: 1, t: {}, sonidos: [], textos: [], quitar: {}, musica: null, preset: null, estado: false, rapido: false, lento: false, cuando: null, entendido: false };
@@ -472,6 +720,9 @@ function analizar(c0, citas) {
     r = r.replace(/§\w+§/g, ' ');
     k.esTexto = true;
   }
+  // escena y cortes (antes que la luz de la cámara, la curva «en seco» y el destello: «corte con flash» es una transición)
+  r = analizarEscena(k, r);
+  r = analizarCortes(k, r);
   // quitar cosas
   if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|sin|remueve)\s+(?:todos\s+)?(?:los\s+|las\s+)?(?:textos|letras|titulos|letreros|escritos)\b/)) k.quitar.textos = true;
   if (sacar(/\b(?:quita\w*|borra\w*|elimina\w*|saca\w*|sin)\s+(?:el\s+)?precio\b/)) k.quitar.precio = true;
@@ -514,7 +765,7 @@ function analizar(c0, citas) {
   const rapidoInicio = !!sacar(/\brapidoinicio\b/);
   if (sacar(/\b(?:con\s+)?(?:rebote|rebotando|rebota|que\s+rebote)\b/)) k.curva = 'rebote';
   else if (sacar(/\b(?:elastic[oa]|resorte)\b/)) k.curva = 'elastico';
-  else if (sacar(/\b(?:corte\s+seco|en\s+seco|sin\s+transicion|salto\s+directo|de\s+una\s+vez|corte)\b/)) k.curva = 'escalon';
+  else if (sacar(/\b(?:en\s+seco|sin\s+transicion|salto\s+directo|de\s+una\s+vez)\b/)) k.curva = 'escalon';   // («corte» ya es un corte de verdad)
   else if (sacar(/\b(?:acelerando|acelera|que\s+acelere|cada\s+vez\s+mas\s+rapido)\b/)) k.curva = 'entrada';
   else if (sacar(/\b(?:velocidad\s+constante|a\s+velocidad\s+constante|constante|lineal|uniforme|parej[oa])\b/)) k.curva = 'lineal';
   if (sacar(/\bmas\s+(?:rapido|veloz|rapida)\b/)) k.mods.velocidad = 1.6;
@@ -540,6 +791,14 @@ function analizar(c0, citas) {
   if (hay(/\b(?:elegante|sofisticad[oa]|lujos[oa]|de\s+lujo|con\s+clase|delicad[oa])\b/)) k.elegante = true;
   for (const [id, re] of PRESETS) if (hay(re)) { k.preset = id; r = r.replace(re, ' '); k.entendido = true; break; }
   camara(k, r);
+  if (k.cortes && !k.cortes.quitar && Object.keys(k.metas).length) {
+    // «con un corte acércate a la piedra»: en el corte la cámara salta al plano nuevo (en vez de ir llegando)
+    k.corteAlInicio = true;
+    const t0 = k.cortes.tiempos.find(esNum);
+    if (t0 !== undefined && k.t.a === undefined) { k.t.a = t0; k.t.algo = true; }
+    k.cortes.tiempos = []; k.cortes.n = 0; k.cortes.cada = 0;
+  }
+  if (k.cortes && k.sonidos.length && !k.cuando) k.cuando = 'cortes';   // «un corte a los 3 con un whoosh»: suena en el corte
   if (rapidoInicio) { if (Object.keys(k.metas).length) { k.t.inicio = true; k.rapido = true; k.peso = 0.55; } else k.mods.rapidoInicio = true; }
   if (k.mods.frenaFinal && Object.keys(k.metas).length && !k.curva) k.curva = 'salida';
   if (Object.keys(k.metas).length || Object.keys(k.mods).length || k.curva) k.entendido = true;
@@ -694,6 +953,8 @@ function ventanas(cls, D) {
 
 // ---------- Construcción de keyframes ----------
 const ZOOM = PISTAS.zoom;
+const CUADRO = 1 / 30;
+const aCuadro = t => Math.round(t * 30) / 30;
 function objetivo(id, meta, cur, ctx) {
   const P = PISTAS[id];
   if (id === 'giro') {
@@ -739,6 +1000,15 @@ function construirPista(id, cls, v0, D, ctx) {
     const meta = k.metas[id]; if (!meta || k.inicial) continue;
     const a = Math.min(Math.max(k.a, tc), D - 0.2), b = Math.min(D, Math.max(k.b, a + 0.2));
     const curva = curvaDe(k, id, a);
+    if (k.corteAlInicio && a >= CUADRO * 2 && !meta.oscilar && !meta.vaiven && !meta.destello && !(id === 'giro' && meta.delta !== undefined)) {
+      // con un corte: el plano anterior se queda hasta un cuadro antes y en el corte la cámara ya está en el plano nuevo
+      if (a - CUADRO > tc + 1e-3) claves.push({ t: a - CUADRO, v: cur, curva: 'lineal' });
+      meta.de = cur; cur = objetivo(id, meta, cur, ctx); meta.a = cur;
+      claves.push({ t: a, v: cur, curva: 'suave' });
+      if (b > a + 0.1) claves.push({ t: b, v: cur, curva: 'suave' });
+      tc = claves[claves.length - 1].t; ultima = { k, meta };
+      continue;
+    }
     if (a > tc + 1e-3) claves.push({ t: a, v: cur, curva }); else claves[claves.length - 1].curva = curva;
     if (meta.oscilar && id === 'rodar' || meta.vaiven) {
       // vaivén / balanceo: ida y vuelta alrededor del valor actual, ciclos de unos 3 s
@@ -814,6 +1084,7 @@ function proyectoBase(p) {
     duracion: esNum(d.duracion) ? limitar(d.duracion, DURACION_MIN, DURACION_MAX) : 8, bucle: d.bucle !== false,
     pistas: esObj(d.pistas) ? d.pistas : {}, textos: Array.isArray(d.textos) ? d.textos.filter(esObj) : [],
     audio: { clips: Array.isArray(d.audio?.clips) ? d.audio.clips.filter(esObj) : [], musica: esObj(d.audio?.musica) ? d.audio.musica : null },
+    cortes: Array.isArray(d.cortes) ? d.cortes.filter(esObj) : [],
   };
 }
 
@@ -821,7 +1092,8 @@ function proyectoBase(p) {
 function fueraDeAqui(x) {
   if (/\b(?:metal|oro(?:\s+(?:rosa|blanco|amarillo))?|plata|platino|acabado|material|color\s+de\s+la\s+(?:piedra|gema))\b/.test(x)) return 'El metal, el acabado y el color de las piedras se cambian en la pestaña «Materiales». Aquí puedo mover la cámara y poner textos, sonidos o música.';
   if (/\b(?:logo|logotipo|marca|escarabajo)\b/.test(x)) return 'El logo de Atelier & Co está en la pestaña «Textos»: ahí lo mueves, cambias cuándo aparece o lo ocultas.';
-  if (/\b(?:fondo|color\s+de\s+fondo|sombra)\b/.test(x)) return 'El fondo y la sombra se eligen en la pestaña «Exportar».';
+  if (/\b(?:fondo|color\s+de\s+fondo|escena|superficie|pedestal|decorado)\b/.test(x)) return 'Puedo cambiar la escena: prueba «pon la joya en un pedestal de mármol», «fondo con sombras de palmera», «luz desde la derecha» o «fondo liso». También la eliges en la pestaña «Escena».';
+  if (/\bsombras?\b/.test(x)) return 'La sombra bajo la pieza del fondo liso se ajusta en la pestaña «Escena». En una escena 3D la sombra la da su luz: prueba «sombras más suaves» o «luz desde la izquierda».';
   if (/\b(?:export\w*|descarg\w*|guarda\w*\s+el\s+video|crea\w*\s+el\s+video|compart\w*|subir\s+a\s+instagram)\b/.test(x)) return 'Para crear y descargar el video usa la pestaña «Exportar».';
   if (/\b(?:stl|archivo|modelo\s+3d|otro\s+anillo|otra\s+joya)\b/.test(x)) return 'Para cambiar la joya sube otro archivo STL en la pestaña «Modelo».';
   return '';
@@ -849,7 +1121,7 @@ function interpretarSinRed(texto, proyecto, info) {
   const crudas = partir(x).map(p => ({ ...analizar(p.c, citas), tras: p.tras }));
   const cls = [];
   crudas.forEach((k, i) => {
-    const soloTiempo = k.t.algo && !k.esTexto && !Object.keys(k.metas).length && !Object.keys(k.mods).length && !k.curva && !k.sonidos.length && !k.preset && !k.musica && k.duracion === undefined && !k.bucle && !Object.keys(k.quitar).length;
+    const soloTiempo = k.t.algo && !k.esTexto && !Object.keys(k.metas).length && !Object.keys(k.mods).length && !k.curva && !k.sonidos.length && !k.preset && !k.musica && k.duracion === undefined && !k.bucle && !Object.keys(k.quitar).length && !k.cortes && !k.escena;
     if (soloTiempo) {
       const destino = k.tras === '|' && cls.length ? cls[cls.length - 1] : crudas[i + 1];
       if (destino) {
@@ -913,6 +1185,11 @@ function interpretarSinRed(texto, proyecto, info) {
     if (otro) { if (!otro.curva) otro.curva = k.curva; } else curvaSuelta = k.curva;
   });
   ventanas(conMetas, D);
+  // un salto con corte necesita un plano antes: si cae al principio, el corte va a la mitad de su tramo
+  for (const k of conMetas) if (k.corteAlInicio) {
+    if (k.a < 0.3) { if (k.b - k.a > 1) k.a = Math.min(D / 2, (k.a + k.b) / 2); else k.corteAlInicio = false; }
+    if (k.corteAlInicio) k.a = aCuadro(k.a);
+  }
   const tocadas = new Set(conMetas.flatMap(k => Object.keys(k.metas)));
   const ultimas = {};
   for (const id of PISTAS_IDS) {
@@ -986,6 +1263,174 @@ function interpretarSinRed(texto, proyecto, info) {
   const gi = salidaPistas.get('giro'), kg = ultimas.giro?.k;
   const enBucle = bucle === 'si' || (bucle === null && P.bucle);
   if (enBucle && gi?.length === 2 && kg && gi[0].t < 1e-3 && gi[1].t > D - 1e-3 && Math.abs(gi[1].v - gi[0].v) >= 359 && cierra(gi, 'giro') && !kg.curva && !kg.rapido && !kg.mods.frenaFinal && !mods.rapidoInicio) gi[0].curva = 'lineal';
+
+  // ----- cortes -----
+  const pedCortes = cls.filter(k => k.cortes), frasesCortes = [], nuevosDe = new Map();
+  const existentes = normalizarCortes(P.cortes.map(c => ({ t: (+c.t || 0) * escala, transicion: c.transicion })), D);
+  let cortes = existentes.map(c => ({ ...c })), cortesFinales = existentes, planosAlternos = false, quitarTodos = false, ritmoTxt = '';
+  // el ritmo: de la música que se pide en este mismo mensaje, o de la que ya tiene
+  const ritmo = (() => {
+    const pedida = cls.map(k => k.musica).filter(Boolean).reduce((a, b) => ({ ...a, ...b }), null);
+    if (pedida?.estilo === 'ninguna') return null;
+    if (pedida?.estilo && MUSICA_INFO[pedida.estilo]) return { bpm: MUSICA_INFO[pedida.estilo].bpm, inicio: 0, nombre: MUSICA_INFO[pedida.estilo].nombre };
+    const m = P.audio.musica;
+    return m && +m.bpm > 0 ? { bpm: +m.bpm, inicio: esNum(+m.inicio) ? +m.inicio : 0, nombre: m.archivo ? 'tu canción' : MUSICA_INFO[m.estilo]?.nombre } : null;
+  })();
+  const reparto = n => Array.from({ length: n }, (_, i) => aCuadro(D * (i + 1) / (n + 1)));
+  const cadaTanto = paso => { const out = []; for (let t = paso; t < D - 0.3; t += paso) out.push(aCuadro(t)); return out; };
+  for (const k of pedCortes) {
+    const c = k.cortes, tr = c.transicion;
+    if (c.quitar) { cortes = []; quitarTodos = true; continue; }
+    let tiempos = [], reemplaza = false;
+    if (k.corteAlInicio && conMetas.includes(k)) tiempos = [k.a];
+    else if (c.ritmo) {
+      reemplaza = true;
+      if (ritmo) {
+        // un corte cada 1, 2, 4 u 8 tiempos: lo justo para que cada plano dure al menos 1,2 s
+        const pulso = 60 / ritmo.bpm, n = [1, 2, 4, 8].find(x => x * pulso >= 1.2) || 8, paso = n * pulso, fase = ((ritmo.inicio % paso) + paso) % paso;
+        for (let t = paso - fase; t < D - 0.3; t += paso) if (t > 0.3) tiempos.push(aCuadro(t));
+        ritmoTxt = `al ritmo de la música: uno cada ${n} ${n === 1 ? 'tiempo' : 'tiempos'} (${seg(paso)}${ritmo.nombre ? `, ${ritmo.nombre} a ${Math.round(ritmo.bpm)} bpm` : ''})`;
+      } else { tiempos = cadaTanto(2); notas.push('Todavía no hay música con un ritmo conocido: puse un corte cada 2 s. Si eliges una música, pídemelo otra vez y los pongo a su ritmo.'); }
+    } else if (c.cada > 0) { reemplaza = true; tiempos = cadaTanto(Math.max(0.5, c.cada)); }
+    else if (c.tiempos.length) tiempos = c.tiempos.map(t => (t === 'mitad' ? aCuadro(D / 2) : t)).filter(esNum);
+    else if (c.n > 0) { reemplaza = true; tiempos = reparto(Math.min(c.n, 30)); }
+    else if (tr && cortes.length) { for (const x of cortes) x.transicion = tr; frasesCortes.push(`los cortes ahora van con ${TRANSICIONES[tr].toLowerCase()}`); continue; }
+    else { reemplaza = true; tiempos = reparto(Math.max(1, Math.round(D / 2.2) - 1)); }   // «ponle cortes»: uno cada 2 s más o menos
+    if (reemplaza) cortes = [];
+    const fuera = tiempos.filter(t => t < CUADRO - 1e-4 || t > D - CUADRO + 1e-4), validos = tiempos.filter(t => !fuera.includes(t));
+    if (fuera.length) notas.push(`Un corte necesita algo antes y después: no puse ${fuera.length === 1 ? 'el' : 'los'} de ${fuera.map(seg).join(', ')} (el video dura ${seg(D)}).`);
+    for (const t of validos) {
+      const ya = cortes.find(x => Math.abs(x.t - t) < 1 / 15);
+      if (ya) { if (tr) ya.transicion = tr; } else cortes.push({ t, transicion: tr || 'seco' });
+    }
+    nuevosDe.set(k, validos);
+    if (!k.corteAlInicio && validos.length) planosAlternos = true;
+  }
+  // un movimiento base es continuo: si no se piden cortes, los que había se quitan
+  if (preset && existentes.length && !pedCortes.length) { cortes = []; notas.push(`Quité los cortes: el movimiento «${MOVIMIENTOS[preset].nombre}» es continuo.`); }
+  cortesFinales = normalizarCortes(cortes, D);
+  const nuevos = cortesFinales.filter(c => !existentes.some(x => Math.abs(x.t - c.t) < 1e-3));
+  const cambianCortes = cortesFinales.length !== existentes.length || cortesFinales.some((c, i) => Math.abs(c.t - existentes[i].t) > 1e-3 || c.transicion !== existentes[i].transicion);
+  let alternados = false;
+  // En un corte no se interpola: sin más, la cámara se congelaría hasta él. Las pistas que cambió este pedido siguen
+  // moviéndose a través de todos los cortes, y todas las pistas a través de los cortes nuevos.
+  const V2 = Object.fromEntries(PISTAS_IDS.map(id => [id, (salidaPistas.get(id) || base[id]).map(c => ({ ...c }))]));
+  const separar = (ids, tiempos) => {
+    const tmp = { duracion: D, pistas: Object.fromEntries(ids.map(id => [id, V2[id]])) };
+    for (const t of tiempos) for (const id of separarPlanos(tmp, t)) salidaPistas.set(id, V2[id]);
+  };
+  // el zoom y el foco quietos, o armados solo para los cortes de antes (los planos que alternan): se pueden volver a armar
+  const quieta = id => !V2[id].length || V2[id].every(x => Math.abs(x.v - V2[id][0].v) < 1e-6);
+  const deCostura = id => existentes.length > 0 && V2[id].every(k => k.t < 1e-3 || k.t > D - 1e-3 || existentes.some(c => Math.abs(k.t - c.t) < TOLERANCIA || Math.abs(k.t - (c.t - CUADRO)) < TOLERANCIA));
+  const planosLibres = !tocadas.has('zoom') && !tocadas.has('foco') && ['zoom', 'foco'].every(id => quieta(id) || deCostura(id));
+  const deCosturaAntes = { zoom: deCostura('zoom') && !quieta('zoom'), foco: deCostura('foco') && !quieta('foco') };
+  if (cortesFinales.length) separar([...salidaPistas.keys()], cortesFinales.map(c => c.t));
+  if (cambianCortes) {
+    salida.cortes = { cambiar: true, lista: cortesFinales };
+    // los cortes que se van se llevan su costura (si no, quedaría un salto de un cuadro donde ya no hay corte); si ya no
+    // queda ningún corte, el zoom y el foco que se armaron para ellos vuelven a quedarse quietos
+    const quitados = existentes.filter(c => !cortesFinales.some(x => Math.abs(x.t - c.t) < 1e-3));
+    const tmpTodo = { duracion: D, pistas: V2 };
+    for (const c of quitados) for (const id of unirPlanos(tmpTodo, c.t)) salidaPistas.set(id, V2[id]);
+    if (!cortesFinales.length) for (const id of ['zoom', 'foco']) if (deCosturaAntes[id] && !tocadas.has(id)) { const v = V2[id][0].v; V2[id] = Math.abs(v - PISTAS[id].def) < 1e-9 ? [] : [{ t: 0, v, curva: 'suave' }]; salidaPistas.set(id, V2[id]); }
+    separar(PISTAS_IDS, nuevos.map(c => c.t));
+    // cortes sin un plano nuevo no se notan: si el zoom y el foco están quietos, cada plano alterna entre la pieza completa
+    // y un acercamiento a la piedra (con un empujón lento hacia adelante)
+    if (planosAlternos && nuevos.length && planosLibres && !preset) {
+      const z0 = V2.zoom[0]?.v ?? PISTAS.zoom.def, f0 = V2.foco[0]?.v ?? PISTAS.foco.def;
+      const zc = r2(limitar(Math.max(1.8, z0 * 1.6), ZOOM.min, 3.2)), fc = info.tienePiedras === false ? 0.5 : 1;
+      const limites = [0, ...cortesFinales.map(c => c.t), D], zoom = [], foco = [];
+      for (let i = 0; i < limites.length - 1; i++) {
+        const a = limites[i], b = i === limites.length - 2 ? D : limites[i + 1] - CUADRO, cerca = i % 2 === 1;
+        zoom.push({ t: a, v: cerca ? zc : z0, curva: 'lineal' }, { t: b, v: cerca ? r2(Math.min(ZOOM.max, zc * 1.06)) : z0, curva: 'lineal' });
+        foco.push({ t: a, v: cerca ? fc : f0, curva: 'lineal' }, { t: b, v: cerca ? fc : f0, curva: 'lineal' });
+      }
+      salidaPistas.set('zoom', limpiar(zoom, 'zoom', D)); salidaPistas.set('foco', limpiar(foco, 'foco', D));
+      alternados = true;
+    }
+    // la respuesta
+    // (los cortes de «con un corte acércate…» ya los cuenta la frase de la cámara)
+    const deCamara = conMetas.filter(k => k.corteAlInicio).map(k => k.a);
+    const ts = nuevos.map(c => c.t).filter(t => !deCamara.some(a => Math.abs(a - t) < 1e-3)), trs = [...new Set(nuevos.filter(c => ts.includes(c.t)).map(c => c.transicion))];
+    const conTr = trs.length === 1 ? (trs[0] === 'seco' ? (ts.length === 1 ? 'seco' : 'secos') : `con ${TRANSICIONES[trs[0]].toLowerCase()}`) : 'con varias transiciones';
+    const enLista = l => (l.length === 1 ? `en ${seg(l[0])}` : `en ${l.slice(0, -1).map(t => seg(t).replace(' s', '')).join(', ')} y ${seg(l.at(-1))}`);
+    if (quitarTodos && !cortesFinales.length) frasesCortes.unshift('quité los cortes');
+    else if (ts.length) frasesCortes.unshift(ritmoTxt ? `puse ${ts.length} ${ts.length === 1 ? 'corte' : 'cortes'} ${conTr} ${ritmoTxt}` : ts.length > 6 ? `puse ${ts.length} cortes ${conTr} (de ${seg(ts[0])} a ${seg(ts.at(-1))})` : `puse ${ts.length === 1 ? 'un corte' : `${ts.length} cortes`} ${conTr} ${enLista(ts)}`);
+    if (alternados) frasesCortes.push(`cada plano alterna entre la pieza completa y un acercamiento a ${info.tienePiedras === false ? 'la parte de arriba' : 'la piedra'}`);
+    else if (ts.length && !conMetas.some(k => k.corteAlInicio) && trs.every(x => x === 'seco')) notas.push('A cada lado del corte la cámara sigue igual: para cambiar de plano dime, por ejemplo, «con un corte acércate a la piedra».');
+  }
+
+  // ----- escena -----
+  const pedEscena = cls.filter(k => k.escena).map(k => k.escena), frasesEscena = [];
+  if (pedEscena.length) {
+    const E = { superficie: {}, fondo: {}, luz: {} };
+    for (const e of pedEscena) {
+      if (e.ninguna) { Object.assign(E, { ninguna: true, preset: null, generica: false, superficie: {}, fondo: {}, luz: {} }); continue; }
+      E.ninguna = false; if (e.preset) E.preset = e.preset; if (e.generica) E.generica = true;
+      for (const g of ['superficie', 'fondo', 'luz']) Object.assign(E[g], e[g]);
+    }
+    const actual = info.escena;   // undefined: no se sabe cuál hay
+    const idActual = typeof actual === 'string' ? actual : esObj(actual) ? actual.id : null;
+    const conEscena = actual === undefined ? null : !!idActual && idActual !== 'ninguna';
+    if (E.ninguna) {
+      if (conEscena === false) notas.push('Ya tienes el fondo liso de marca.');
+      else { salida.escena = { cambiar: true, id: 'ninguna', cambios: null }; frasesEscena.push('volví al fondo liso de marca (sin superficie)'); }
+    } else {
+      const sup = { ...E.superficie }, fon = { ...E.fondo }, L = E.luz, luz = {}, relativos = {};
+      for (const [g, k] of [['superficie', 'altura'], ['superficie', 'tamano'], ['fondo', 'distancia']]) {
+        const o = g === 'superficie' ? sup : fon;
+        if (o[k] === '+' || o[k] === '-') { relativos[k] = o[k]; delete o[k]; }
+      }
+      if (sup.material && !sup.color) sup.color = COLOR_MATERIAL[sup.material];
+      if (fon.material && !fon.color) fon.color = COLOR_MATERIAL[fon.material];
+      const id = E.preset || (E.generica && !conEscena ? ESCENA_INICIAL : 'actual');
+      const nada = !E.preset && E.generica && conEscena && !Object.keys(sup).length && !Object.keys(fon).length && !Object.keys(L).length;
+      const ref = escenaDesdeAccion({ id, cambios: null }, actual);   // los valores de ahora (para «más suave», «más cálida»)
+      const rel = (k, d) => r2(limitar(ref.luz[k] + d, RANGOS[k].min, RANGOS[k].max));
+      const PASO = { altura: 0.4, tamano: 0.3, distancia: 0.6 };
+      for (const [k, signo] of Object.entries(relativos)) {
+        const g = k === 'distancia' ? 'fondo' : 'superficie', o = g === 'fondo' ? fon : sup;
+        o[k] = r2(limitar(ref[g][k] + (signo === '+' ? 1 : -1) * PASO[k], RANGOS[k].min, RANGOS[k].max));
+      }
+      for (const k of ['gobo', 'angulo', 'elevacion']) if (L[k] !== undefined) luz[k] = L[k];
+      if (L.suavidad) luz.suavidad = L.suavidad === '+' ? Math.max(rel('suavidad', 0.3), 0.7) : Math.min(rel('suavidad', -0.3), 0.2);
+      if (L.calidez) luz.calidez = L.calidez === '+' ? Math.max(rel('calidez', 0.35), 0.6) : Math.min(rel('calidez', -0.5), -0.25);
+      if (L.intensidad) luz.intensidad = rel('intensidad', L.intensidad === '+' ? 0.35 : -0.35);
+      const cambios = {};
+      if (Object.keys(sup).length) cambios.superficie = sup;
+      if (Object.keys(fon).length) cambios.fondo = fon;
+      if (Object.keys(luz).length) cambios.luz = luz;
+      if (nada) notas.push(`Ya tienes una escena 3D («${ESCENAS[escenaDesdeAccion({ id: 'actual' }, actual).base || idActual]?.nombre || 'personalizada'}»). Dime qué cambiar: «pedestal de mármol», «fondo rosa», «sombras de persiana»…`);
+      else salida.escena = { cambiar: true, id, cambios: Object.keys(cambios).length ? cambios : null };
+      // la respuesta
+      const final = escenaDesdeAccion(salida.escena.cambiar ? salida.escena : { id: 'actual' }, actual), nombreBase = ESCENAS[final.base || final.id]?.nombre;
+      if (nada) { /* ya lo dice la nota */ }
+      else if (E.preset) frasesEscena.push(`puse la escena «${ESCENAS[E.preset].nombre}»`);
+      else if (id !== 'actual' || conEscena === false) frasesEscena.push(`puse la escena «${nombreBase}»`);
+      const FORMA = { cilindro: 'un pedestal redondo', cubo: 'un bloque', losa: 'una losa baja', escalones: 'unos escalones', cojin: 'un cojín', piso: 'el piso' };
+      const mat = m => MATERIALES_ESCENA[m].toLowerCase();
+      if (relativos.altura) frasesEscena.push(relativos.altura === '+' ? 'el pedestal quedó más alto' : 'el pedestal quedó más bajo');
+      if (relativos.tamano) frasesEscena.push(relativos.tamano === '+' ? 'el pedestal quedó más ancho' : 'el pedestal quedó más angosto');
+      if (relativos.distancia) frasesEscena.push(relativos.distancia === '+' ? 'el fondo quedó más lejos (más desenfocado)' : 'el fondo quedó más cerca');
+      if (sup.forma) frasesEscena.push(`la joya queda sobre ${FORMA[sup.forma]}${sup.material ? ` de ${mat(sup.material)}` : ''}`);
+      else if (sup.material) frasesEscena.push(`la superficie ahora es de ${mat(sup.material)}`);
+      else if (sup.color) frasesEscena.push(`la superficie ahora es ${NOMBRE_COLOR[sup.color] || 'de otro color'}`);
+      if (fon.forma) frasesEscena.push(fon.forma === 'arco' ? 'el fondo es un nicho con arco' : fon.forma === 'pared' ? 'el fondo es una pared con piso' : 'el fondo es curvo, sin esquinas');
+      if (fon.material) frasesEscena.push(`el fondo es de ${mat(fon.material)}`);
+      else if (fon.color) frasesEscena.push(`el fondo ahora es ${NOMBRE_COLOR[fon.color] || 'de otro color'}`);
+      // todo lo de la luz en una sola frase: «la luz viene desde la izquierda, entra con sombras de persiana y es más cálida»
+      const deLuz = [];
+      if (L.lado) deLuz.push(/derecha|izquierda/.test(L.lado) ? `viene desde la ${L.lado}` : /atras|detras|contraluz/.test(L.lado) ? 'viene desde atrás (contraluz)' : 'viene de frente');
+      if (luz.elevacion) deLuz.push(luz.elevacion > 45 ? 'cae desde más arriba' : 'llega más baja, rasante');
+      if (luz.gobo) deLuz.push(luz.gobo === 'ninguno' ? 'es pareja, sin sombras' : luz.gobo === 'foco' ? 'es un foco que ilumina la joya' : `entra con sombras de ${GOBOS[luz.gobo].toLowerCase()}`);
+      if (luz.suavidad !== undefined) deLuz.push(L.suavidad === '+' ? 'quedó más suave (sombras difusas)' : 'quedó más dura (sombras marcadas)');
+      if (luz.calidez !== undefined) deLuz.push(L.calidez === '+' ? 'es más cálida' : 'es más fría');
+      if (luz.intensidad !== undefined) deLuz.push(L.intensidad === '+' ? 'es más intensa' : 'es más tenue');
+      if (deLuz.length) frasesEscena.push('la luz ' + (deLuz.length === 1 ? deLuz[0] : `${deLuz.slice(0, -1).join(', ')} y ${deLuz.at(-1)}`));
+      if (!frasesEscena.length && !nada) frasesEscena.push(`puse la escena «${nombreBase}»`);
+    }
+  }
+
   salida.pistas = [...salidaPistas.entries()].map(([pista, claves]) => ({ pista, claves: limpiar(claves, pista, D) }));
 
   // ----- proyecto virtual para ubicar sonidos (con las pistas nuevas) -----
@@ -1077,7 +1522,11 @@ function interpretarSinRed(texto, proyecto, info) {
     const golpes = [];
     const tieneVentana = k.a !== undefined && !k.inicial && Object.keys(k.metas || {}).length;
     const subida = ['riser', 'whooshInverso', 'reverseCymbal'].includes(id), aire = ['whoosh', 'whooshCorto', 'swipe'].includes(id);
-    if (T.a !== undefined && !tieneVentana) golpes.push(T.a);
+    if (k.cuando === 'cortes') {
+      const ts = nuevosDe.get(k)?.length ? nuevosDe.get(k) : cortesFinales.map(c => c.t);
+      if (!ts.length) notas.push('Todavía no hay cortes: dime dónde cortar, por ejemplo «un corte a los 3 segundos con un whoosh».');
+      golpes.push(...ts.slice(0, 24));
+    } else if (T.a !== undefined && !tieneVentana) golpes.push(T.a);
     else if (T.ultimos !== undefined && !tieneVentana) golpes.push(D - T.ultimos);
     else if (k.brillaPiedra && tieneVentana) golpes.push(Math.min(D, Math.max(k.a, k.b - 0.7) + 0.12));   // con el pico del destello
     else if (k.cuando === 'piedra') golpes.push(momentoPiedra ?? D / 2);
@@ -1202,6 +1651,14 @@ function interpretarSinRed(texto, proyecto, info) {
     const solo = conVentana.filter(o => !o.junto).length === 1;
     frases.push(solo && todoElVideo(k) ? d : `del ${seg(k.a).replace(' s', '')} al ${seg(k.b)} ${d}`);
   });
+  for (const k of conVentana) if (k.corteAlInicio) {
+    // el plano nuevo empieza con un corte (eso ya lo cuenta la frase de la cámara, aquí solo se dice dónde)
+    const i = frases.findIndex(f => f.includes(`del ${seg(k.a).replace(' s', '')} al`));
+    const tr = k.cortes?.transicion, conTr = tr && tr !== 'seco' ? ` con ${TRANSICIONES[tr].toLowerCase()}` : '';
+    if (i >= 0) frases[i] = frases[i].replace(`del ${seg(k.a).replace(' s', '')} al`, `con un corte${conTr} en ${seg(k.a)}, del ${seg(k.a).replace(' s', '')} al`);
+    else frases.push(`hay un corte${conTr} en ${seg(k.a)}`);
+  }
+  frases.push(...frasesCortes, ...frasesEscena);
   frases.push(...modTxt);
   if (textosNuevos.length) frases.push(`agregué ${textosNuevos.length === 1 ? 'el texto' : 'los textos'} ${textosNuevos.join(', ')}`.replace('el texto precio', 'el precio'));
   if (quitarTextos) frases.push('quité los textos (la marca se queda)'); else if (quitarPrecio) frases.push('quité el precio');
@@ -1216,6 +1673,7 @@ function interpretarSinRed(texto, proyecto, info) {
     for (const p of salida.pistas) for (const c of p.claves) c.t = r4(c.t * f);
     for (const c of salida.textos.capas) { c.entra = r2(c.entra * f); if (c.sale >= 0) c.sale = r2(c.sale * f); }
     for (const c of salida.sonidos.clips) c.t = r4(c.t * f);
+    for (const c of salida.cortes.lista) c.t = r4(c.t * f);
   }
   salida.respuesta = hayCambios(salida) ? todo : notas.length ? notas.join(' ') : fueraDeAqui(x) || 'No encontré nada que cambiar. ' + AYUDA;
   if (info.tienePiedras === false && conMetas.some(k => k.metas.foco?.valor === 1)) salida.respuesta += ' (No encontré piedras en el modelo, así que enfoco la parte de arriba.)';

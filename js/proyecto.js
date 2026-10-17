@@ -1,4 +1,4 @@
-// Modelo del proyecto: pistas de cámara con keyframes (como en CapCut), textos y sonido.
+// Modelo del proyecto: pistas de cámara con keyframes (como en CapCut), cortes, textos y sonido.
 // Es puro (sin DOM): lo usan la línea de tiempo, el estudio, el chat y las pruebas en Node.
 
 // ---------- Pistas de cámara y escena (todas se pueden animar con keyframes) ----------
@@ -35,6 +35,16 @@ export const CURVAS = {
 export const TOLERANCIA = 1 / 60;   // dos keyframes a menos de medio cuadro son el mismo
 export const DURACION_MIN = 3, DURACION_MAX = 60;
 
+// ---------- Cortes: la cámara salta de un plano a otro (como los cortes de un reel) ----------
+// En un corte ninguna pista se interpola: cada una salta a su siguiente keyframe. La transición es solo de imagen
+// (la dibuja transiciones.js encima del cuadro).
+export const TRANSICIONES = { seco: 'Corte seco', flash: 'Flash blanco', negro: 'Fundido a negro', barrido: 'Barrido' };
+export const SEPARACION_CORTES = 1 / 15;   // dos cortes a menos de 2 cuadros se juntan en uno
+const BORDE_CORTE = 1 / 30;                // un corte necesita al menos un cuadro antes y uno después
+const MAX_CORTES = 240;
+const HOLGURA = 1e-4;                      // los tiempos van redondeados a 4 decimales
+const CUADRO = 1 / 30;                     // un cuadro del video
+
 const r4 = x => Math.round(x * 1e4) / 1e4;
 const limitar = (x, a, b) => Math.min(b, Math.max(a, x));
 const esNum = x => typeof x === 'number' && Number.isFinite(x);
@@ -42,6 +52,7 @@ const esObj = x => !!x && typeof x === 'object' && !Array.isArray(x);
 const K = (t, v, curva = 'suave') => ({ t: r4(t), v: r4(v), curva });
 const esCurva = c => typeof c === 'string' && Object.hasOwn(CURVAS, c);
 const esPista = p => typeof p === 'string' && Object.hasOwn(PISTAS, p);
+const esTransicion = x => typeof x === 'string' && Object.hasOwn(TRANSICIONES, x);
 
 // lleva un tiempo al cuadro más cercano (30 cuadros por segundo, como el video)
 export const ajustarACuadro = (t, fps = 30) => Math.round(t * fps) / fps;
@@ -120,14 +131,16 @@ export function proyectoNuevo() {
     duracion: 8,
     bucle: MOVIMIENTOS.giro.bucle,
     pistas: { ...pistasVacias(), ...MOVIMIENTOS.giro.crear(8) },
+    cortes: [],
     textos: [],
     audio: { clips: [], musica: null },
   };
 }
 
 // ---------- Evaluación ----------
-// Valor de una lista de keyframes (ordenada) en el instante t
-function valorClaves(claves, t, def) {
+// Valor de una lista de keyframes (ordenada) en el instante t. Si entre dos keyframes a y b hay un corte c
+// (a.t < c ≤ b.t), no se interpola: vale a.v hasta el corte y b.v desde el corte (si hay varios, salta en el primero).
+function valorClaves(claves, t, def, cortes) {
   if (!claves || !claves.length) return def;
   if (t <= claves[0].t) return claves[0].v;
   const n = claves.length;
@@ -135,6 +148,12 @@ function valorClaves(claves, t, def) {
   let i = 0;
   while (i < n - 2 && claves[i + 1].t <= t) i++;
   const a = claves[i], b = claves[i + 1], tramo = b.t - a.t;
+  if (cortes?.length) {
+    for (const c of cortes) {
+      const tc = typeof c === 'number' ? c : c?.t;
+      if (tc > a.t && tc <= b.t) return t < tc ? a.v : b.v;
+    }
+  }
   if (tramo <= 0) return b.v;
   const f = (esCurva(a.curva) ? CURVAS[a.curva] : CURVAS.suave).fn((t - a.t) / tramo);   // la curva la decide el keyframe de la izquierda
   return a.v + (b.v - a.v) * f;
@@ -143,7 +162,7 @@ function valorClaves(claves, t, def) {
 export function valorEn(proyecto, pista, tSeg) {
   if (!esPista(pista)) throw new Error(`No existe la pista «${pista}».`);
   const P = PISTAS[pista], t = limitar(esNum(tSeg) ? tSeg : 0, 0, proyecto.duracion || 8);
-  const v = valorClaves(proyecto.pistas?.[pista], t, P.def);
+  const v = valorClaves(proyecto.pistas?.[pista], t, P.def, Array.isArray(proyecto.cortes) ? proyecto.cortes : null);
   // el giro no tiene tope (puede dar las vueltas que quiera); el resto no se sale de su rango aunque la curva rebase
   return pista === 'giro' ? v : limitar(v, P.min, P.max);
 }
@@ -203,11 +222,159 @@ export function moverClave(proyecto, pista, clave, nuevoT) {
   return clave;
 }
 
+// ---------- Cortes ----------
+// Limpia una lista de cortes (de un archivo, del chat o de la IA): solo los que caben dentro del video, redondeados como
+// los keyframes, ordenados y separados al menos 2 cuadros (si dos quedan más cerca, se queda el primero). Nunca lanza.
+export function normalizarCortes(lista, duracion = 8) {
+  if (!Array.isArray(lista)) return [];
+  const d = esNum(duracion) && duracion > 0 ? duracion : 8, salida = [];
+  const crudos = lista.map(c => (esNum(c) ? { t: c } : esObj(c) ? c : null))
+    .filter(c => c && esNum(c.t) && c.t >= BORDE_CORTE - HOLGURA && c.t <= d - BORDE_CORTE + HOLGURA)
+    .map(c => ({ t: r4(limitar(c.t, BORDE_CORTE, d - BORDE_CORTE)), transicion: esTransicion(c.transicion) ? c.transicion : 'seco' }))
+    .sort((a, b) => a.t - b.t);
+  for (const c of crudos) if (!salida.length || c.t - salida[salida.length - 1].t >= SEPARACION_CORTES - HOLGURA) salida.push(c);
+  return salida.slice(0, MAX_CORTES);
+}
+
+const listaCortes = proyecto => (Array.isArray(proyecto.cortes) ? proyecto.cortes : (proyecto.cortes = []));
+const ordenarCortes = cortes => cortes.sort((a, b) => a.t - b.t);
+const tiempoCorte = (proyecto, t) => r4(limitar(esNum(t) ? t : 0, BORDE_CORTE, (proyecto.duracion || 8) - BORDE_CORTE));
+
+// El corte más cercano a t (a menos de tol), o null
+export function corteEn(proyecto, t, tol = TOLERANCIA) {
+  let mejor = null, dm = Infinity;
+  for (const c of proyecto.cortes || []) { const d = Math.abs(c.t - t); if (d < tol && d < dm) { mejor = c; dm = d; } }
+  return mejor;
+}
+
+// Pone un corte en t; si ya hay uno a menos de 2 cuadros, ese mismo toma la transición. Fuera del video (en el segundo 0
+// o en el final) no hay corte posible: devuelve null.
+export function ponerCorte(proyecto, t, transicion = 'seco') {
+  const d = proyecto.duracion || 8;
+  if (!esNum(t) || t < BORDE_CORTE - HOLGURA || t > d - BORDE_CORTE + HOLGURA) return null;
+  const cortes = listaCortes(proyecto), tt = tiempoCorte(proyecto, t), tr = esTransicion(transicion) ? transicion : 'seco';
+  const existente = corteEn(proyecto, tt, SEPARACION_CORTES - HOLGURA);
+  if (existente) { existente.transicion = tr; return existente; }
+  const nuevo = { t: tt, transicion: tr };
+  cortes.push(nuevo); ordenarCortes(cortes);
+  return nuevo;
+}
+
+// Quita el corte dado (o el que esté en el instante t). Devuelve el que quitó, o null.
+export function quitarCorte(proyecto, t) {
+  const cortes = proyecto.cortes; if (!Array.isArray(cortes)) return null;
+  const c = typeof t === 'object' && t ? (cortes.includes(t) ? t : null) : corteEn(proyecto, t);
+  if (!c) return null;
+  cortes.splice(cortes.indexOf(c), 1);
+  return c;
+}
+
+// Mueve un corte a otro instante; si cae a menos de 2 cuadros de otro, se queda con su lugar (el otro desaparece).
+// Con arrastrarClaves, el corte se lleva la «costura» entre sus dos planos: los keyframes que están justo en el corte (el
+// comienzo del plano siguiente) y un cuadro antes (el final del anterior). Así se cambia dónde termina un plano y empieza el
+// otro sin que la cámara se congele. En ese modo el corte no pasa por encima de otros keyframes ni de otros cortes.
+export function moverCorte(proyecto, corte, nuevoT, { arrastrarClaves = false } = {}) {
+  const cortes = listaCortes(proyecto);
+  if (!cortes.includes(corte)) return null;
+  const antes = corte.t;
+  let t = tiempoCorte(proyecto, esNum(nuevoT) ? nuevoT : corte.t);
+  if (arrastrarClaves) {
+    const [lo, hi] = limitesCorte(proyecto, corte);
+    t = r4(limitar(t, lo, hi));
+    for (const claves of Object.values(proyecto.pistas || {})) {
+      if (!Array.isArray(claves)) continue;
+      for (const c of claves) {
+        if (Math.abs(c.t - antes) < TOLERANCIA) c.t = t;
+        else if (Math.abs(c.t - (antes - CUADRO)) < TOLERANCIA) c.t = r4(t - CUADRO);
+      }
+      ordenar(claves);
+    }
+  }
+  corte.t = t;
+  for (let i = cortes.length - 1; i >= 0; i--) if (cortes[i] !== corte && Math.abs(cortes[i].t - corte.t) < SEPARACION_CORTES - HOLGURA) cortes.splice(i, 1);
+  ordenarCortes(cortes);
+  return corte;
+}
+
+// Hasta dónde se puede llevar un corte con su costura: sin cruzar otros cortes ni los keyframes vecinos de ninguna pista
+export function limitesCorte(proyecto, corte) {
+  const d = proyecto.duracion || 8, c = corte.t;
+  let lo = BORDE_CORTE + CUADRO, hi = d - BORDE_CORTE;
+  for (const o of proyecto.cortes || []) {
+    if (o === corte) continue;
+    if (o.t < c) lo = Math.max(lo, o.t + SEPARACION_CORTES); else hi = Math.min(hi, o.t - SEPARACION_CORTES);
+  }
+  for (const claves of Object.values(proyecto.pistas || {})) {
+    for (const k of Array.isArray(claves) ? claves : []) {
+      if (Math.abs(k.t - c) < TOLERANCIA || Math.abs(k.t - (c - CUADRO)) < TOLERANCIA) continue;   // la costura misma
+      if (k.t < c) lo = Math.max(lo, k.t + 2 * CUADRO); else hi = Math.min(hi, k.t - CUADRO);
+    }
+  }
+  return hi >= lo ? [r4(lo), r4(hi)] : [c, c];
+}
+
+// Al cortar en medio de un movimiento, la cámara se quedaría quieta hasta el corte (no se interpola a través de él).
+// separarPlanos deja el movimiento como estaba a cada lado: en cada pista que pasa por el corte pone un keyframe un cuadro
+// antes y otro justo en el corte, con los valores que tenía. Desde ahí cada lado es un plano que se edita por separado.
+// Devuelve las pistas que tocó.
+const CURVA_ANTES = { suave: 'entrada', salida: 'lineal', rebote: 'lineal', elastico: 'lineal' };   // el tramo que llega al corte no frena
+const CURVA_DESPUES = { suave: 'salida', entrada: 'lineal' };                                         // el que sale del corte no arranca de cero
+export function separarPlanos(proyecto, t) {
+  const tocadas = [], c = esNum(t) ? r4(t) : NaN, d = proyecto.duracion || 8;
+  if (!esNum(c) || c - CUADRO < 0 || c > d) return tocadas;
+  for (const id of Object.keys(PISTAS)) {
+    const claves = proyecto.pistas?.[id];
+    if (!Array.isArray(claves) || claves.length < 2) continue;
+    // el tramo (a, b] que contiene el corte; sin keyframes a los dos lados la pista no cambia en el corte
+    const i = claves.findIndex((k, j) => j < claves.length - 1 && k.t < c && claves[j + 1].t >= c);
+    if (i < 0) continue;
+    const a = claves[i];
+    if (Math.abs(a.t - (c - CUADRO)) < TOLERANCIA && Math.abs(claves[i + 1].t - c) < TOLERANCIA) continue;   // ya está separada
+    const v1 = valorClaves(claves, c - CUADRO, PISTAS[id].def), v2 = valorClaves(claves, c, PISTAS[id].def);
+    const curva = esCurva(a.curva) ? a.curva : 'suave';
+    if (!(Math.abs(claves[i + 1].t - c) < TOLERANCIA)) claves.splice(i + 1, 0, { t: c, v: r4(v2), curva: CURVA_DESPUES[curva] || curva });
+    if (a.t < c - CUADRO - TOLERANCIA) {
+      claves.splice(i + 1, 0, { t: r4(c - CUADRO), v: r4(v1), curva });
+      a.curva = CURVA_ANTES[curva] || curva;
+    }
+    ordenar(claves);
+    tocadas.push(id);
+  }
+  return tocadas;
+}
+
+// Lo contrario de separarPlanos, para cuando se quita un corte: en cada pista con «costura» en t (un keyframe un cuadro antes y
+// otro justo en t) y keyframes a los dos lados, quita la costura y deja el movimiento de un solo tramo (la curva vuelve a ser la
+// de antes de partirlo: «acelerar» + «frenar» = «suave»). Si no, la pista daría un salto de un cuadro donde ya no hay corte.
+const CURVA_UNIDA = { 'entrada|salida': 'suave', 'lineal|lineal': 'lineal', 'entrada|lineal': 'entrada', 'lineal|salida': 'salida' };
+export function unirPlanos(proyecto, t) {
+  const tocadas = [], c = esNum(t) ? t : NaN;
+  if (!esNum(c)) return tocadas;
+  for (const id of Object.keys(PISTAS)) {
+    const claves = proyecto.pistas?.[id];
+    if (!Array.isArray(claves) || claves.length < 3) continue;
+    const j = claves.findIndex(k => Math.abs(k.t - c) < TOLERANCIA), i = claves.findIndex(k => Math.abs(k.t - (c - CUADRO)) < TOLERANCIA);
+    if (i < 1 || j !== i + 1 || j >= claves.length - 1) continue;   // hace falta un keyframe antes y otro después de la costura
+    const previa = claves[i - 1], enCorte = claves[j];
+    previa.curva = CURVA_UNIDA[`${previa.curva}|${enCorte.curva}`] || (esCurva(enCorte.curva) ? enCorte.curva : 'suave');
+    claves.splice(i, 2);
+    tocadas.push(id);
+  }
+  return tocadas;
+}
+
+// Cortes con a < t ≤ b (los que pasan al avanzar de a hasta b), en orden
+export function cortesEntre(proyecto, a, b) {
+  return (proyecto.cortes || []).filter(c => c.t > a && c.t <= b);
+}
+
 // ---------- Movimientos base ----------
 const igualesClaves = (a = [], b = []) => a.length === b.length && a.every((c, i) => Math.abs(c.t - b[i].t) < 1e-3 && Math.abs(c.v - b[i].v) < 1e-3 && c.curva === b[i].curva);
 
-// Qué movimiento base tiene el proyecto ahora, o null si ya se editaron los keyframes ("personalizado")
+// Qué movimiento base tiene el proyecto ahora, o null si ya se editaron los keyframes ("personalizado").
+// Con cortes tampoco es un movimiento base (esos son continuos).
 export function movimientoDe(proyecto) {
+  if (proyecto.cortes?.length) return null;
   const d = proyecto.duracion || 8;
   for (const [id, m] of Object.entries(MOVIMIENTOS)) {
     const p = m.crear(d);
@@ -218,7 +385,7 @@ export function movimientoDe(proyecto) {
   return null;
 }
 
-// Reemplaza las pistas de cámara por un movimiento base (y su bucle)
+// Reemplaza las pistas de cámara por un movimiento base (y su bucle). Quita los cortes: un movimiento base es continuo.
 export function aplicarMovimiento(proyecto, id) {
   const m = Object.hasOwn(MOVIMIENTOS, id) ? MOVIMIENTOS[id] : null; if (!m) throw new Error(`No existe el movimiento «${id}».`);
   const d = proyecto.duracion || 8, nuevas = m.crear(d);
@@ -230,12 +397,13 @@ export function aplicarMovimiento(proyecto, id) {
     else pistas[k] = [];
   }
   proyecto.pistas = pistas;
+  proyecto.cortes = [];
   proyecto.bucle = m.bucle;
   return proyecto;
 }
 
 // ---------- Duración ----------
-// Cambia la duración estirando o encogiendo todo: keyframes, textos y sonidos
+// Cambia la duración estirando o encogiendo todo: keyframes, cortes, textos y sonidos
 export function escalarTiempo(proyecto, nuevaDuracion) {
   const antes = proyecto.duracion || 8;
   const d = limitar(esNum(+nuevaDuracion) ? +nuevaDuracion : antes, DURACION_MIN, DURACION_MAX);
@@ -250,6 +418,18 @@ export function escalarTiempo(proyecto, nuevaDuracion) {
     if (esNum(capa.sale)) capa.sale = esc(capa.sale);
   }
   for (const clip of proyecto.audio?.clips || []) if (esNum(clip.t)) clip.t = esc(clip.t);
+  // (al encoger, dos cortes pueden quedar a menos de 2 cuadros: se juntan; los objetos que quedan son los mismos)
+  if (Array.isArray(proyecto.cortes)) {
+    const quedan = [];
+    for (const c of proyecto.cortes.filter(c => esObj(c) && esNum(c.t)).sort((x, y) => x.t - y.t)) {
+      c.t = r4(c.t * k);
+      if (c.t < BORDE_CORTE - HOLGURA || c.t > d - BORDE_CORTE + HOLGURA) continue;
+      c.t = r4(limitar(c.t, BORDE_CORTE, d - BORDE_CORTE));
+      if (!esTransicion(c.transicion)) c.transicion = 'seco';
+      if (!quedan.length || c.t - quedan[quedan.length - 1].t >= SEPARACION_CORTES - HOLGURA) quedan.push(c);
+    }
+    proyecto.cortes = quedan;
+  }
   proyecto.duracion = d;
   return proyecto;
 }
@@ -287,6 +467,7 @@ export function deserializar(json) {
   p.bucle = typeof d.bucle === 'boolean' ? d.bucle : true;
   const fuente = esObj(d.pistas) ? d.pistas : MOVIMIENTOS.giro.crear(p.duracion);
   p.pistas = Object.fromEntries(Object.keys(PISTAS).map(id => [id, limpiarClaves(fuente[id], id, p.duracion)]));
+  p.cortes = normalizarCortes(d.cortes, p.duracion);   // (los archivos de antes no tienen cortes)
   p.textos = Array.isArray(d.textos) ? d.textos.filter(esObj) : [];
   const a = esObj(d.audio) ? d.audio : {};
   p.audio = {

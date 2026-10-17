@@ -55,11 +55,14 @@ export class Compositor {
 
   // Dibuja el cuadro completo. render3D: lienzo WebGL; mascara: silueta (solo en el render final con trazado de rayos).
   // capas: los textos del proyecto; t: segundo del video (null = todos quietos y completos); seleccion: capa con marco (solo vista previa)
-  cuadro({ fondo, render3D, sombra, intensidadSombra = 1, mascara = null, capas = [], t = null, duracion, seleccion = null }) {
+  // opaco: el render 3D trae su propia escena (pedestal y fondo) y cubre todo: no van el fondo de marca ni la sombra 2D.
+  // oscuro: si se da, decide el color de los textos (con escena lo dice la escena); si no, el del fondo de marca
+  cuadro({ fondo, render3D, sombra, intensidadSombra = 1, mascara = null, capas = [], t = null, duracion, seleccion = null, opaco = false, oscuro = null }) {
     const ctx = this.ctx, W = this.lienzo.width, H = this.lienzo.height, f = FONDOS[fondo] || FONDOS.perla;
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
-    ctx.drawImage(this.fondo(fondo), 0, 0);
-    if (sombra && intensidadSombra > 0) {
+    if (opaco) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }   // (nunca debería verse: la escena cubre todo el cuadro)
+    else ctx.drawImage(this.fondo(fondo), 0, 0);
+    if (!opaco && sombra && intensidadSombra > 0) {
       const capa = this.capa; capa.width = W; capa.height = H; const c = capa.getContext('2d');
       c.save(); c.translate(sombra.x, sombra.y); c.rotate(sombra.ang || 0); c.scale(1, sombra.ry / sombra.rx);
       const g = c.createRadialGradient(0, 0, 0, 0, 0, sombra.rx * 1.25), a = f.sombra * intensidadSombra;
@@ -69,7 +72,7 @@ export class Compositor {
       ctx.drawImage(capa, 0, 0);
     }
     if (render3D) ctx.drawImage(render3D, 0, 0, W, H);
-    dibujarTextos(ctx, capas, { W, H, t, oscuro: f.oscuro, duracion });
+    dibujarTextos(ctx, capas, { W, H, t, oscuro: typeof oscuro === 'boolean' ? oscuro : f.oscuro, duracion });
     if (seleccion) marcoSeleccion(ctx, seleccion, { W, H });
   }
 }

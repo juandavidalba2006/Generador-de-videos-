@@ -1,17 +1,20 @@
 // Chat del asistente: la joyera escribe cómo quiere que se mueva la joya («gira 2 vueltas y termina en la piedra») y el
-// asistente lo convierte en keyframes, textos, sonidos y música. Con IA (api/chat.js en Vercel) o, si no hay IA
+// asistente lo convierte en keyframes, cortes, escena, textos, sonidos y música. Con IA (api/chat.js en Vercel) o, si no hay IA
 // (sitio local, sin clave o sin conexión), con el intérprete por reglas de interprete.js.
 import { escarabajo } from './marca.js';
 import { interpretar, normalizarAcciones, resumenAcciones, resumenProyecto, hayCambios, fotoProyecto } from './interprete.js';
 
-// main.js puede importar la función pura desde aquí o desde interprete.js
-export { aplicarAccionesAProyecto } from './interprete.js';
+// main.js puede importar la función pura desde aquí o desde interprete.js. Los cortes entran al proyecto; la escena va por la
+// opción alEscena(cfg) de aplicarAccionesAProyecto (con escenaActual), porque vive en el estudio y no en el proyecto.
+export { aplicarAccionesAProyecto, escenaDesdeAccion } from './interprete.js';
 
 export const SUGERENCIAS = [
   'Gira 2 vueltas y termina enfocando la piedra',
   'Empieza con un zoom rápido al diamante y aléjate despacio',
   'Hazlo estilo viral con whoosh y brillo',
   'Vista desde arriba que baja hasta quedar de frente',
+  'Pon la joya en un pedestal de mármol',
+  'Haz 3 cortes con flash',
 ];
 const MAX_HISTORIAL = 12;        // mensajes que se mandan a la IA
 const MAX_GUARDADOS = 40;        // burbujas que se recuerdan en la sesión
@@ -28,7 +31,7 @@ const icono = n => `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false
 const ESTADOS = {
   comprobando: { texto: 'Conectando…', ayuda: 'Revisando si el asistente con IA está disponible.' },
   ia: { texto: 'Asistente con IA', ayuda: 'Entiende pedidos libres y piensa el video completo: gancho, revelación de la piedra y final.' },
-  basico: { texto: 'Modo básico (sin IA)', ayuda: 'Entiende frases sencillas de cámara, textos, sonidos y música. La IA funciona cuando el sitio está publicado en Vercel con la clave ANTHROPIC_API_KEY.' },
+  basico: { texto: 'Modo básico (sin IA)', ayuda: 'Entiende frases sencillas de cámara, cortes, escena, textos, sonidos y música. La IA funciona cuando el sitio está publicado en Vercel con la clave ANTHROPIC_API_KEY.' },
 };
 
 // Lee la respuesta como JSON sin lanzar (un servidor estático devuelve HTML en los errores)
@@ -41,7 +44,8 @@ async function pedir(url, opciones = {}, ms = ESPERA_RESPUESTA) {
 }
 
 export class Chat {
-  // obtenerInfo() → { cargado, nombre, medidas: [x, y, z] mm, tienePiedras, metal, piedra, formato }
+  // obtenerInfo() → { cargado, nombre, medidas: [x, y, z] mm, tienePiedras, metal, piedra, formato, escena } (escena: la configuración
+  // de la escena de ahora; con ella el asistente sabe sobre qué cambia la luz o el pedestal)
   // aplicarAcciones(acciones) la pone main.js: mezcla en el proyecto, guarda para deshacer y vuelve a dibujar (puede ser async)
   constructor(contenedor, { obtenerProyecto, obtenerInfo, aplicarAcciones, url } = {}) {
     this.cont = contenedor;
@@ -235,7 +239,7 @@ export class Chat {
   // ---------- Dibujo ----------
   render() {
     const avatar = `<span class="cht-avatar">${escarabajo('currentColor')}</span>`;
-    const bienvenida = `<div class="cht-msg assistant cht-bienvenida">${avatar}<div class="cht-burbuja"><p><b>Hola, soy tu asistente de cámara.</b> Cuéntame con tus palabras cómo quieres que se mueva la joya y lo convierto en keyframes. También pongo textos, efectos de sonido y música. Si algo no te gusta, usa <b>Deshacer</b> en la línea de tiempo.</p></div></div>`;
+    const bienvenida = `<div class="cht-msg assistant cht-bienvenida">${avatar}<div class="cht-burbuja"><p><b>Hola, soy tu asistente de cámara.</b> Cuéntame con tus palabras cómo quieres que se mueva la joya y lo convierto en keyframes. También pongo cortes, cambio la escena (pedestal, fondo y luz) y agrego textos, efectos de sonido y música. Si algo no te gusta, usa <b>Deshacer</b> en la línea de tiempo.</p></div></div>`;
     // «Reintentar» solo en el último error (los de antes ya quedaron atrás en la conversación)
     const ultimoError = this.mensajes.map(m => m.rol).lastIndexOf('error');
     const html = this.mensajes.map((m, i) => {

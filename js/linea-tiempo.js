@@ -1,9 +1,10 @@
 // Línea de tiempo con keyframes, al estilo de CapCut: una pista por cada ajuste de la cámara con sus rombos dorados,
-// los textos como barras que se pueden mover y recortar, y los sonidos como bloques.
+// los cortes (✂) encima de la cámara, los textos como barras que se pueden mover y recortar, y los sonidos como bloques.
 // Arriba, el inspector muestra el valor de cada ajuste en el cabezal: al moverlo se crea un keyframe ahí mismo.
 import {
-  PISTAS, CURVAS, MOVIMIENTOS, TOLERANCIA, valorEn, ponerClave, quitarClave, moverClave, claveEn,
+  PISTAS, CURVAS, MOVIMIENTOS, TOLERANCIA, TRANSICIONES, valorEn, ponerClave, quitarClave, moverClave, claveEn,
   escalarTiempo, serializar, deserializar, movimientoDe, aplicarMovimiento, ajustarACuadro,
+  ponerCorte, quitarCorte, moverCorte, corteEn, separarPlanos, unirPlanos, limitesCorte,
 } from './proyecto.js';
 import { escarabajo } from './marca.js';
 
@@ -16,6 +17,13 @@ const IMAN = 6;        // px: a esta distancia del cabezal un rombo o un borde s
 const MARGEN = 12;     // px de aire a cada lado de los carriles (el rombo del segundo 0 se ve entero); igual que --lt-m
 const MIN_TEXTO = 0.2; // s: lo más corta que puede quedar la barra de un texto
 const DOBLE_TOQUE = 350;
+const CUADRO = 1 / 30;
+// cómo se ve cada transición en su marca (además de las tijeras)
+const SIGNO_TRANSICION = { seco: '', flash: '✦', negro: '●', barrido: '≫' };
+const AYUDA_TRANSICION = {
+  seco: 'Pasa al plano siguiente sin efecto.', flash: 'Un destello blanco en el plano nuevo.',
+  negro: 'Baja a negro y vuelve, como un parpadeo.', barrido: 'Un latigazo de cámara hacia el plano nuevo.',
+};
 
 // Por si el módulo de sonido no carga: nombre, emoji y duración de cada efecto
 const EFECTOS_RESPALDO = {
@@ -35,6 +43,7 @@ const ICONOS = {
   plegar: '<path d="M6 9l6 6 6-6"/>',
   cerrar: '<path d="M6 6l12 12M18 6L6 18"/>',
   oculto: '<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0112 5c5 0 9 4.5 10 7-0.4 1-1.2 2.3-2.4 3.5M6.6 6.6C4.4 8 2.8 10.2 2 12c1 2.5 5 7 10 7 1.8 0 3.4-.6 4.8-1.4"/>',
+  tijera: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/>',
 };
 const icono = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONOS[n]}</svg>`;
 
@@ -118,6 +127,7 @@ export class LineaTiempo {
             <label class="lt-interruptor" title="El final empalma con el principio (ideal para reels en bucle)"><input type="checkbox" data-control="bucle" role="switch"><i aria-hidden="true"></i><span>Bucle</span></label>
             <div class="lt-botones">
               <button class="btn chico lt-btn-todas" type="button" data-accion="claveTodas"><i class="lt-mini-rombo" aria-hidden="true"></i><span class="lt-largo">Añadir keyframe en todas</span><span class="lt-corto">Keyframe en todas</span></button>
+              <button class="btn sec chico lt-btn-corte" type="button" data-accion="corteCabezal" title="Corta el video en el cabezal: la cámara salta a otro plano">${icono('tijera', 'lt-tijera')}<span class="lt-largo">Corte en el cabezal</span><span class="lt-corto">Corte</span></button>
               <button class="btn sec chico" type="button" data-accion="borrarTodas">Borrar keyframes</button>
             </div>
             <div class="lt-historial">
@@ -191,16 +201,18 @@ export class LineaTiempo {
     this.validarSeleccion();
     this.medir();
     const foco = this.lienzo.contains(document.activeElement) ? document.activeElement : null;
-    const enfocar = foco && (foco.classList.contains('lt-clave') ? 'clave' : foco.dataset.id);
+    const enfocar = foco && (foco.classList.contains('lt-clave') ? 'clave' : foco.classList.contains('lt-corte') ? 'corte' : foco.dataset.id);
     this.t = limitar(this.t, 0, d);
     this.lienzo.style.setProperty('--lt-zoom', this.zoom);
-    this.lienzo.innerHTML = this.htmlRegla() + this.htmlCamara() + this.htmlTextos() + this.htmlSonido() +
-      '<div class="lt-cabezal" aria-hidden="true"><i class="lt-cabezal-asa"></i></div>';
+    this.lienzo.innerHTML = this.htmlRegla() + this.htmlCortes() + this.htmlCamara() + this.htmlTextos() + this.htmlSonido() +
+      this.htmlLineasCorte() + '<div class="lt-cabezal" aria-hidden="true"><i class="lt-cabezal-asa"></i></div>';
     this.cabezal = this.lienzo.querySelector('.lt-cabezal');
     this.salidas = Object.fromEntries([...this.lienzo.querySelectorAll('[data-salida]')].map(o => [o.dataset.salida, o]));
     this.rombos = [...this.lienzo.querySelectorAll('.lt-clave')].map(el => ({ el, c: p.pistas[el.dataset.pista][+el.dataset.claveI] }));
-    if (enfocar) {   // si se estaba usando el teclado sobre un rombo o un bloque, que no pierda el foco
-      const el = enfocar === 'clave' ? this.lienzo.querySelector('.lt-clave[aria-pressed=true]') : this.lienzo.querySelector(`.lt-bloque[data-id="${CSS.escape(enfocar)}"]`);
+    this.marcasCorte = [...this.lienzo.querySelectorAll('.lt-corte')].map(el => ({ el, c: p.cortes[+el.dataset.corteI] }));
+    if (enfocar) {   // si se estaba usando el teclado sobre un rombo, un corte o un bloque, que no pierda el foco
+      const el = enfocar === 'clave' ? this.lienzo.querySelector('.lt-clave[aria-pressed=true]') : enfocar === 'corte' ? this.lienzo.querySelector('.lt-corte[aria-pressed=true]')
+        : this.lienzo.querySelector(`.lt-bloque[data-id="${CSS.escape(enfocar)}"]`);
       el?.focus({ preventScroll: true });
     }
     this.renderHerramientas(p);
@@ -221,6 +233,14 @@ export class LineaTiempo {
     this.raiz.querySelector('[data-accion=deshacer]').disabled = !this.historial.length;
     this.raiz.querySelector('[data-accion=rehacer]').disabled = !this.rehechos.length;
     this.raiz.querySelector('[data-accion=borrarTodas]').disabled = !Object.values(p.pistas || {}).some(c => c?.length);
+    this.renderBotonCorte();
+  }
+
+  // el corte solo cabe con al menos un cuadro antes y uno después
+  renderBotonCorte() {
+    const b = this.raiz.querySelector('[data-accion=corteCabezal]'), t = ajustarACuadro(this.t), d = this.duracion;
+    const fuera = t < CUADRO - 1e-4 || t > d - CUADRO + 1e-4;
+    if (b.disabled !== fuera) b.disabled = fuera;
   }
 
   htmlRegla() {
@@ -241,6 +261,25 @@ export class LineaTiempo {
         <button class="lt-ico chico" type="button" data-accion="alejar" aria-label="Alejar la línea de tiempo" title="Alejar"${this.zoom <= 1 ? ' disabled' : ''}>${icono('alejar')}</button>
         <button class="lt-ico chico" type="button" data-accion="acercar" aria-label="Acercar la línea de tiempo" title="Acercar"${this.zoom >= 8 ? ' disabled' : ''}>${icono('acercar')}</button>
       </div><div class="lt-regla">${marcas}</div>`;
+  }
+
+  // Carril de los cortes, encima de la cámara: cada corte es una marca con tijeras (y el signo de su transición)
+  htmlCortes() {
+    const p = this.proyecto, d = this.duracion, cortes = p.cortes || [], sel = this._sel;
+    const marcas = cortes.map((c, i) => {
+      const s = sel?.tipo === 'corte' && sel.corte === c, tr = TRANSICIONES[c.transicion] ? c.transicion : 'seco';
+      return `<button type="button" class="lt-corte t-${tr}" data-corte-i="${i}" style="--p:${limitar(c.t / d, 0, 1)}" aria-pressed="${s}"
+        aria-label="Corte en ${seg(c.t)}: ${esc(TRANSICIONES[tr])}" title="Corte · ${seg(c.t)} · ${esc(TRANSICIONES[tr])}">${icono('tijera')}${SIGNO_TRANSICION[tr] ? `<b aria-hidden="true">${SIGNO_TRANSICION[tr]}</b>` : ''}</button>`;
+    }).join('');
+    return `<div class="lt-et lt-et-cortes" title="Cortes: la cámara salta de un plano a otro">${icono('tijera', 'lt-tijera')}<span>Cortes</span>${cortes.length ? `<small>${cortes.length}</small>` : ''}</div>
+      <div class="lt-carril lt-carril-cortes${cortes.length ? '' : ' vacio'}" data-carril="cortes">${marcas || '<span class="lt-pista-nota"><span class="lt-largo">Sin cortes · usa «Corte en el cabezal» o doble clic aquí</span><span class="lt-corto">Sin cortes · doble toque aquí</span></span>'}</div>`;
+  }
+
+  // una línea por cada corte que atraviesa todos los carriles (se ve dónde salta cada pista)
+  htmlLineasCorte() {
+    const p = this.proyecto, d = this.duracion, cortes = p.cortes || [];
+    if (!cortes.length) return '';
+    return `<div class="lt-lineas-corte" aria-hidden="true">${cortes.map(c => `<i class="lt-linea-corte${this._sel?.tipo === 'corte' && this._sel.corte === c ? ' sel' : ''}" style="--p:${limitar(c.t / d, 0, 1)}"></i>`).join('')}</div>`;
   }
 
   htmlGrupo(id, nombre, resumen, extra = '') {
@@ -358,6 +397,15 @@ export class LineaTiempo {
         <label class="lt-mini">Valor<span class="lt-num"><input type="number" data-sel="v" min="${P.min}" max="${P.max}" step="${P.paso}" value="${c.v.toFixed(dec)}"><i>${P.unidad}</i></span></label>
         <label class="lt-mini lt-mini-curva" title="${ultima ? 'Es el último keyframe: la curva se usa cuando hay otro después' : 'Cómo llega al siguiente keyframe'}">Curva<span class="lt-curva-campo"><select data-sel="curva"${ultima ? ' disabled' : ''}>${Object.entries(CURVAS).map(([k, x]) => `<option value="${k}"${k === c.curva ? ' selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select>${dibujoCurva(c.curva)}</span></label>
         <span class="lt-sel-acciones"><button class="btn peligro chico" type="button" data-accion="quitarSeleccion">Eliminar</button><button class="lt-ico chico" type="button" data-accion="deseleccionar" aria-label="Cerrar">${icono('cerrar')}</button></span>`;
+    } else if (s.tipo === 'corte') {
+      const c = s.corte, tr = TRANSICIONES[c.transicion] ? c.transicion : 'seco';
+      this.elSel.className = 'lt-seleccion activa lt-sel-corte';
+      this.elSel.innerHTML = `
+        <span class="lt-sel-tit">${icono('tijera', 'lt-tijera')}Corte en <b>${seg(c.t)}</b></span>
+        <label class="lt-mini">Tiempo<span class="lt-num"><input type="number" data-sel="tc" min="0" max="${d}" step="0.01" value="${r4(c.t)}"><i>s</i></span></label>
+        <span class="lt-transiciones" role="group" aria-label="Transición">${Object.entries(TRANSICIONES).map(([k, nombre]) => `<button type="button" class="lt-chip${k === tr ? ' activa' : ''}" data-accion="transicion" data-transicion="${k}" aria-pressed="${k === tr}" title="${esc(AYUDA_TRANSICION[k])}">${SIGNO_TRANSICION[k] ? `<b aria-hidden="true">${SIGNO_TRANSICION[k]}</b>` : ''}${esc(nombre)}</button>`).join('')}</span>
+        <span class="lt-sel-nota">En el corte cada pista salta a su siguiente keyframe: lo de cada lado es un plano distinto. Arrástralo para cambiar dónde termina un plano y empieza el otro.</span>
+        <span class="lt-sel-acciones"><button class="btn peligro chico" type="button" data-accion="quitarSeleccion">Eliminar</button><button class="lt-ico chico" type="button" data-accion="deseleccionar" aria-label="Cerrar">${icono('cerrar')}</button></span>`;
     } else if (s.tipo === 'texto') {
       const c = (p.textos || []).find(x => x.id === s.id);
       const nombre = c.tipo === 'marca' ? 'Marca Atelier & Co' : (c.texto || 'Texto');
@@ -396,6 +444,8 @@ export class LineaTiempo {
       const o = this.salidas?.[k]; if (o) o.textContent = mostrar(k, v);
     }
     for (const { el, c } of this.rombos || []) el.classList.toggle('en-cabezal', !!c && Math.abs(c.t - t) < TOLERANCIA);
+    for (const { el, c } of this.marcasCorte || []) el.classList.toggle('en-cabezal', !!c && Math.abs(c.t - t) < TOLERANCIA);
+    this.renderBotonCorte();
     if (!this.arrastre) this.seguirCabezal();
   }
 
@@ -454,15 +504,16 @@ export class LineaTiempo {
     const s = this._sel, p = this.proyecto;
     if (!s) return;
     const vale = s.tipo === 'clave' ? p.pistas?.[s.pista]?.includes(s.clave)
+      : s.tipo === 'corte' ? (p.cortes || []).includes(s.corte)
       : s.tipo === 'texto' ? (p.textos || []).some(c => c.id === s.id)
       : s.tipo === 'sonido' ? (s.id === 'musica' ? !!p.audio?.musica : (p.audio?.clips || []).some(c => c.id === s.id)) : false;
     if (!vale) this._sel = null;
   }
 
-  // los keyframes se seleccionan solo aquí; los textos y sonidos también le avisan a main.js (para abrir su panel)
+  // los keyframes y los cortes se seleccionan solo aquí; los textos y sonidos también le avisan a main.js (para abrir su panel)
   elegir(sel) {
     this._sel = sel;
-    if (sel && sel.tipo !== 'clave') this.alSeleccionar({ tipo: sel.tipo, id: sel.id });
+    if (sel && sel.tipo !== 'clave' && sel.tipo !== 'corte') this.alSeleccionar({ tipo: sel.tipo, id: sel.id });
   }
 
   quitarSeleccion() {
@@ -471,6 +522,7 @@ export class LineaTiempo {
     this.guardarHistorial();
     let motivo = 'claves';
     if (s.tipo === 'clave') quitarClave(p, s.pista, s.clave);
+    else if (s.tipo === 'corte') { quitarCorte(p, s.corte); unirPlanos(p, s.corte.t); motivo = 'cortes'; }   // sin el corte, sin su costura
     else if (s.tipo === 'texto') { const i = p.textos.findIndex(c => c.id === s.id); if (i >= 0) p.textos.splice(i, 1); motivo = 'textos'; }
     else if (s.tipo === 'sonido') {
       if (s.id === 'musica') p.audio.musica = null;
@@ -486,11 +538,17 @@ export class LineaTiempo {
     if (e.button > 0 || this.arrastre) return;
     const el = e.target, p = this.proyecto;
     const rombo = el.closest('.lt-clave'), texto = el.closest('.lt-texto'), clip = el.closest('.lt-clip'), musica = el.closest('.lt-musica');
+    const marca = el.closest('.lt-corte');
     const regla = el.closest('.lt-regla, .lt-cabezal-asa'), carril = el.closest('.lt-carril');
-    if (!rombo && !texto && !clip && !musica && !regla && !carril) return;
+    if (!rombo && !texto && !clip && !musica && !marca && !regla && !carril) return;
     e.preventDefault();
     const a = { id: e.pointerId, x0: e.clientX, movido: false, antes: null };
-    if (rombo) {
+    if (marca) {
+      const corte = (p.cortes || [])[+marca.dataset.corteI]; if (!corte) return;
+      Object.assign(a, { tipo: 'corte', corte, t0: corte.t });
+      this.elegir({ tipo: 'corte', corte });
+      marca.focus({ preventScroll: true });
+    } else if (rombo) {
       const pista = rombo.dataset.pista, clave = p.pistas[pista][+rombo.dataset.claveI];
       Object.assign(a, { tipo: 'clave', pista, clave, t0: clave.t });
       this.elegir({ tipo: 'clave', pista, clave });
@@ -512,12 +570,13 @@ export class LineaTiempo {
     } else {
       // regla, cabezal o espacio vacío de un carril: mueve el cabezal (y con doble toque en una pista de cámara, crea un keyframe)
       a.tipo = 'cabezal';
-      const pista = carril?.dataset.carril === 'camara' ? carril.dataset.pista : null;
+      const pista = carril?.dataset.carril === 'camara' ? carril.dataset.pista : carril?.dataset.carril === 'cortes' ? '·cortes' : null;
       // el momento del toque (no el de este código): si la vista previa 3D tiene ocupado el teléfono, el evento llega tarde
       const ahora = e.timeStamp || performance.now(), tq = this.toque;
       if (pista && tq && tq.pista === pista && ahora - tq.cuando < DOBLE_TOQUE && Math.abs(tq.x - e.clientX) < 10) {
         this.toque = null;
         const t = this.imantar(this.tiempoEn(e.clientX));
+        if (pista === '·cortes') { this.cortar(t); return; }   // doble toque en el carril de cortes: un corte ahí
         this.guardarHistorial();
         const nueva = ponerClave(p, pista, t, valorEn(p, pista, t));
         this.elegir({ tipo: 'clave', pista, clave: nueva });
@@ -538,7 +597,7 @@ export class LineaTiempo {
   imantarCabezal(t) {
     const pps = this.pps, p = this.proyecto;
     let mejor = null, dm = IMAN / pps;
-    for (const c of Object.values(p.pistas || {}).flat()) { const dd = Math.abs((c?.t ?? -99) - t); if (dd < dm) { dm = dd; mejor = c.t; } }
+    for (const c of [...Object.values(p.pistas || {}).flat(), ...(p.cortes || [])]) { const dd = Math.abs((c?.t ?? -99) - t); if (dd < dm) { dm = dd; mejor = c.t; } }
     return mejor ?? ajustarACuadro(t);
   }
 
@@ -550,7 +609,11 @@ export class LineaTiempo {
     if (a.tipo === 'nada') return;
     if (!a.movido) { a.movido = true; this.guardarHistorial(a.antes); this.raiz.classList.add('arrastrando'); }
     const p = this.proyecto, d = this.duracion, dt = dx / this.pps;
-    if (a.tipo === 'clave') {
+    if (a.tipo === 'corte') {
+      // el corte se lleva su costura (los keyframes justo en el corte y un cuadro antes) y no cruza otros keyframes
+      moverCorte(p, a.corte, this.imantar(a.t0 + dt), { arrastrarClaves: true });
+      this.programar('cortes');
+    } else if (a.tipo === 'clave') {
       // mientras se arrastra no se borra nada: si cae encima de otro keyframe, se reemplaza al soltar
       a.clave.t = r4(limitar(this.imantar(a.t0 + dt), 0, d));
       p.pistas[a.pista].sort((x, y) => x.t - y.t);
@@ -589,10 +652,13 @@ export class LineaTiempo {
     if (a.movido) {
       if (a.tipo === 'clave') moverClave(p, a.pista, a.clave, a.clave.t);   // ahora sí: si quedó encima de otro, lo reemplaza
       this.render();
-      this.alCambiar({ clave: 'claves', texto: 'textos', clip: 'audio' }[a.tipo]);
+      this.alCambiar({ clave: 'claves', texto: 'textos', clip: 'audio', corte: 'cortes' }[a.tipo]);
     } else if (!cancelado && a.tipo === 'clave') {
       this.moverCabezal(a.clave.t);   // tocar un rombo lleva el cabezal hasta él, como en CapCut
       this.renderSeleccion();
+    } else if (!cancelado && a.tipo === 'corte') {
+      this.moverCabezal(a.corte.t);   // y tocar un corte, también (justo en el primer cuadro del plano nuevo)
+      this.render();
     } else if (!cancelado && (a.tipo === 'texto' || a.tipo === 'clip' || a.tipo === 'nada')) {
       this.render();
     }
@@ -622,9 +688,28 @@ export class LineaTiempo {
       this.plegados.has(g) ? this.plegados.delete(g) : this.plegados.add(g);
       guardarLocal('lt-plegados', [...this.plegados]);
       this.render();
+    } else if (acc === 'corteCabezal') this.cortar(ajustarACuadro(this.t));
+    else if (acc === 'transicion' && this._sel?.tipo === 'corte') {
+      const tr = b.dataset.transicion; if (!TRANSICIONES[tr] || this._sel.corte.transicion === tr) return;
+      this.guardarHistorial(); this._sel.corte.transicion = tr;
+      this.render(); this.alCambiar('cortes');
     } else if (acc === 'quitarSeleccion') this.quitarSeleccion();
     else if (acc === 'deseleccionar') { this._sel = null; this.render(); }
     else if (acc === 'elegirTexto') { this.elegir({ tipo: 'texto', id: b.dataset.id }); this.render(); }
+  }
+
+  // ✂ Pone un corte en t (o elige el que ya está ahí). El movimiento de cada lado se conserva: así se puede cortar un giro
+  // sin que la cámara se congele, y luego cambiar el plano de un lado sin tocar el otro.
+  cortar(t) {
+    const p = this.proyecto, ya = corteEn(p, t, CUADRO * 2 - 1e-4);
+    if (ya) { this.elegir({ tipo: 'corte', corte: ya }); this.t = ya.t; this.render(); this.alMoverCabezal(ya.t); return ya; }
+    if (!(t >= CUADRO - 1e-4 && t <= this.duracion - CUADRO + 1e-4)) return null;   // en el segundo 0 o en el final no cabe un corte
+    this.guardarHistorial();
+    const c = ponerCorte(p, t);
+    separarPlanos(p, c.t);
+    this.elegir({ tipo: 'corte', corte: c });
+    this.t = c.t; this.render(); this.alMoverCabezal(c.t); this.alCambiar('cortes');
+    return c;
   }
 
   // ◆ del inspector: pone un keyframe con el valor actual en el cabezal, o quita el que hay
@@ -680,6 +765,14 @@ export class LineaTiempo {
       const g = this.empezarGesto(k); this.gesto = null;
       this.ponerValor(k, limitar(+el.value, P.min, P.max), g); return;
     }
+    if (el.dataset.sel === 'tc' && this._sel?.tipo === 'corte') {
+      if (el.value === '') { this.renderSeleccion(); return; }
+      this.guardarHistorial();
+      moverCorte(p, this._sel.corte, ajustarACuadro(+el.value), { arrastrarClaves: true });
+      this.t = this._sel.corte.t; this.alMoverCabezal(this.t);
+      this.render(); this.alCambiar('cortes');
+      return;
+    }
     if (el.dataset.sel && this._sel?.tipo === 'clave') {
       const s = this._sel, P = PISTAS[s.pista];
       if (el.value === '') { this.renderSeleccion(); return; }
@@ -699,11 +792,12 @@ export class LineaTiempo {
   cambiarMovimiento(id) {
     const p = this.proyecto, m = MOVIMIENTOS[id];
     if (!m) return;
-    const editado = !movimientoDe(p) && Object.values(p.pistas || {}).some(c => c?.length);
-    if (editado && !confirm(`Vas a cambiar tus keyframes de cámara por el movimiento «${m.nombre}».\n¿Continuar? (Puedes deshacerlo)`)) { this.render(); return; }
+    const cortes = p.cortes?.length || 0, editado = !movimientoDe(p) && (cortes || Object.values(p.pistas || {}).some(c => c?.length));
+    const que = cortes ? `tus keyframes de cámara y quitar ${cortes === 1 ? 'el corte' : `los ${cortes} cortes`}` : 'tus keyframes de cámara';
+    if (editado && !confirm(`Vas a cambiar ${que} por el movimiento «${m.nombre}».\n¿Continuar? (Puedes deshacerlo)`)) { this.render(); return; }
     this.guardarHistorial();
     aplicarMovimiento(p, id);
-    if (this._sel?.tipo === 'clave') this._sel = null;
+    if (this._sel?.tipo === 'clave' || this._sel?.tipo === 'corte') this._sel = null;
     this.render(); this.alCambiar('movimiento');
   }
 
@@ -751,7 +845,16 @@ export class LineaTiempo {
   teclaLocal(e) {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     const el = e.target, p = this.proyecto, d = this.duracion, paso = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1) / 30;
-    if (el.classList.contains('lt-clave')) {
+    if (el.classList.contains('lt-corte')) {
+      const c = (p.cortes || [])[+el.dataset.corteI]; if (!c) return;
+      e.preventDefault();
+      const [lo, hi] = limitesCorte(p, c), nt = limitar(ajustarACuadro(c.t + paso), lo, hi);
+      this.elegir({ tipo: 'corte', corte: c });
+      if (Math.abs(nt - c.t) < 1e-6) { this.render(); return; }   // ya no se puede correr más (otro keyframe u otro corte)
+      this.guardarHistorial();
+      moverCorte(p, c, nt, { arrastrarClaves: true });
+      this.t = c.t; this.alMoverCabezal(c.t); this.render(); this.alCambiar('cortes');
+    } else if (el.classList.contains('lt-clave')) {
       const pista = el.dataset.pista, c = p.pistas[pista][+el.dataset.claveI];
       this.guardarHistorial(); this.elegir({ tipo: 'clave', pista, clave: c });
       moverClave(p, pista, c, ajustarACuadro(c.t + paso)); this.t = c.t; this.alMoverCabezal(c.t);
