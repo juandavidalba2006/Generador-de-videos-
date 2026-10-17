@@ -6,12 +6,10 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WebGLPathTracer, PhysicalCamera } from 'three-gpu-pathtracer';
 import { separarPiedras } from './piedras.js';
+import { METALES, PIEDRAS, ACABADOS } from './catalogo.js';
+export { METALES, PIEDRAS, ACABADOS };
 
-// ---------- Metales y piedras (mismos valores que el visor 3D de la página) ----------
-export const METALES = ['Oro amarillo 18k', 'Oro amarillo 14k', 'Oro rosa 18k', 'Oro blanco 18k', 'Plata 925', 'Platino 950'];
-export const PIEDRAS = ['Diamante', 'Diamante laboratorio', 'Moissanita', 'Circón', 'Esmeralda', 'Rubí', 'Zafiro', 'Amatista', 'Espinela', 'Topacio', 'Citrino', 'Aguamarina', 'Granate', 'Perla'];
-export const ACABADOS = { 'Pulido espejo': 0.45, 'Pulido': 1, 'Satinado': 2.6, 'Arenado (mate)': 4 };
-
+// ---------- Metales y piedras (mismos valores que el visor 3D de la página; las listas viven en catalogo.js) ----------
 export function aleacion(n) {
   n = String(n || '').toLowerCase();
   if (/plata/.test(n)) return { color: 0xEDEFF1, rugosidad: 0.16, brillo: 1.25 };
