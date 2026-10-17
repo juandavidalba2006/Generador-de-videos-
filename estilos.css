@@ -2,10 +2,12 @@
 :root{
   --perla:#F1EFEA; --papel:#FCFBF8; --tinta:#1E1B15; --tinta2:#5E5A50; --linea:#DDD8CE;
   --oro:#B8871F; --oro-suave:#F4E7C8; --oro-vivo:#C49022; --esm:#1E5B4B; --esm-suave:#DDEBE5;
+  --oro-texto:#86621A;   /* el dorado para letra pequeña (≥ 4,8:1 sobre papel y perla); --oro queda para adornos y rombos */
   --gra:#8E2F3A; --gra-suave:#F4E2E4; --bosque:#17150F; --rosa:#C9A3A8;
   --campo:#fff; --campo-borde:#C7CFCA;
   --serif:'Bodoni Moda', Didot, 'Times New Roman', serif;
   --sans:'Instrument Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --alto-vista:clamp(500px, calc(100vh - 150px), 980px);    /* alto de la vista previa y del inspector en escritorio */
 }
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%}
@@ -15,11 +17,11 @@ button,input,select,textarea{font:inherit;color:inherit}
 html{scroll-behavior:smooth}
 
 /* Estructura */
-.app{display:grid;grid-template-columns:250px 1fr;min-height:100vh}
-aside{background:var(--bosque);color:#E6ECE9;padding:30px 16px 22px;display:flex;flex-direction:column;gap:26px;position:sticky;top:0;height:100vh;overflow-y:auto}
-.marca{padding:0 12px 22px;border-bottom:1px solid rgba(196,144,34,.45);display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center}
-.marca svg{width:44px;height:auto;grid-row:1/3}
-.marca b{display:block;font-family:var(--serif);font-weight:400;font-size:19px;letter-spacing:.06em;line-height:1.1;color:#fff;white-space:nowrap}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+aside{background:var(--bosque);color:#E6ECE9;padding:28px 14px 22px;display:flex;flex-direction:column;gap:24px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.marca{padding:0 10px 20px;border-bottom:1px solid rgba(196,144,34,.45);display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center}
+.marca svg{width:42px;height:auto;grid-row:1/3}
+.marca b{display:block;font-family:var(--serif);font-weight:400;font-size:18px;letter-spacing:.06em;line-height:1.1;color:#fff;white-space:nowrap}
 .marca b small{font-size:.8em}
 .marca i{display:block;font-family:var(--serif);font-style:italic;color:#D9A83A;font-size:13px;line-height:1.2}
 .marca span{grid-column:1/3;display:block;font-size:12px;color:#A39D8E;margin-top:6px;letter-spacing:.02em}
@@ -30,19 +32,35 @@ nav a:hover{background:rgba(255,255,255,.05);color:#fff}
 nav a[aria-current=true]{color:#fff;border-left-color:var(--oro-vivo);background:rgba(196,144,34,.12)}
 nav a[aria-current=true] svg{color:var(--oro-vivo);opacity:1}
 nav a:focus-visible{outline:2px solid #D6B877;outline-offset:1px}
-.nota{margin-top:auto;font-size:12.5px;line-height:1.4;color:#9FB3AB;padding:0 12px;display:flex;gap:9px;align-items:flex-start}
+nav .nav-linea{margin-top:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);border-radius:0;color:#B9B2A2;font-size:14px}
+/* Vista previa en miniatura: aparece en el menú lateral cuando la grande queda fuera de la pantalla (al editar la línea de tiempo) */
+.mini-vista{all:unset;box-sizing:border-box;flex:1 1 0;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:0 10px;cursor:pointer;
+  opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .25s,transform .25s,visibility .25s}
+.mini-vista.ver{opacity:1;visibility:visible;transform:none}
+.mini-marco{display:block;line-height:0;border-radius:9px;padding:3px;background:rgba(196,144,34,.14);border:1px solid rgba(196,144,34,.5);box-shadow:0 10px 28px rgba(0,0,0,.45);transition:border-color .18s}
+.mini-marco canvas{display:block;border-radius:6px;width:0;height:0}
+.mini-vista:hover .mini-marco{border-color:#D9A83A}
+.mini-vista:focus-visible .mini-marco{outline:2px solid #D6B877;outline-offset:3px}
+.mini-pie{display:flex;align-items:center;gap:7px;font-size:12px;color:#A39D8E;letter-spacing:.02em;white-space:nowrap}
+.mini-pie b{font-weight:600;color:#F4E7C8;font-variant-numeric:tabular-nums;margin-left:2px}
+.mini-punto{width:7px;height:7px;border-radius:50%;background:#6E685A;flex:none;transition:background-color .2s}
+.mini-vista.reproduciendo .mini-punto{background:#E88B96;box-shadow:0 0 0 3px rgba(232,139,150,.18)}
+.nota{margin-top:auto;font-size:12.5px;line-height:1.4;color:#9FB3AB;padding:0 10px;display:flex;gap:9px;align-items:flex-start}
 .nota .punto{width:8px;height:8px;border-radius:50%;background:#7FC4A4;flex:none;margin-top:5px}
 .nota.trabajando .punto{background:#D6B877}
 .nota.error .punto{background:#E88B96}
-main{padding:36px clamp(16px,4vw,52px) 90px;min-width:0;max-width:1400px}
+main{padding:20px clamp(16px,2.6vw,36px) 72px;min-width:0;width:100%;max-width:1680px;margin:0 auto}
 .barra-movil{display:none}
 
 /* Tipografía */
-h1{font-family:var(--serif);font-weight:500;font-size:clamp(30px,4vw,42px);line-height:1.08;margin:0}
-h2{font-family:var(--serif);font-weight:500;font-size:22px;line-height:1.2;margin:0 0 14px;display:flex;align-items:baseline;gap:10px}
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(24px,2.4vw,30px);line-height:1.08;margin:0}
+h2{font-family:var(--serif);font-weight:500;font-size:22px;line-height:1.2;margin:0 0 16px;display:flex;align-items:baseline;gap:10px}
 h2 .num{font-family:var(--serif);font-style:italic;color:var(--oro);font-size:17px}
-.cab{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid var(--linea)}
-.sub{color:var(--tinta2);margin:6px 0 0;max-width:640px}
+.cab{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--linea)}
+.cab-titulo{display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-width:0}
+.cab-acciones{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cab-acciones .btn svg{width:15px;height:15px}
+.guardado{font-size:12.5px;margin-right:4px;white-space:nowrap}
 .sello{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--oro);border:1px solid var(--oro);border-radius:999px;padding:5px 12px}
 .sello svg{width:14px;height:auto}
 .tenue{color:var(--tinta2);font-size:13px}
@@ -57,69 +75,109 @@ h2 .num{font-family:var(--serif);font-style:italic;color:var(--oro);font-size:17
 .btn.chico{padding:5px 12px;font-size:13px}
 .btn.grande{padding:13px 24px;font-size:16px}
 .btn:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
-.btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+label.btn{flex-direction:row;font-size:13px;color:var(--tinta)}
 :focus-visible{outline:2px solid var(--oro);outline-offset:2px}
 label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--tinta2);font-weight:500}
 input,select,textarea{border:1px solid var(--campo-borde);background:var(--campo);border-radius:7px;padding:9px 11px;font-size:15px;color:var(--tinta);width:100%;min-width:0}
 label.check{flex-direction:row;align-items:center;gap:9px;font-size:14px;color:var(--tinta)}
 label.check input{width:auto;accent-color:var(--oro-vivo)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.pila{display:flex;flex-direction:column;gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.pila{display:flex;flex-direction:column;gap:16px}
+.campo{display:flex;flex-direction:column;gap:7px}
+.et{font-size:13px;color:var(--tinta2);font-weight:500}
 input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--oro-vivo);height:24px}
 .rango{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
 .rango span{grid-column:1/3}
 .rango output{font-variant-numeric:tabular-nums;color:var(--tinta);font-size:13px;min-width:44px;text-align:right}
+.separador{height:1px;background:var(--linea);margin:22px 0}
 
 /* Pastillas (como el submenú de la página) */
 .subnav{display:flex;gap:4px;background:var(--papel);border:1px solid var(--linea);border-radius:999px;padding:4px;max-width:100%;overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap}
 .subnav::-webkit-scrollbar{display:none}
 .subnav button{all:unset;cursor:pointer;padding:8px 16px;border-radius:999px;font-size:14px;font-weight:500;color:var(--tinta2);white-space:nowrap;transition:background-color .18s,color .18s}
 .subnav button:hover{color:var(--tinta)}
-.subnav button[aria-pressed=true]{background:var(--tinta);color:var(--papel)}
+.subnav button[aria-pressed=true],.subnav button[aria-selected=true]{background:var(--tinta);color:var(--papel)}
 .subnav button:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.pestanas svg{display:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chips button{cursor:pointer;border:1px solid var(--linea);background:var(--papel);border-radius:999px;padding:7px 14px;font-size:14px;color:var(--tinta);transition:background-color .18s,border-color .18s,color .18s}
 .chips button:hover{border-color:var(--oro)}
 .chips button[aria-pressed=true]{background:var(--tinta);border-color:var(--tinta);color:var(--papel)}
 
 /* Paneles */
-.panel{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:20px 22px;transition:border-color .18s;scroll-margin-top:20px}
-.panel:hover{border-color:#C6CFC9}
-.estudio{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,440px);gap:22px;align-items:start}
-.controles{display:flex;flex-direction:column;gap:18px;min-width:0}
-.vista{position:sticky;top:20px;display:flex;flex-direction:column;gap:12px}
+.panel{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:20px 22px;transition:border-color .18s}
+
+/* ---------- Editor, como en CapCut: arriba la vista previa y el inspector con pestañas; abajo, la línea de tiempo a todo
+   el ancho. La parte de arriba llena la pantalla y deja asomar el título de la línea de tiempo para que se note que sigue. */
+.editor{--aspecto:.5625;--ancho-vista:min(calc((var(--alto-vista) - 92px) * var(--aspecto)), 56%);
+  display:grid;grid-template-columns:var(--ancho-vista) minmax(0,1fr);grid-template-areas:"vista inspector" "linea linea";gap:20px;align-items:start}
+.vista{grid-area:vista;display:flex;flex-direction:column;gap:10px;min-width:0;container-type:inline-size}
+.marco{position:relative;background:#E7E2D7;border-radius:12px;overflow:hidden;border:1px solid var(--linea);display:grid;place-items:center;aspect-ratio:var(--aspecto);width:100%}
+.marco canvas{display:block;width:100%;height:100%;object-fit:contain;touch-action:pan-y}
+.marco .vacio-vista{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--tinta2);background:var(--papel);font-size:14px}
+.marco .vacio-vista svg{width:64px;height:auto;margin:0 auto 10px;display:block}
+.marco .vacio-vista b{display:block;font-family:var(--serif);font-weight:500;font-size:22px;color:var(--tinta);margin-bottom:4px}
+.marco .vacio-vista .btn{display:flex;margin:16px auto 0;white-space:normal}
+.etiqueta-vista{position:absolute;top:10px;left:10px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;background:rgba(23,21,15,.72);color:#F4E7C8;padding:4px 10px;border-radius:999px;pointer-events:none}
+/* en 16:9 la marca va arriba a la izquierda: la etiqueta se pasa a la derecha para no taparla */
+.marco[data-formato=catalogo] .etiqueta-vista{left:auto;right:10px}
+.transporte{display:flex;gap:10px;align-items:center;flex:none}
+.transporte input{flex:1;min-width:40px}
+.reloj-vista{display:inline-flex;align-items:baseline;gap:5px;font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--tinta2);white-space:nowrap}
+.reloj-vista b{font-weight:600;color:var(--tinta);font-size:14px}
+.redondo{all:unset;cursor:pointer;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--linea);background:var(--papel);flex:none;transition:border-color .18s,background-color .18s,color .18s;color:var(--tinta)}
+.redondo:hover{border-color:var(--oro)}
+.redondo:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.redondo svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.redondo.grande{width:42px;height:42px;background:var(--tinta);border-color:var(--tinta);color:var(--papel)}
+.redondo.grande:hover{background:var(--oro-vivo);border-color:var(--oro-vivo);color:#fff}
+.redondo.grande svg{fill:currentColor;stroke:none;width:16px;height:16px}
+.redondo[aria-pressed=true]{color:var(--oro);border-color:var(--oro);background:var(--oro-suave)}
+.vista > .btn{flex:none;align-self:stretch}
+/* vista previa angosta (pantallas bajas): el reloj muestra solo el momento y la barra del tiempo conserva espacio */
+@container (max-width:340px){.transporte{gap:8px}.reloj-vista span{display:none}}
+
+/* Inspector con pestañas: el contenido se desplaza por dentro (como el panel derecho de un editor de video) */
+.inspector{grid-area:inspector;display:flex;flex-direction:column;min-width:0;min-height:0;padding:0;overflow:hidden;height:var(--alto-vista)}
+.pestanas{display:none;margin:14px 16px 0;flex:none}
+.hojas{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:22px 24px 28px;scrollbar-width:thin;scrollbar-color:var(--linea) transparent;scroll-padding-top:12px;display:flex;flex-direction:column}
+.hoja{min-width:0;flex:none}
+.hoja:focus{outline:none}
+.pasos{margin:24px 0 0;padding:16px 18px 16px 34px;background:var(--perla);border-radius:10px;font-size:13.5px;color:var(--tinta2);display:flex;flex-direction:column;gap:6px}
+.pasos b{color:var(--tinta);font-weight:600}
+/* el chat ocupa todo el alto del inspector: la conversación crece y el cuadro para escribir queda abajo */
+#h-asistente{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+#h-asistente #chat{flex:1 1 auto;min-height:0}
+#h-asistente .cht-lista{flex:1 1 auto;height:auto;min-height:180px}
+#h-asistente .cht-titulo h3{display:none}
+.zona-linea{grid-area:linea;min-width:0;scroll-margin-top:16px}
+/* las pistas se vuelven a dibujar enteras: el navegador no debe tomarlas como ancla al corregir el scroll */
+.zona-linea .lt-pistas{overflow-anchor:none}
+/* columnas de ajustes un poco más angostas: caben tres a todo el ancho (dos en una tableta) y las pistas quedan más a la vista */
+@media (min-width:701px){.zona-linea .lt-controles{grid-template-columns:repeat(auto-fill,minmax(318px,1fr))}}
 
 /* Zona para soltar el STL */
 .soltar{border:1.5px dashed #C9BFA8;border-radius:10px;padding:26px 18px;text-align:center;cursor:pointer;background:linear-gradient(180deg,rgba(244,231,200,.35),transparent);transition:border-color .18s,background-color .18s}
 .soltar:hover,.soltar.encima{border-color:var(--oro-vivo);background:var(--oro-suave)}
 .soltar svg{width:36px;height:36px;fill:none;stroke:var(--oro);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
-.soltar b{display:block;font-family:var(--serif);font-weight:500;font-size:19px;margin:6px 0 2px}
+.soltar b{display:block;font-family:var(--serif);font-weight:500;font-size:19px;margin:6px 0 2px;color:var(--tinta)}
 .soltar input{display:none}
-.ficha{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px 18px;margin:14px 0 0}
+.ficha{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px 18px;margin:16px 0 0}
 .ficha dt{font-size:12.5px;color:var(--tinta2)}
 .ficha dd{margin:2px 0 0;font-family:var(--serif);font-size:20px;font-weight:500;font-variant-numeric:lining-nums}
 .giros{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;align-items:center}
+#sinPiedras{margin:10px 0 0}
 
 /* Fondos */
-.fondos{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:10px}
+.fondos{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:10px}
 .fondos button{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:6px;align-items:center;font-size:12px;color:var(--tinta2);text-align:center}
 .fondos i{display:block;width:100%;aspect-ratio:1;border-radius:10px;border:1px solid var(--linea);box-shadow:inset 0 0 0 3px var(--papel);transition:border-color .18s,transform .18s}
 .fondos button:hover i{transform:translateY(-2px)}
 .fondos button[aria-pressed=true] i{border:2px solid var(--oro-vivo)}
 .fondos button[aria-pressed=true]{color:var(--tinta);font-weight:500}
-
-/* Vista previa */
-.marco{position:relative;background:#E7E2D7;border-radius:12px;overflow:hidden;border:1px solid var(--linea);display:grid;place-items:center;max-height:calc(100vh - 230px)}
-.marco canvas{display:block;width:100%;height:auto;max-height:calc(100vh - 232px);object-fit:contain}
-.marco .vacio-vista{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:30px;color:var(--tinta2);background:var(--papel)}
-.marco .vacio-vista svg{width:70px;height:auto;margin:0 auto 10px;display:block}
-.marco .vacio-vista b{display:block;font-family:var(--serif);font-weight:500;font-size:22px;color:var(--tinta);margin-bottom:4px}
-.etiqueta-vista{position:absolute;top:10px;left:10px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;background:rgba(23,21,15,.72);color:#F4E7C8;padding:4px 10px;border-radius:999px;pointer-events:none}
-.linea-tiempo{display:flex;gap:10px;align-items:center}
-.linea-tiempo input{flex:1}
-.redondo{all:unset;cursor:pointer;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--linea);background:var(--papel);flex:none;transition:border-color .18s,background-color .18s}
-.redondo:hover{border-color:var(--oro)}
-.redondo svg{width:16px;height:16px;fill:currentColor}
+.fondos button:focus-visible i{outline:2px solid var(--oro);outline-offset:2px}
 .acciones{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .acciones .btn{flex:1 1 auto}
 
@@ -132,11 +190,37 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .resultado{display:flex;flex-direction:column;gap:10px}
 .aviso-cal{font-size:13px;color:var(--tinta2);background:var(--oro-suave);border-radius:8px;padding:10px 12px;margin:0}
 
-#aviso{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--tinta);color:var(--papel);padding:11px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;max-width:calc(100vw - 32px);text-align:center}
-#aviso.ver{opacity:1;transform:translateX(-50%) translateY(0)}
+/* centrado con left/right + margin auto (con left:50% el ancho se ajustaba a la mitad derecha de la pantalla y en el celular
+   un aviso largo quedaba como un óvalo angosto); varias líneas se ven como una tarjeta redondeada, no como una píldora */
+#aviso{position:fixed;left:16px;right:16px;bottom:24px;margin-inline:auto;width:fit-content;max-width:640px;transform:translateY(20px);background:var(--tinta);color:var(--papel);padding:11px 20px;border-radius:22px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;text-align:center}
+#aviso.ver{opacity:1;transform:none}
 #aviso.mal{background:var(--gra);color:#fff}
+/* mientras se crea el video, lo que cambiaría la escena (abrir, la joya, los bitmaps) se ve apagado */
+.bloqueado{opacity:.45;pointer-events:none}
 
-@media (max-width:1100px){.estudio{grid-template-columns:1fr}.vista{position:static;order:-1}.marco,.marco canvas{max-height:70vh}}
+/* Portátiles: el menú lateral se angosta un poco para dejarle espacio a la línea de tiempo */
+@media (max-width:1366px){
+  .app{grid-template-columns:216px 1fr}
+  aside{padding:24px 12px 20px}
+  .marca{gap:5px 10px}
+  .marca svg{width:36px}
+  .marca b{font-size:16.5px}
+  .marca i{font-size:12.5px;white-space:nowrap}
+  .marca span{font-size:11.5px}
+  main{padding-left:24px;padding-right:24px}
+}
+/* Pantallas medianas y celulares: todo en una columna (vista previa, inspector con pestañas, línea de tiempo) */
+@media (max-width:1180px){
+  .editor{grid-template-columns:minmax(0,1fr);grid-template-areas:"vista" "inspector" "linea";gap:16px}
+  .vista{position:static;width:100%;max-width:max(min(100%, calc(62vh * var(--aspecto))), min(100%, 460px));margin:0 auto}
+  .marco{width:min(100%, calc(62vh * var(--aspecto)));margin:0 auto}
+  .inspector{overflow:visible;height:auto}
+  .hojas{overflow:visible;padding:20px 22px 24px}
+  .pestanas{display:flex}
+  .hoja > h2{display:none}
+  #h-asistente .cht-lista{flex:none;height:clamp(280px,50vh,520px)}
+  #h-asistente .cht:not(.con-mensajes) .cht-lista{height:auto;min-height:0}
+}
 @media (max-width:900px){
   .app{grid-template-columns:1fr}
   aside{display:none}
@@ -144,14 +228,29 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   .barra-movil svg{width:26px;height:auto}
   .barra-movil b{font-family:var(--serif);font-weight:400;letter-spacing:.06em;font-size:17px}
   .barra-movil i{font-family:var(--serif);font-style:italic;color:#D9A83A;font-size:12.5px;margin-left:auto}
-  main{padding:22px 16px 80px}
+  main{padding:14px 16px 64px}
+  .inspector,.zona-linea{scroll-margin-top:66px}   /* que no queden bajo la barra de arriba */
+  .cab-titulo .sello{display:none}
 }
-@media (max-width:520px){.grid2{grid-template-columns:1fr}.panel{padding:18px 16px}.acciones .btn{flex:1 1 100%}}
+@media (max-width:640px){
+  .grid3{grid-template-columns:1fr 1fr}
+  .grid3 label:last-child{grid-column:1/-1}
+  .cab{gap:10px}
+  .cab h1{font-size:22px}
+  .cab-acciones{width:100%}
+  .cab-acciones .btn{flex:1 1 auto;padding:6px 10px}
+  .guardado{display:none}
+  /* las seis pestañas a la vista, en dos filas, con su ícono (sin tener que deslizar la tira) */
+  .pestanas{margin:12px 12px 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-radius:16px;gap:3px}
+  .pestanas button{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 4px;border-radius:12px;font-size:13.5px;min-width:0}
+  .pestanas svg{display:block}
+}
+@media (max-width:520px){.grid2,.grid3{grid-template-columns:1fr}.hojas{padding:18px 16px 22px}.acciones .btn{flex:1 1 100%}.pasos{padding-left:30px}}
 
 @media (prefers-color-scheme: dark){
   :root{
     --perla:#121110; --papel:#1D1B17; --tinta:#F4F1EA; --tinta2:#B8B2A4; --linea:#3E3A31;
-    --oro:#E3B54A; --oro-suave:#3E3418; --oro-vivo:#E3B54A; --esm:#6FDCAB; --esm-suave:#12352A;
+    --oro:#E3B54A; --oro-suave:#3E3418; --oro-vivo:#E3B54A; --oro-texto:#E3B54A; --esm:#6FDCAB; --esm-suave:#12352A;
     --gra:#FF8A95; --gra-suave:#43222A; --bosque:#0E0D0A; --rosa:#E0959D;
     --campo:#15140F; --campo-borde:#544E42;
   }
@@ -160,10 +259,13 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   .btn.sec{background:#26231C;color:var(--tinta);border-color:#645C4C}
   .btn.sec:hover{background:#33302A;border-color:var(--oro);color:var(--oro)}
   .btn.peligro{color:var(--gra);border-color:#6B3038;background:transparent}
+  /* los errores: blanco sobre el granate de la marca (sobre el rosa claro de --gra el texto blanco casi no se leía) */
+  #aviso.mal{background:#8E2F3A;color:#fff}
   .panel{border-color:#3E3A31}
-  .panel:hover{border-color:#5A5446}
   .marco{background:#24211A}
   .soltar{border-color:#5A5446;background:linear-gradient(180deg,rgba(62,52,24,.4),transparent)}
-  .tenue,.sub{color:#AFC0B8}
+  .tenue{color:#AFC0B8}
+  .redondo.grande{color:#0F1614}
+  .redondo.grande:hover{color:#17150F}
 }
 @media (prefers-reduced-motion: reduce){*{transition:none!important;scroll-behavior:auto!important}}

@@ -1,0 +1,12 @@
+{
+  "name": "generador-de-videos",
+  "private": true,
+  "type": "module",
+  "description": "Estudio de video de Atelier & Co: del STL a un video para Instagram. Sitio estático + función api/chat.js (asistente con IA) en Vercel.",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0"
+  }
+}

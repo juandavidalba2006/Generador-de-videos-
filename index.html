@@ -4,13 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Atelier &amp; Co · Estudio de video</title>
-<meta name="description" content="Sube el STL de una joya y crea un video hiperrealista para Instagram o el catálogo de Atelier & Co.">
+<meta name="description" content="Sube el STL de una joya y crea un video hiperrealista para Instagram o el catálogo de Atelier & Co: keyframes, textos, sonidos y un asistente de cámara.">
 <meta name="theme-color" content="#17150F">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="estilos.css">
+<link rel="stylesheet" href="estilos-linea-tiempo.css">
+<link rel="stylesheet" href="estilos-textos.css">
+<link rel="stylesheet" href="estilos-sonido.css">
+<link rel="stylesheet" href="estilos-texturas.css">
+<link rel="stylesheet" href="estilos-chat.css">
 <script type="importmap">
 {
   "imports": {
@@ -30,146 +35,160 @@
 <div class="app">
   <aside>
     <div class="marca"><b>ATELIER<small>&amp;</small>CO</b><i>joyería de alta calidad</i><span>Estudio de video · render 3D</span></div>
-    <nav id="nav">
-      <a href="#pModelo" aria-current="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Modelo 3D</a>
-      <a href="#pMaterial"><svg viewBox="0 0 24 24"><path d="M6 3h12l3 6-9 12L3 9z"/><path d="M3 9h18M9 3l3 6 3-6M12 21L9 9M12 21l3-12"/></svg>Metal y piedras</a>
-      <a href="#pCamara"><svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 012-2h2l2-2h6l2 2h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="13" r="4"/></svg>Cámara</a>
-      <a href="#pFondo"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 16h10M9 12h6"/></svg>Fondo y textos</a>
-      <a href="#pExportar"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>Crear video</a>
+    <nav id="nav" aria-label="Secciones del editor">
+      <a href="#modelo" data-pestana="modelo" aria-current="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Modelo 3D</a>
+      <a href="#materiales" data-pestana="materiales"><svg viewBox="0 0 24 24"><path d="M6 3h12l3 6-9 12L3 9z"/><path d="M3 9h18M9 3l3 6 3-6M12 21L9 9M12 21l3-12"/></svg>Materiales</a>
+      <a href="#textos" data-pestana="textos"><svg viewBox="0 0 24 24"><path d="M5 7V4.5h14V7M12 4.5v15M9 19.5h6"/></svg>Textos</a>
+      <a href="#sonido" data-pestana="sonido"><svg viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg>Sonido</a>
+      <a href="#asistente" data-pestana="asistente"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10.5H10l-6 4.5z"/><path d="M8.5 10.75h.01M12 10.75h.01M15.5 10.75h.01"/></svg>Asistente</a>
+      <a href="#exportar" data-pestana="exportar"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>Exportar</a>
+      <a href="#lineaTiempo" class="nav-linea" data-ir="lineaTiempo"><svg viewBox="0 0 24 24"><path d="M3 6.5h18M3 12h18M3 17.5h18"/><path d="M8 9.5l2.5 2.5L8 14.5 5.5 12z" fill="currentColor"/></svg>Línea de tiempo</a>
     </nav>
+    <!-- al bajar a la línea de tiempo, la joya se sigue viendo aquí -->
+    <button type="button" class="mini-vista" id="miniVista" hidden title="Volver a la vista previa" aria-label="Volver a la vista previa">
+      <span class="mini-marco"><canvas id="miniLienzo" width="270" height="480" aria-hidden="true"></canvas></span>
+      <span class="mini-pie"><i class="mini-punto" aria-hidden="true"></i>Vista previa<b id="miniReloj">00:00,00</b></span>
+    </button>
     <div class="nota" id="nota"><i class="punto"></i><span>Todo se procesa en tu equipo: tus diseños no se suben a ningún servidor.</span></div>
   </aside>
 
   <main>
     <header class="cab">
-      <div>
+      <div class="cab-titulo">
         <span class="sello" id="sello">Estudio de video</span>
-        <h1 style="margin-top:12px">Del STL a Instagram</h1>
-        <p class="sub">Sube el modelo de una joya y crea un video con render hiperrealista (trazado de rayos), listo para un reel o para el catálogo.</p>
+        <h1>Del STL a Instagram</h1>
+      </div>
+      <div class="cab-acciones" role="group" aria-label="Proyecto">
+        <span class="guardado tenue" id="guardado" aria-live="polite"></span>
+        <button class="btn sec chico" id="nuevo" type="button" title="Empezar de cero (se puede deshacer)"><svg viewBox="0 0 24 24"><path d="M14 3H6.5A1.5 1.5 0 005 4.5v15A1.5 1.5 0 006.5 21h11a1.5 1.5 0 001.5-1.5V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/></svg>Nuevo</button>
+        <label class="btn sec chico" title="Abrir un proyecto guardado (.json)"><svg viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 014.5 6H9l2 2h8.5A1.5 1.5 0 0121 9.5v8a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z"/></svg>Abrir<input type="file" id="abrir" accept=".json,application/json" hidden></label>
+        <button class="btn sec chico" id="guardar" type="button" title="Descargar el proyecto para seguir después"><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg>Guardar proyecto</button>
       </div>
     </header>
 
-    <div class="estudio">
-      <div class="controles">
-
-        <section class="panel" id="pModelo">
-          <h2><span class="num">i.</span>Modelo 3D</h2>
-          <label class="soltar" id="soltar">
-            <svg viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
-            <b>Suelta aquí el archivo STL</b>
-            <span class="tenue">o haz clic para buscarlo. Si las piedras vienen en otro STL, súbelos juntos.</span>
-            <input type="file" id="archivo" accept=".stl,model/stl,application/sla" multiple>
-          </label>
-          <div class="giros">
-            <label class="check"><input type="checkbox" id="separar" checked> Reconocer las piedras automáticamente</label>
-            <button class="btn sec chico" id="ejemplo" type="button">Probar con un anillo de ejemplo</button>
-          </div>
-          <div id="infoModelo" hidden>
-            <dl class="ficha" id="ficha"></dl>
-            <div class="giros">
-              <span class="tenue">Orientación:</span>
-              <button class="btn sec chico" type="button" data-girar="x">Girar ↻ X</button>
-              <button class="btn sec chico" type="button" data-girar="y">Girar ↻ Y</button>
-              <button class="btn sec chico" type="button" data-girar="z">Girar ↻ Z</button>
-              <button class="btn sec chico" type="button" id="restablecer">Restablecer</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel" id="pMaterial">
-          <h2><span class="num">ii.</span>Metal y piedras</h2>
-          <div class="pila">
-            <div class="grid2">
-              <label>Metal<select id="metal"></select></label>
-              <label>Acabado<select id="acabado"></select></label>
-            </div>
-            <div class="grid2">
-              <label>Piedras<select id="piedra"></select></label>
-              <label class="rango"><span>Exposición</span><input type="range" id="exposicion" min="0.6" max="1.8" step="0.05" value="1.15"><output for="exposicion"></output></label>
-            </div>
-            <p class="tenue" id="sinPiedras" style="margin:0">No se encontraron piedras en el modelo: se renderiza todo en metal.</p>
-          </div>
-        </section>
-
-        <section class="panel" id="pCamara">
-          <h2><span class="num">iii.</span>Cámara y movimiento</h2>
-          <div class="pila">
-            <div class="subnav" id="movimientos" role="group" aria-label="Movimiento de cámara"></div>
-            <div class="grid2">
-              <label class="rango"><span>Altura de la cámara</span><input type="range" id="elevacion" min="-20" max="70" step="1" value="18"><output></output></label>
-              <label class="rango"><span>Encuadre (zoom)</span><input type="range" id="zoom" min="0.6" max="2.4" step="0.02" value="1"><output></output></label>
-              <label class="rango"><span>Posición vertical</span><input type="range" id="altura" min="-0.4" max="0.4" step="0.01" value="0"><output></output></label>
-              <label class="rango"><span>Ángulo inicial</span><input type="range" id="giroInicial" min="-180" max="180" step="1" value="0"><output></output></label>
-              <label class="rango"><span>Desenfoque macro (solo realista)</span><input type="range" id="enfoque" min="0" max="1" step="0.05" value="0"><output></output></label>
-              <label>Duración<select id="duracion"><option value="6">6 segundos</option><option value="8" selected>8 segundos</option><option value="10">10 segundos</option><option value="15">15 segundos</option></select></label>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel" id="pFondo">
-          <h2><span class="num">iv.</span>Fondo y textos</h2>
-          <div class="pila">
-            <div class="fondos" id="fondos"></div>
-            <label class="rango"><span>Sombra bajo la pieza</span><input type="range" id="sombra" min="0" max="1.6" step="0.05" value="1"><output></output></label>
-            <label class="check"><input type="checkbox" id="mostrarTextos" checked> Mostrar la marca y los textos</label>
-            <div class="grid2" id="camposTexto">
-              <label>Nombre de la pieza<input id="tNombre" placeholder="Solitario Aurora" maxlength="40"></label>
-              <label>Detalle<input id="tDetalle" placeholder="Oro amarillo 18k · Diamante" maxlength="60"></label>
-              <label>Precio (opcional)<input id="tPrecio" placeholder="$ 4.800.000" maxlength="24"></label>
-              <label>Pie<input id="tPie" value="Hecha a mano · 100 % colombiana" maxlength="60"></label>
-              <label class="check"><input type="checkbox" id="animarTextos" checked> Animar la entrada de los textos</label>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel" id="pExportar">
-          <h2><span class="num">v.</span>Crear video</h2>
-          <div class="pila">
-            <div class="chips" id="formatos" role="group" aria-label="Formato"></div>
-            <div class="grid2">
-              <label>Calidad del render<select id="calidad">
-                <option value="0">Rápida · vista previa (segundos)</option>
-                <option value="48">Realista · trazado de rayos, 48 muestras</option>
-                <option value="128" selected>Hiperrealista · 128 muestras</option>
-                <option value="320">Máxima · 320 muestras (muy lento)</option>
-              </select></label>
-              <label>Cuadros por segundo<select id="fps"><option value="30" selected>30 (Instagram)</option><option value="24">24 (cine)</option><option value="60">60 (muy fluido)</option></select></label>
-            </div>
-            <p class="aviso-cal" id="avisoCal"></p>
-            <div class="acciones">
-              <button class="btn grande" id="crear" type="button" disabled><svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>Crear video</button>
-              <button class="btn sec grande" id="foto" type="button" disabled><svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 012-2h2l2-2h6l2 2h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="13" r="4"/></svg>Foto para catálogo</button>
-            </div>
-            <div class="progreso" id="progreso" hidden>
-              <div class="barra-prog"><i id="barra"></i></div>
-              <div class="prog-datos"><span id="progTexto">Preparando…</span><span id="progTiempo"></span></div>
-              <button class="btn peligro chico" id="cancelar" type="button" style="align-self:flex-start">Cancelar</button>
-            </div>
-            <div class="resultado" id="resultado" hidden>
-              <video id="video" controls playsinline loop muted></video>
-              <div class="acciones">
-                <a class="btn" id="descargar" download><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg>Descargar video</a>
-                <button class="btn sec" id="compartir" type="button" hidden>Compartir…</button>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
+    <div class="editor" id="editor">
       <div class="vista">
         <div class="marco" id="marco">
           <canvas id="lienzo" width="540" height="960" aria-label="Vista previa del video"></canvas>
           <span class="etiqueta-vista" id="etiquetaVista">Vista rápida</span>
-          <div class="vacio-vista" id="vacio"><div><span id="logoVacio"></span><b>Sube una joya</b>Arrastra un archivo STL o prueba con el anillo de ejemplo.</div></div>
+          <div class="vacio-vista" id="vacio"><div><span id="logoVacio"></span><b>Sube una joya</b>Arrastra un archivo STL o prueba con el anillo de ejemplo.<button class="btn chico" id="ejemploVista" type="button">Probar con el anillo de ejemplo</button></div></div>
         </div>
-        <div class="linea-tiempo">
-          <button class="redondo" id="reproducir" type="button" aria-label="Reproducir"><svg viewBox="0 0 24 24" id="icoPlay"><path d="M7 4v16l13-8z"/></svg></button>
-          <input type="range" id="tiempo" min="0" max="1" step="0.001" value="0" aria-label="Momento del video">
+        <div class="transporte">
+          <button class="redondo grande" id="reproducir" type="button" aria-label="Reproducir" title="Reproducir o pausar (barra espaciadora)"><svg viewBox="0 0 24 24" id="icoPlay"><path d="M7 4v16l13-8z"/></svg></button>
+          <span class="reloj-vista" aria-live="off"><b id="relojVista">00:00,00</b><span id="totalVista">/ 00:08,00</span></span>
+          <input type="range" id="tiempo" min="0" max="8" step="0.001" value="0" aria-label="Momento del video">
+          <button class="redondo" id="silencio" type="button" aria-pressed="false" aria-label="Activar el sonido de la vista previa" title="Activar el sonido"><svg viewBox="0 0 24 24" id="icoSonido"></svg></button>
         </div>
-        <div class="acciones">
-          <button class="btn sec" id="realista" type="button" disabled>Ver este cuadro hiperrealista</button>
-        </div>
+        <button class="btn sec chico" id="realista" type="button" disabled><svg viewBox="0 0 24 24"><path d="M12 3l2.2 5.6L20 9.3l-4.4 3.9 1.3 5.8L12 16l-4.9 3 1.3-5.8L4 9.3l5.8-.7z"/></svg>Ver este cuadro hiperrealista</button>
       </div>
+
+      <section class="inspector panel" aria-label="Inspector">
+        <div class="pestanas subnav" id="pestanas" role="tablist" aria-label="Secciones">
+          <button type="button" role="tab" data-pestana="modelo" id="tab-modelo" aria-controls="h-modelo" aria-selected="true">Modelo</button>
+          <button type="button" role="tab" data-pestana="materiales" id="tab-materiales" aria-controls="h-materiales" aria-selected="false" tabindex="-1">Materiales</button>
+          <button type="button" role="tab" data-pestana="textos" id="tab-textos" aria-controls="h-textos" aria-selected="false" tabindex="-1">Textos</button>
+          <button type="button" role="tab" data-pestana="sonido" id="tab-sonido" aria-controls="h-sonido" aria-selected="false" tabindex="-1">Sonido</button>
+          <button type="button" role="tab" data-pestana="asistente" id="tab-asistente" aria-controls="h-asistente" aria-selected="false" tabindex="-1">Asistente</button>
+          <button type="button" role="tab" data-pestana="exportar" id="tab-exportar" aria-controls="h-exportar" aria-selected="false" tabindex="-1">Exportar</button>
+        </div>
+
+        <div class="hojas" id="hojas">
+          <div class="hoja" id="h-modelo" role="tabpanel" aria-labelledby="tab-modelo" data-pestana="modelo">
+            <h2><span class="num">i.</span>Modelo 3D</h2>
+            <label class="soltar" id="soltar">
+              <svg viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>
+              <b>Suelta aquí el archivo STL</b>
+              <span class="tenue">o haz clic para buscarlo. Si las piedras vienen en otro STL, súbelos juntos.</span>
+              <input type="file" id="archivo" accept=".stl,model/stl,application/sla" multiple>
+            </label>
+            <div class="giros">
+              <label class="check"><input type="checkbox" id="separar" checked> Reconocer las piedras automáticamente</label>
+              <button class="btn sec chico" id="ejemplo" type="button">Probar con un anillo de ejemplo</button>
+            </div>
+            <div id="infoModelo" hidden>
+              <dl class="ficha" id="ficha"></dl>
+              <div class="giros">
+                <span class="tenue">Orientación:</span>
+                <button class="btn sec chico" type="button" data-girar="x">Girar ↻ X</button>
+                <button class="btn sec chico" type="button" data-girar="y">Girar ↻ Y</button>
+                <button class="btn sec chico" type="button" data-girar="z">Girar ↻ Z</button>
+                <button class="btn sec chico" type="button" id="restablecer">Restablecer</button>
+              </div>
+            </div>
+            <ol class="pasos">
+              <li><b>Materiales:</b> metal, piedra y bitmaps para darle realismo.</li>
+              <li><b>Línea de tiempo:</b> escoge un movimiento base y ajústalo con keyframes, o pídeselo al <b>Asistente</b>.</li>
+              <li><b>Textos y Sonido:</b> plantillas con gancho, efectos virales y música.</li>
+              <li><b>Exportar:</b> formato, fondo y calidad del video.</li>
+            </ol>
+          </div>
+
+          <div class="hoja" id="h-materiales" role="tabpanel" aria-labelledby="tab-materiales" data-pestana="materiales" hidden>
+            <h2><span class="num">ii.</span>Metal y piedras</h2>
+            <div class="grid3">
+              <label>Metal<select id="metal"></select></label>
+              <label>Acabado<select id="acabado"></select></label>
+              <label>Piedras<select id="piedra"></select></label>
+            </div>
+            <p class="tenue" id="sinPiedras" hidden>No se encontraron piedras en el modelo: se renderiza todo en metal.</p>
+            <div class="separador"></div>
+            <div id="panelTexturas"></div>
+          </div>
+
+          <div class="hoja" id="h-textos" role="tabpanel" aria-labelledby="tab-textos" data-pestana="textos" hidden>
+            <h2><span class="num">iii.</span>Textos</h2>
+            <div id="panelTextos"></div>
+          </div>
+
+          <div class="hoja" id="h-sonido" role="tabpanel" aria-labelledby="tab-sonido" data-pestana="sonido" hidden>
+            <h2><span class="num">iv.</span>Sonido</h2>
+            <div id="panelSonido"></div>
+          </div>
+
+          <div class="hoja" id="h-asistente" role="tabpanel" aria-labelledby="tab-asistente" data-pestana="asistente" hidden>
+            <h2><span class="num">v.</span>Asistente de cámara</h2>
+            <div id="chat"></div>
+          </div>
+
+          <div class="hoja" id="h-exportar" role="tabpanel" aria-labelledby="tab-exportar" data-pestana="exportar" hidden>
+            <h2><span class="num">vi.</span>Crear video</h2>
+            <div class="pila">
+              <div class="campo"><span class="et">Formato</span><div class="chips" id="formatos" role="group" aria-label="Formato"></div></div>
+              <div class="campo"><span class="et">Fondo</span><div class="fondos" id="fondos"></div></div>
+              <label class="rango"><span>Sombra bajo la pieza</span><input type="range" id="sombra" min="0" max="1.6" step="0.05" value="1"><output></output></label>
+              <div class="grid2">
+                <label>Calidad del render<select id="calidad">
+                  <option value="0">Rápida · vista previa (segundos)</option>
+                  <option value="48">Realista · trazado de rayos, 48 muestras</option>
+                  <option value="128" selected>Hiperrealista · 128 muestras</option>
+                  <option value="320">Máxima · 320 muestras (muy lento)</option>
+                </select></label>
+                <label>Cuadros por segundo<select id="fps"><option value="30" selected>30 (Instagram)</option><option value="24">24 (cine)</option><option value="60">60 (muy fluido)</option></select></label>
+              </div>
+              <label class="check"><input type="checkbox" id="conSonido" checked> Incluir el sonido (música y efectos)</label>
+              <p class="aviso-cal" id="avisoCal"></p>
+              <div class="acciones">
+                <button class="btn grande" id="crear" type="button" disabled><svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>Crear video</button>
+                <button class="btn sec grande" id="foto" type="button" disabled><svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 012-2h2l2-2h6l2 2h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="13" r="4"/></svg>Foto para catálogo</button>
+              </div>
+              <div class="progreso" id="progreso" hidden>
+                <div class="barra-prog"><i id="barra"></i></div>
+                <div class="prog-datos"><span id="progTexto">Preparando…</span><span id="progTiempo"></span></div>
+                <button class="btn peligro chico" id="cancelar" type="button" style="align-self:flex-start">Cancelar</button>
+              </div>
+              <div class="resultado" id="resultado" hidden>
+                <video id="video" controls playsinline loop></video>
+                <div class="acciones">
+                  <a class="btn" id="descargar" download><svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14"/></svg>Descargar video</a>
+                  <button class="btn sec" id="compartir" type="button" hidden>Compartir…</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div id="lineaTiempo" class="zona-linea"></div>
     </div>
   </main>
 </div>

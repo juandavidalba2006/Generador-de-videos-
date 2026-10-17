@@ -62,6 +62,10 @@ function paneles(oscuro) {
     const t = i * 2.399963 + 1.1, y = 0.9 - (i + 0.5) / 14 * 1.6, rr = Math.sqrt(1 - y * y);
     panel(0.45, 0.45, 26 + (i % 2) * 10, [Math.cos(t) * rr * 12, y * 12, Math.sin(t) * rr * 12]);
   }
+  if (oscuro) for (let i = 0; i < 36; i++) {
+    const t = i * 2.399963 + 0.4, y = -0.05 - (i + 0.5) / 36 * 0.9, rr = Math.sqrt(1 - y * y);
+    panel(2, 2, 8 + (i % 3) * 6, [Math.cos(t) * rr * 12, y * 12, Math.sin(t) * rr * 12], i % 4 === 1 ? 0xfff0d8 : 0xffffff);
+  }
   for (const p of P) {   // ejes del panel, que mira hacia el centro
     p.n = p.pos.clone().normalize(); p.dist = p.pos.length();
     const ref = Math.abs(p.n.y) > 0.99 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
@@ -98,17 +102,6 @@ export function hdrEstudio(oscuro = false, W = 1024, H = 512) {
   tex.needsUpdate = true;
   return tex;
 }
-
-// ---------- Movimientos de cámara ----------
-const suave = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-const mezcla = (a, b, t) => a + (b - a) * t;
-export const MOVIMIENTOS = {
-  giro: { nombre: 'Giro 360°', ciclico: true, fn: t => ({ az: t * Math.PI * 2, el: 0, dist: 1 }) },
-  acercamiento: { nombre: 'Giro con acercamiento', fn: t => { const s = suave(t); return { az: s * Math.PI * 2, el: mezcla(10, -2, s), dist: mezcla(1.22, 0.86, s) }; } },
-  revelacion: { nombre: 'Revelación (del detalle a la pieza)', fn: t => { const s = suave(t); return { az: mezcla(-Math.PI * 0.6, Math.PI * 0.4, s), el: mezcla(14, 0, s), dist: mezcla(0.5, 1.02, s), foco: 1 - s }; } },
-  pendulo: { nombre: 'Vaivén frontal', ciclico: true, fn: t => ({ az: Math.sin(t * Math.PI * 2) * THREE.MathUtils.degToRad(38), el: Math.sin(t * Math.PI * 4) * 3, dist: 1 - Math.sin(t * Math.PI) * 0.06 }) },
-  orbita: { nombre: 'Órbita alta y baja', ciclico: true, fn: t => ({ az: t * Math.PI * 2, el: Math.sin(t * Math.PI * 2) * 16, dist: 1 + Math.cos(t * Math.PI * 2) * 0.05 }) },
-};
 
 const leerSTL = async archivo => {
   const g = new STLLoader().parse(await archivo.arrayBuffer());
@@ -158,8 +151,10 @@ export class Estudio {
     this.matPPT = new THREE.MeshPhysicalMaterial({ metalness: 0, roughness: 0, transmission: 1, thickness: 1, ior: 2.42, flatShading: true });
     this.matMascara = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-    this.ajustes = { metal: METALES[0], acabado: 'Pulido', piedra: 'Diamante', elevacion: 18, zoom: 1, altura: 0, giroInicial: 0, movimiento: 'giro', exposicion: 1.15, enfoque: 0 };
+    // el movimiento, el zoom, la exposición y el desenfoque ya no viven aquí: los da el proyecto (keyframes) en cada cuadro
+    this.ajustes = { metal: METALES[0], acabado: 'Pulido', piedra: 'Diamante' };
     this.radio = 1; this.base = 0; this.huella = 1;
+    this.rotacionHDRI = 0;   // la pone texturas.js cuando hay un HDRI girado (radianes)
   }
 
   get tieneModelo() { return !!this.mallaMetal; }
@@ -193,6 +188,8 @@ export class Estudio {
 
     this.limpiar();
     this.geo = geo; this.geoP = geoP;
+    // tamaño de las piedras: con él se calcula cuánto color absorbe la luz al atravesarlas en el render realista
+    this.tamPiedras = geoP ? Math.max(...geoP.boundingBox.getSize(new THREE.Vector3()).toArray()) : 0;
     this.mallaMetal = new THREE.Mesh(geo, this.mat);
     this.pivote.add(this.mallaMetal);
     this.pivotePT.add(new THREE.Mesh(geo, this.matPT));
@@ -270,10 +267,14 @@ export class Estudio {
     } else {
       Object.assign(t, { transmission: 1, metalness: 0, roughness: 0, ior: g.ior, iridescence: 0, flatShading: true, sheen: 0, thickness: 1 });
       if (g.blanca) { t.color.setHex(0xFFFFFF); t.attenuationColor.setHex(0xFFFFFF); t.attenuationDistance = Infinity; }
-      else { t.color.setHex(g.color).lerp(new THREE.Color(0xffffff), 0.35); t.attenuationColor.setHex(g.color); t.attenuationDistance = Math.max(this.radio * 0.08, 0.4); }
+      // la luz recorre varias veces la piedra entre reflejos internos: con una distancia de absorción del orden de su
+      // tamaño el cuerpo queda saturado; mucho más corta, la gema se ve negra. (En pavé la caja junta muchas piedras: se limita)
+      else { t.color.setHex(g.color).lerp(new THREE.Color(0xffffff), 0.35); t.attenuationColor.setHex(g.color); t.attenuationDistance = THREE.MathUtils.clamp(this.tamPiedras || this.radio * 0.4, this.radio * 0.15, this.radio * 0.5) * 0.7; }
     }
+    // la mesa de una gema de color refleja sobre todo el gris de la cúpula del estudio y el cuerpo se ve apagado: un brillo
+    // propio muy suave (como la luz difusa que usan los fotógrafos de joyas) le devuelve el color sin quitarle los reflejos
+    if (g.perla || g.blanca) t.emissive.setHex(0x000000); else { t.emissive.setHex(g.color); t.emissiveIntensity = 0.2; }
     t.needsUpdate = true; this.matPT.needsUpdate = true;
-    this.renderer.toneMappingExposure = a.exposicion;
     if (this.pt) this.pt.updateMaterials();
   }
 
@@ -283,31 +284,49 @@ export class Estudio {
     this.camara.aspect = w / h; this.camara.updateProjectionMatrix();
   }
 
-  // Coloca la cámara para el instante t (0 a 1) del movimiento escogido.
+  // Coloca la cámara con los valores del proyecto en un instante (p = evaluar(proyecto, t)).
   // La luz gira con la cámara: el resultado es idéntico a una tornamesa con la pieza girando bajo luces fijas.
   // zona: franja de la imagen libre de textos ({ arriba, abajo }, de 0 a 1); la joya se encuadra ahí
-  pose(t, zona = { arriba: 0.03, abajo: 0.97 }) {
-    const a = this.ajustes, cam = this.camara, m = (MOVIMIENTOS[a.movimiento] || MOVIMIENTOS.giro).fn(THREE.MathUtils.clamp(t, 0, 1));
-    const tv = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2), alto = Math.max(0.25, zona.abajo - zona.arriba);
+  aplicarPose(p, zona = { arriba: 0.03, abajo: 0.97 }) {
+    const cam = this.camara, M = THREE.MathUtils;
+    const tv = Math.tan(M.degToRad(cam.fov) / 2), alto = Math.max(0.25, zona.abajo - zona.arriba);
     const tz = Math.min(tv * alto, tv * cam.aspect * 0.92);           // medio ángulo disponible para la pieza
     const ajuste = this.radio * Math.sqrt(1 + tz * tz) / tz;          // la esfera que envuelve la joya cabe justo en la franja
-    const dist = ajuste / a.zoom * m.dist;
-    const az = m.az + THREE.MathUtils.degToRad(a.giroInicial), el = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(a.elevacion + m.el, -60, 85));
+    const dist = ajuste / Math.max(0.05, p.zoom);
+    const az = M.degToRad(p.giro), el = M.degToRad(M.clamp(p.inclinacion, -60, 85));
     cam.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
     cam.near = Math.max(dist - this.radio * 3, dist * 0.02); cam.far = dist + this.radio * 6;
     // punto de interés: el centro de la pieza, o más arriba (la piedra) en los acercamientos
-    const foco = new THREE.Vector3(0, (m.foco || 0) * (this.caja ? this.caja.max.y * 0.7 : 0), 0);
-    cam.up.set(0, 1, 0); cam.lookAt(foco); cam.updateMatrixWorld(true);
-    // corre la mira para que la pieza quede centrada en la franja libre (más el ajuste manual de posición vertical)
-    const cy = 1 - (zona.arriba + zona.abajo) + a.altura;
-    const arribaCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
-    cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist)); cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
-    cam.focusDistance = cam.position.length();
-    // enfoque 0 = todo nítido; 1 = macro con poca profundidad de campo
-    cam.fStop = a.enfoque > 0 ? THREE.MathUtils.lerp(22, 1.8, a.enfoque) : 1e6;
-    for (const e of [this.escena, this.escenaPT]) e.environmentRotation.set(0, az, 0);
+    const foco = new THREE.Vector3(0, M.clamp(p.foco, 0, 1) * (this.caja ? this.caja.max.y * 0.7 : 0), 0);
+    // cámara ladeada (roll): se gira el "arriba" alrededor de la dirección en que mira
+    const mira = foco.clone().sub(cam.position).normalize();
+    cam.up.set(0, 1, 0).applyAxisAngle(mira, M.degToRad(p.rodar || 0));
+    const arribaLadeado = cam.up.clone();
+    cam.lookAt(foco); cam.updateMatrixWorld(true);
+    // corre la mira para que la pieza quede centrada en la franja libre, más la posición vertical y lateral de los keyframes
+    const cy = 1 - (zona.arriba + zona.abajo) + p.altura, cx = p.lateral;
+    const arribaCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1), derCam = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    // el "arriba" es el de la cámara ya orientada: en vista cenital la mira corrida puede pasar por la vertical y, con el
+    // arriba del mundo, la imagen se daría vuelta de golpe (con este arriba el encuadre normal queda igual)
+    cam.up.copy(arribaCam);
+    cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist).addScaledVector(derCam, -cx * tv * cam.aspect * dist));
+    cam.up.copy(arribaLadeado);   // la orientación ya quedó calculada: camera.up vuelve a ser el «arriba» ladeado por el roll
+    cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    cam.focusDistance = cam.position.distanceTo(foco);
+    // desenfoque 0 = todo nítido; 1 = macro con poca profundidad de campo (solo se ve con trazado de rayos).
+    // El trazador mide la apertura en metros (bokehSize · 0,5·10⁻³) y la pieza está en mm: la apertura se calcula con el tamaño
+    // de la pieza (hasta 0,3 de su radio), así se nota igual en un arete que en un anillo. Nunca es 0 exacto: pasar de 0 a otro
+    // valor obligaría a recompilar el shader a mitad del video.
+    cam.bokehSize = Math.max(1e-3, M.clamp(p.desenfoque || 0, 0, 1) * this.radio * 0.3 * 1000);
+    this.renderer.toneMappingExposure = p.exposicion;
+    // el HDRI que suba la usuaria puede venir girado: se suma al giro de la tornamesa
+    const giroLuz = az + (this.rotacionHDRI || 0);
+    for (const e of [this.escena, this.escenaPT]) e.environmentRotation.set(0, giroLuz, 0);
     this.luces.rotation.set(0, az, 0);
-    this.matP.envMapRotation.set(0, az, 0); this.matP2.envMapRotation.set(0, az, 0);
+    // el mapa de las piedras también "sube" con una cámara baja (contrapicado, «Héroe»): sus facetas siguen viendo la cúpula
+    // iluminada como a la altura normal (18°) y el pabellón no se ve negro en la vista rápida. Desde 18° hacia arriba no cambia.
+    const alza = Math.max(0, M.degToRad(18) - el);
+    this.matP.envMapRotation.set(-alza, az, 0); this.matP2.envMapRotation.set(-alza, az, 0);
   }
 
   renderRapido() {
@@ -338,24 +357,33 @@ export class Estudio {
     if (this.ptSucio) { this.pt.setScene(this.escenaPT, this.camara); this.ptSucio = false; }
   }
 
-  // Renderiza el cuadro actual con trazado de rayos hasta llegar a las muestras pedidas
+  // Renderiza el cuadro actual con trazado de rayos hasta llegar a las muestras pedidas.
+  // Los cuadritos (tiles) se mandan a la tarjeta en tandas y se espera a que termine cada tanda antes de mandar otra:
+  // así nunca se acumula trabajo de más, la página sigue respondiendo y «Cancelar» actúa enseguida.
   async renderRealista(muestras, { alAvanzar, cancelado } = {}) {
     this.prepararPT();
-    const pt = this.pt;
+    const pt = this.pt, gl = this.renderer.getContext();
     pt.updateCamera(); pt.updateEnvironment(); pt.updateMaterials(); pt.reset();
-    let t0 = performance.now(), vueltas = 0;
+    let tanda = 1, enCurso = null;
     while (pt.samples < muestras || pt.isCompiling) {
-      pt.renderSample();
-      if (++vueltas > 200000) break;
-      if (performance.now() - t0 > 40) {
-        alAvanzar?.(Math.min(1, pt.samples / muestras));
-        await new Promise(r => requestAnimationFrame(() => r()));
-        if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
-        t0 = performance.now();
-      }
+      const t0 = performance.now();
+      // mientras se compila el shader (la primera vez puede tardar más de medio minuto) no se dibuja nada: solo se espera
+      for (let i = 0; i < tanda && pt.samples < muestras && !pt.isCompiling; i++) pt.renderSample();
+      if (pt.isCompiling) pt.renderSample();
+      // una tanda en la tarjeta mientras se espera la anterior: la tarjeta no se queda quieta y tampoco se atrasa
+      const valla = vallaGPU(gl);
+      if (enCurso) await enCurso;
+      enCurso = valla;
+      // tandas de unos 25 a 60 ms: rápidas en una tarjeta potente, de a un cuadrito en una lenta
+      const dt = performance.now() - t0;
+      tanda = dt < 25 ? Math.min(tanda * 2, 256) : dt > 60 && tanda > 1 ? tanda >> 1 : tanda;
+      alAvanzar?.(Math.min(1, pt.samples / muestras));
+      if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
     }
+    await enCurso;
     alAvanzar?.(1);
   }
+
 
   // Dónde cae la sombra de contacto en la imagen (en píxeles)
   sombra() {
@@ -366,8 +394,23 @@ export class Estudio {
     const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
     const der = new THREE.Vector3(-fwd.z, 0, fwd.x);
     const a = p(der.x * h, y, der.z * h), b = p(fwd.x * h, y, fwd.z * h);
-    return { x: c.x, y: c.y, rx: Math.hypot(a.x - c.x, a.y - c.y), ry: Math.max(Math.hypot(b.x - c.x, b.y - c.y), 4) };
+    // ang: el piso se ve girado cuando la cámara se ladea (roll): la elipse gira con él y sigue pegada a la base del aro
+    return { x: c.x, y: c.y, rx: Math.hypot(a.x - c.x, a.y - c.y), ry: Math.max(Math.hypot(b.x - c.x, b.y - c.y), 4), ang: Math.atan2(a.y - c.y, a.x - c.x) };
   }
+}
+
+// Promesa que se cumple cuando la tarjeta de video terminó todo lo que se le mandó hasta ahora (sin bloquear la página)
+function vallaGPU(gl) {
+  if (!gl.fenceSync) return new Promise(r => requestAnimationFrame(() => r()));
+  const valla = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  gl.flush();
+  return new Promise(r => {
+    const mirar = () => {
+      if (gl.isContextLost() || gl.getSyncParameter(valla, gl.SYNC_STATUS) === gl.SIGNALED) { gl.deleteSync(valla); r(); }
+      else setTimeout(mirar, 1);
+    };
+    setTimeout(mirar, 0);
+  });
 }
 
 function unir(a, b) {
