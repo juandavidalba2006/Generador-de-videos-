@@ -9,6 +9,7 @@
 // Los dos usan el mismo dibujo de la ventana en el plano de la joya: el patrón cae igual en la vista previa y en el video.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PhysicalSpotLight, ShapedAreaLight } from 'three-gpu-pathtracer';
 import { mapaNormalDesde } from './texturas.js';
@@ -23,7 +24,7 @@ const ctx2d = c => c.getContext('2d', { willReadFrequently: true });
 // Medidas fijas del escenario, en radios de la joya
 const ANCHO = 70, FRENTE = 60, ALTO_FONDO = 70;   // el fondo y el piso son enormes: con cualquier zoom o giro no se ve el borde
 const DIST_LUZ = 80, DIST_VENTANA = 40;           // la ventana queda siempre más lejos que la cámara (con zoom 0,4 y textos: ~38 r)
-const MEDIO_COOKIE = 20;                          // el foco cubre ±20 r alrededor de la joya (todo lo que puede verse)
+const MEDIO_COOKIE = 12;                          // el foco cubre ±12 r alrededor de la joya (todo lo que puede verse)
 const EPS = 2e-4;                                 // el pedestal queda una nada más abajo: la joya lo toca sin pelear por el mismo plano
 
 // ---------- Azar y ruido que se repite sin costuras ----------
@@ -82,13 +83,13 @@ function puntos(N, cantidad, semilla, { rx = [1, 3], ry = [1, 3], fuerza = [0.5,
 // T: lado de una repetición de la textura, en radios de la joya; N: píxeles; rug: rugosidad (mín, máx)
 const TIPOS = {
   yeso:         { T: 3.2, N: 1024, rug: [0.84, 0.96], relieve: 0.14 },
-  travertino:   { T: 5,   N: 1024, rug: [0.5, 0.82],  relieve: 1.3 },
+  travertino:   { T: 6,   N: 1024, rug: [0.55, 0.85], relieve: 0.8 },
   marmolBlanco: { T: 8,   N: 1024, rug: [0.1, 0.2],   relieve: 0.06, capa: 0.5 },
   marmolNegro:  { T: 8,   N: 1024, rug: [0.08, 0.18], relieve: 0.06, capa: 0.6 },
   concreto:     { T: 5,   N: 1024, rug: [0.5, 0.78],  relieve: 0.8 },
   terciopelo:   { T: 3,   N: 512,  rug: [0.92, 1],    relieve: 0.3, brillo: 1 },
   lino:         { T: 1.2, N: 512,  rug: [0.8, 0.95],  relieve: 1.4, brillo: 0.25 },
-  arena:        { T: 1.8, N: 1024, rug: [0.88, 1],    relieve: 2.4 },
+  arena:        { T: 1.8, N: 1024, rug: [0.88, 1],    relieve: 1.5 },
   madera:       { T: 7,   N: 1024, rug: [0.42, 0.62], relieve: 0.35, capa: 0.15 },
   acrilico:     { T: 10,  N: 256,  rug: [0.035, 0.05], relieve: 0, capa: 1, espejo: true },
 };
@@ -110,12 +111,15 @@ function patron(tipo) {
       rug[i] = fino[i];
     }
   } else if (tipo === 'travertino') {
-    const banda = fbm(N, 2, 5, 21, { estirar: [1, 7] }), fino = fbm(N, 64, 3, 22), poro = puntos(N, 1400, 23, { rx: [2, 12], ry: [0.8, 2.4], fuerza: [0.5, 1] });
+    // travertino: vetas horizontales de color (capas de sedimento) y poros alargados en el sentido de las capas, unos
+    // pocos marcados y muchos apenas insinuados (rellenos de resina, como en el travertino pulido)
+    const banda = fbm(N, 2, 5, 21, { estirar: [1, 7] }), banda2 = fbm(N, 3, 3, 24, { estirar: [0.5, 9] }), fino = fbm(N, 64, 3, 22);
+    const poro = puntos(N, 240, 23, { rx: [2, 9], ry: [0.7, 1.6], fuerza: [0.3, 1] }), poroSuave = puntos(N, 700, 25, { rx: [1.5, 6], ry: [0.6, 1.4], fuerza: [0.1, 0.4] });
     for (let i = 0; i < n; i++) {
-      const b = banda[i];
-      alto[i] = 0.6 + 0.1 * (b - 0.5) + 0.12 * (fino[i] - 0.5) - 0.6 * poro[i];
-      varia[i] = 0.9 + 0.3 * (b - 0.5) + 0.05 * (fino[i] - 0.5) - 0.28 * poro[i];
-      rug[i] = Math.min(1, 0.45 * fino[i] + 0.55 * poro[i] + 0.2);
+      const b = banda[i], p = Math.max(poro[i], poroSuave[i]);
+      alto[i] = 0.6 + 0.08 * (b - 0.5) + 0.1 * (fino[i] - 0.5) - 0.3 * p;
+      varia[i] = 0.93 + 0.26 * (b - 0.5) + 0.12 * (banda2[i] - 0.5) + 0.04 * (fino[i] - 0.5) - 0.1 * p;
+      rug[i] = Math.min(1, 0.45 * fino[i] + 0.5 * p + 0.2);
     }
   } else if (tipo === 'marmolBlanco' || tipo === 'marmolNegro') {
     const negro = tipo === 'marmolNegro', turb = fbm(N, 3, 6, negro ? 41 : 31), turb2 = fbm(N, 5, 5, negro ? 42 : 32), nube = fbm(N, 4, 4, negro ? 43 : 33);
@@ -161,7 +165,8 @@ function patron(tipo) {
   } else if (tipo === 'arena') {
     const grano = fbm(N, 220, 2, 81, { ganancia: 0.6 }), medio = fbm(N, 40, 3, 82), oscuros = puntos(N, 6000, 83, { rx: [0.8, 1.8], ry: [0.8, 1.8], fuerza: [0.4, 1] }), claros = puntos(N, 4000, 84, { rx: [0.8, 1.6], ry: [0.8, 1.6], fuerza: [0.4, 1] });
     for (let i = 0; i < n; i++) {
-      alto[i] = 0.5 + 0.55 * (grano[i] - 0.5) + 0.25 * (medio[i] - 0.5) + 0.2 * claros[i] - 0.15 * oscuros[i];
+      // (el relieve mediano va suave: con el sol rasante se veían manchas grandes en el piso cercano)
+      alto[i] = 0.5 + 0.55 * (grano[i] - 0.5) + 0.1 * (medio[i] - 0.5) + 0.2 * claros[i] - 0.15 * oscuros[i];
       varia[i] = 0.92 + 0.16 * (grano[i] - 0.5) + 0.08 * (medio[i] - 0.5) + 0.16 * claros[i] - 0.3 * oscuros[i];
       rug[i] = grano[i];
     }
@@ -229,8 +234,10 @@ function crearMaterial(tipo, color) {
   });
   if (def.capa) { m.clearcoat = def.capa; m.clearcoatRoughness = def.espejo ? 0.02 : 0.08; }
   if (def.brillo) {   // terciopelo y lino: brillo aterciopelado en los bordes (sheen)
-    m.sheen = def.brillo; m.sheenRoughness = tipo === 'terciopelo' ? 0.45 : 0.7;
-    m.sheenColor.set(color).lerp(new THREE.Color(0xffffff), tipo === 'terciopelo' ? 0.35 : 0.6);
+    m.sheen = def.brillo; m.sheenRoughness = tipo === 'terciopelo' ? 0.32 : 0.7;
+    m.sheenColor.set(color).lerp(new THREE.Color(0xffffff), tipo === 'terciopelo' ? 0.18 : 0.5);
+    // la tela casi no tiene reflejo especular (sin esto el terciopelo se ve gris, como plástico mate)
+    m.specularIntensity = tipo === 'terciopelo' ? 0.08 : 0.3;
   }
   if (def.espejo) { m.ior = 2; m.specularIntensity = 1; }   // acrílico: refleja bastante más que un plástico común
   m.userData.tipo = tipo;
@@ -317,13 +324,13 @@ function pedestal(sup, u, hu, escalaUV) {
       const L = t * (0.95 * hu + 0.75 * u), H = a * 1.6 * u;
       const g = caja(2 * L, H + 0.02 * u, 2 * L, 5, Math.min(L, H) * 0.06);
       g.translate(0, -H / 2 - 0.01 * u, 0);
-      return { geo: uvCaja(g, escalaUV), H, alcanceZ: L, huellaPiso: { tipo: 'caja', x: L, z: L, radio: Math.min(L, H) * 0.06 } };
+      return { geo: uvCaja(g, escalaUV), H, alcanceZ: L, huellaPiso: { tipo: 'caja', x: L, z: L, radio: Math.min(L, H) * 0.06 }, tapa: { tipo: 'caja', x: L * 0.97, z: L * 0.97 } };
     }
     case 'losa': {
       const X = t * (1.05 * hu + 0.8 * u), Z = X * 0.72, H = a * 1.2 * u, re = Math.min(H * 0.25, 0.08 * u);
       const g = caja(2 * X, H + 0.02 * u, 2 * Z, 4, re);
       g.translate(0, -H / 2 - 0.01 * u, 0);
-      return { geo: uvCaja(g, escalaUV), H, alcanceZ: Z, huellaPiso: { tipo: 'caja', x: X, z: Z, radio: re } };
+      return { geo: uvCaja(g, escalaUV), H, alcanceZ: Z, huellaPiso: { tipo: 'caja', x: X, z: Z, radio: re }, tapa: { tipo: 'caja', x: X - re, z: Z - re } };
     }
     case 'escalones': {
       const R1 = t * (0.9 * hu + 0.7 * u), paso = t * 0.75 * u, h = a * 0.6 * u, b = Math.min(0.05 * u, h * 0.2);
@@ -338,7 +345,7 @@ function pedestal(sup, u, hu, escalaUV) {
         p.push({ r: R, y: y0 - h, nr: 1, ny: 0, plano: false });
       }
       p[p.length - 1].y -= 0.01 * u;
-      return { geo: torno(p, 160, escalaUV), H: 3 * h, alcanceZ: R1 + 2 * paso, huellaPiso: { tipo: 'disco', r: R1 + 2 * paso } };
+      return { geo: torno(p, 160, escalaUV), H: 3 * h, alcanceZ: R1 + 2 * paso, huellaPiso: { tipo: 'disco', r: R1 + 2 * paso }, tapa: { tipo: 'disco', r: R1 - b } };
     }
     case 'cojin': {
       const X = t * (1.0 * hu + 0.9 * u), H = a * 1.1 * u;
@@ -361,7 +368,7 @@ function pedestal(sup, u, hu, escalaUV) {
       const R = t * (1.0 * hu + 0.9 * u), H = a * 1.5 * u, b = Math.min(0.045 * R, 0.25 * H);
       const p = perfilCilindro(R, H, b, []);
       p[p.length - 1].y -= 0.01 * u;
-      return { geo: torno(p, 192, escalaUV), H, alcanceZ: R, huellaPiso: { tipo: 'disco', r: R } };
+      return { geo: torno(p, 192, escalaUV), H, alcanceZ: R, huellaPiso: { tipo: 'disco', r: R }, tapa: { tipo: 'disco', r: R - b } };
     }
   }
 }
@@ -372,10 +379,9 @@ function graduada(a, b, u, extra = []) {
   const v = new Set([a, b, ...extra.filter(x => x > a && x < b)]);
   for (const signo of [1, -1]) {
     let x = 0, paso = 1.2 * u;
-    while (true) {
+    while (x < Math.max(Math.abs(a), Math.abs(b))) {
       const p = signo * x;
-      if (p <= a || p >= b) break;
-      v.add(p);
+      if (p > a && p < b) v.add(p);   // (el tramo puede no pasar por el centro: los muros a los lados del arco)
       x += paso; if (x > 14 * u) paso = Math.min(paso * 1.3, 8 * u);
     }
   }
@@ -434,7 +440,9 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
     const A = Math.max(1.7 * u, alcanceZ * 1.05 + 0.5 * u), Hs = Math.max(2.2 * u, A * 1.1), N = 1.6 * u * Math.max(0.8, f.distancia);
     const piso = barrido(filasHasta(-B - N, F).map(z => ({ z, y: 0, ny: 1, nz: 0 })), xs, escalaUV);
     const bajo = -0.06 * u, arcoY = x => Hs + Math.sqrt(Math.max(0, A * A - x * x));
-    const izq = muro(graduada(-W, -A, u, [-A]), () => bajo, Ht, u, escalaUV), der = muro(graduada(A, W, u, [A]), () => bajo, Ht, u, escalaUV);
+    // (los muros de los lados entran una nada sobre el del arco: sus filas no coinciden en la junta y quedarían rendijas)
+    const solape = 0.01 * u;
+    const izq = muro(graduada(-W, -A + solape, u, [-A + solape]), () => bajo, Ht, u, escalaUV), der = muro(graduada(A - solape, W, u, [A - solape]), () => bajo, Ht, u, escalaUV);
     // (las columnas del muro sobre el arco usan los mismos puntos del arco que el nicho: no quedan rendijas)
     const xsArco = Array.from({ length: 49 }, (_, i) => A * Math.cos(Math.PI * (48 - i) / 48)), centro = muro(xsArco, arcoY, Ht, u, escalaUV);
     for (const g of [izq, der, centro]) g.translate(0, 0, -B);
@@ -477,78 +485,101 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
 
 // ---------- Gobos: el dibujo de la ventana en el plano de la joya (en radios, mirando desde la luz) ----------
 // pared: una pared opaca con huecos (por donde entra la luz); siluetas: formas opacas sueltas (hojas).
-// F: dónde cae en ese plano el fondo que se ve detrás de la joya (la joya está en 0, 0). El dibujo se arma con los dos
-// puntos: la joya siempre queda en un vidrio iluminado y detrás se ven los parales y el borde de la ventana, venga de
-// donde venga la luz.
-function gobo(tipo, F = { x: -2.8, y: 2.2 }) {
-  const sx = F.x < 0 ? -1 : 1, sy = F.y < 0 ? -1 : 1;
-  // un paral nunca pasa por encima de la joya (radio ~1): se corre al menos 1,2 desde el centro
-  const lejos = (v, s) => s * Math.max(1.25, Math.abs(v));
+// El dibujo se piensa en el fondo: proy(x, y) dice dónde cae en el plano del gobo el punto (x, y) del fondo que se ve
+// detrás de la joya (en radios, la joya en 0, 0). Así los parales, el arco o las hojas se ven siempre en el cuadro, venga
+// de donde venga la luz, y la joya queda en un vidrio iluminado. lado: −1 si la luz viene de la izquierda, 1 si de la derecha.
+const LIBRE = 1.3;   // radio alrededor de la joya que ningún paral ni hoja tapa
+function gobo(tipo, proy, lado = -1) {
+  const X = (x, y = 1.5) => proy(x, y).x, Y = (x, y) => proy(x, y).y;
+  // un paral nunca pasa sobre la joya: se corre hasta dejarla libre
+  const fuera = (v, ancho) => (Math.abs(v) - ancho >= LIBRE ? v : Math.sign(v || lado) * (LIBRE + ancho));
   if (tipo === 'ventana') {
-    const mx = lejos(F.x * 0.72, sx), my = lejos(F.y * 0.72, sy), m = 0.2;
-    const x0 = sx < 0 ? F.x - 2.4 : -2.3, x1 = sx < 0 ? 2.3 : F.x + 2.4, y0 = sy < 0 ? F.y - 2.4 : -2.6, y1 = sy < 0 ? 2.6 : F.y + 2.4;
-    const xs = [[x0, mx - m], [mx + m, x1]], ys = [[y0, my - m], [my + m, y1]], huecos = [];
-    for (const [a, b] of xs) for (const [c, d] of ys) huecos.push(rect(a, c, b, d));
+    // ventana de vidrios: con la cámara normal el fondo visible va de la base de la joya a ~1,6 radios de alto y ±1,8 a los
+    // lados; ahí caen el paral vertical (del lado de la luz) y el travesaño (en diagonal, justo encima de la joya). Al
+    // alejarse se ve además el borde de arriba de la ventana
+    const ax = 0.36 * Math.abs(X(1) - X(0)), ay = 0.36 * Math.abs(Y(0, 1) - Y(0, 0));
+    const mx = fuera(X(lado * 1.0), ax), my = fuera(Y(0, 1.2), ay);
+    const lejosX = X(lado * 4.5), cercaX = X(-lado * 4.5);
+    const x0 = Math.min(lejosX, cercaX, -2.8), x1 = Math.max(lejosX, cercaX, 2.8);
+    const y0 = Math.min(Y(0, -3), -2.9), y1 = Math.max(Y(0, 2.9), my + ay + 1);
+    // un travesaño más abajo cruza el borde de adelante del pedestal (una franja de sombra como en las fotos de estudio)
+    const yb = -(LIBRE + ay + 0.5);
+    const cortes = [[x0, mx - ax], [mx + ax, x1]], filas = [[y0, yb - ay], [yb + ay, my - ay], [my + ay, y1]], huecos = [];
+    for (const [a, b] of cortes) for (const [c, d] of filas) if (b > a && d > c) huecos.push(rect(a, c, b, d));
     return { pared: true, huecos };
   }
   if (tipo === 'persiana') {
-    const huecos = [], x0 = Math.min(0, F.x) - 2.8, x1 = Math.max(0, F.x) + 2.8, y0 = Math.min(0, F.y) - 3, y1 = Math.max(0, F.y) + 2.6, periodo = 0.95, lama = 0.4;
-    for (let y = y0; y < y1; y += periodo) huecos.push(rect(x0, y + lama / 2, x1, Math.min(y1, y + periodo - lama / 2)));
+    // persiana: franjas en diagonal sobre el fondo (unas tres en el cuadro); la joya queda en el centro de una franja de luz
+    const periodo = 0.62 * Math.abs(Y(0, 1) - Y(0, 0)), lama = 0.45 * periodo;
+    const x0 = Math.min(X(-6), X(6), -3), x1 = Math.max(X(-6), X(6), 3), y0 = Math.min(Y(0, -4), -3.5), y1 = Math.max(Y(0, 7), 3.5);
+    const huecos = [];
+    for (let k = Math.floor(y0 / periodo) - 1; k * periodo < y1; k++) {
+      const c = k * periodo;   // centro de un hueco (k = 0: el de la joya)
+      huecos.push(rect(x0, c - (periodo - lama) / 2, x1, c + (periodo - lama) / 2));
+    }
     return { pared: true, huecos };
   }
   if (tipo === 'arco') {
-    // ventana alta con arco y un paral al centro: el arco se ve en el fondo, la joya queda en uno de los dos vidrios
-    const cx = lejos(F.x * 0.7, sx), A = Math.max(2, Math.abs(cx) + 0.9), base = Math.min(0, F.y) - 2.8, hs = Math.max(0.6, F.y + 0.2), m = 0.16;
-    const lado = (izq) => {
-      const s = new THREE.Shape(), d = Math.asin(m / A), cima = hs + Math.sqrt(A * A - m * m);
-      if (izq) { s.moveTo(cx - A, base); s.lineTo(cx - m, base); s.lineTo(cx - m, cima); s.absarc(cx, hs, A, Math.PI / 2 + d, Math.PI, false); }
-      else { s.moveTo(cx + m, base); s.lineTo(cx + A, base); s.lineTo(cx + A, hs); s.absarc(cx, hs, A, 0, Math.PI / 2 - d, false); }
+    // ventana con arco y un paral al centro: la cima del arco cae en el fondo a ~1,5 radios de alto, la curva cruza el
+    // cuadro y la joya queda dentro de la ventana (se agranda el arco hasta que la deje libre)
+    const am = 0.16 * Math.abs(X(1) - X(0)), cx = fuera(X(lado * 0.9), am), cima = Y(0, 1.5), base = Math.min(Y(0, -3), -3);
+    let A = Math.abs(cx) + LIBRE + 0.2, sy = cima - A;
+    const dentro = () => Math.abs(cx) <= A - LIBRE && (sy >= LIBRE || Math.hypot(cx, sy) <= A - LIBRE);
+    for (let i = 0; i < 40 && !dentro(); i++) { A += 0.25; sy = cima - A; }
+    const mitad = (izq) => {
+      const s = new THREE.Shape(), d = Math.asin(Math.min(0.9, am / A));
+      if (izq) { s.moveTo(cx - A, base); s.lineTo(cx - am, base); s.lineTo(cx - am, sy + A * Math.cos(d)); s.absarc(cx, sy, A, Math.PI / 2 + d, Math.PI, false); }
+      else { s.moveTo(cx + am, base); s.lineTo(cx + A, base); s.lineTo(cx + A, sy); s.absarc(cx, sy, A, 0, Math.PI / 2 - d, false); }
       s.closePath();
       return s;
     };
-    return { pared: true, huecos: [lado(true), lado(false)] };
+    return { pared: true, huecos: [mitad(true), mitad(false)] };
   }
-  if (tipo === 'hojas') return { pared: false, siluetas: hojasDePalma(F) };
+  if (tipo === 'hojas') return { pared: false, siluetas: hojasDePalma(proy, lado) };
   return null;   // ninguno y foco no llevan ventana
 }
-// Hojas de palmera: un tallo curvo con folíolos finos a los dos lados
-function hojasDePalma(F) {
-  const R = azar(7), formas = [], ox = F.x * 0.55, oy = F.y * 0.55, sx = F.x < 0 ? -1 : 1;
-  const P = ([x, y]) => new THREE.Vector2(ox + sx * -x, oy + y);   // (el dibujo se refleja si el fondo cae al otro lado)
-  const fronda = (desde, hasta, curva, largo, densidad = 0.42) => {
-    const c = new THREE.QuadraticBezierCurve(P(desde), P(curva), P(hasta));
-    const L = c.getLength(), n = Math.floor(L / densidad);
+// Hojas de palmera: un tallo curvo con folíolos finos a los dos lados. Las frondas se ubican en el fondo (entran desde los
+// bordes del cuadro) y se pasan al plano del gobo; los folíolos se dibujan allá, con un largo medido en el fondo
+function hojasDePalma(proy, lado) {
+  const R = azar(7), formas = [];
+  const P = (x, y) => { const q = proy(lado * x, y); return new THREE.Vector2(q.x, q.y); };
+  const escala = Math.abs(proy(1, 0).x - proy(0, 0).x);
+  const fronda = (desde, curva, hasta, largo, densidad = 0.13) => {
+    const c = new THREE.QuadraticBezierCurve(P(...desde), P(...curva), P(...hasta));
+    const L = c.getLength(), n = Math.floor(L / densidad / escala), l0 = largo * escala;
     // tallo
-    const tallo = new THREE.Shape(), puntosT = c.getSpacedPoints(24);
-    puntosT.forEach((p, i) => { const t = c.getTangentAt(i / 24), nx = -t.y * 0.07, ny = t.x * 0.07; i ? tallo.lineTo(p.x + nx, p.y + ny) : tallo.moveTo(p.x + nx, p.y + ny); });
-    for (let i = 24; i >= 0; i--) { const p = puntosT[i], t = c.getTangentAt(i / 24); tallo.lineTo(p.x + t.y * 0.07, p.y - t.x * 0.07); }
+    const tallo = new THREE.Shape(), puntosT = c.getSpacedPoints(24), g = 0.05 * escala;
+    puntosT.forEach((p, i) => { const t = c.getTangentAt(i / 24), nx = -t.y * g, ny = t.x * g; i ? tallo.lineTo(p.x + nx, p.y + ny) : tallo.moveTo(p.x + nx, p.y + ny); });
+    for (let i = 24; i >= 0; i--) { const p = puntosT[i], t = c.getTangentAt(i / 24); tallo.lineTo(p.x + t.y * g, p.y - t.x * g); }
     formas.push(tallo);
     for (let i = 1; i < n; i++) {
-      const s = i / n, p = c.getPointAt(s), t = c.getTangentAt(s), l = largo * Math.sin(Math.PI * Math.min(1, s * 1.15)) * (0.75 + 0.35 * R());
-      for (const lado of [-1, 1]) {
-        // folíolo: una lanza fina que sale hacia adelante y se dobla un poco
-        const ang = Math.atan2(t.y, t.x) + lado * (0.95 + 0.25 * R()), dx = Math.cos(ang), dy = Math.sin(ang), w = 0.13 + 0.08 * R();
-        const f = new THREE.Shape(), punta = [p.x + dx * l, p.y + dy * l - 0.12 * l], medio = [p.x + dx * l * 0.5 - dy * w, p.y + dy * l * 0.5 + dx * w];
+      const s = i / n, p = c.getPointAt(s), t = c.getTangentAt(s), l = l0 * Math.sin(Math.PI * (0.15 + 0.7 * s)) * (0.75 + 0.35 * R());
+      for (const ladoF of [-1, 1]) {
+        // folíolo: una lanza fina que sale hacia adelante y se dobla un poco por su peso
+        const ang = Math.atan2(t.y, t.x) + ladoF * (0.75 + 0.3 * R()), dx = Math.cos(ang), dy = Math.sin(ang), w = (0.07 + 0.04 * R()) * escala;
+        const f = new THREE.Shape(), punta = [p.x + dx * l, p.y + dy * l - 0.15 * l], medio = [p.x + dx * l * 0.5 - dy * w, p.y + dy * l * 0.5 + dx * w];
         f.moveTo(p.x, p.y); f.quadraticCurveTo(medio[0], medio[1], punta[0], punta[1]);
         f.quadraticCurveTo(p.x + dx * l * 0.5 + dy * w, p.y + dy * l * 0.5 - dx * w, p.x, p.y);
         formas.push(f);
       }
     }
   };
-  // las frondas entran desde los bordes y dejan un claro de sol sobre la joya
-  fronda([-16, 13], [-2.2, 1.6], [-8, 9.5], 2.6);
-  fronda([15, 12], [3.2, 2.6], [9, 10], 2.4);
-  fronda([-15, -9], [-3.6, -0.9], [-11, -2], 2.3);
-  fronda([14, -11], [4.4, -2.6], [11, -4.5], 2.2);
-  fronda([2, 17], [0.4, 4.4], [3.6, 11], 2.0, 0.5);
-  return formas;
+  // (x positivo = el lado de donde viene la luz). Las frondas entran desde los bordes y dejan un claro de sol sobre la joya
+  // (con la cámara normal el fondo se ve entre ~0,3 y 1,6 radios de alto —más abajo lo tapa el pedestal— y ±1,7 a los lados)
+  fronda([3.0, 1.7], [2.0, 1.2], [0.8, 0.95], 0.75);
+  fronda([-3.0, 1.3], [-2.0, 0.85], [-0.9, 0.7], 0.7);
+  fronda([-2.2, 3.2], [-1.4, 2.2], [-0.5, 1.35], 0.75);
+  fronda([1.9, 3.4], [1.5, 2.4], [1.0, 1.6], 0.7);
+  fronda([3.2, 0.2], [2.4, 0.5], [1.4, 0.35], 0.6);
+  // ninguna hoja sobre la joya: se quitan los folíolos que caigan en el claro
+  return formas.filter(f => !f.getPoints(8).some(p => Math.hypot(p.x, p.y) < LIBRE * 0.85));
 }
 
 // Penumbra del patrón en el plano de la joya (en radios) según la suavidad
-const penumbra = s => 0.12 + 3.2 * Math.pow(s, 1.5);
+const penumbra = s => 0.1 + 2.4 * Math.pow(s, 1.5);
 
 // Cookie del motor rápido: el patrón visto desde la luz, difuminado con la misma penumbra que el trazado de rayos
-function dibujarCookie(g, suavidad, N = 1024) {
+function dibujarCookie(g, suavidad, N = 2048) {
   const c = lienzo(N), x = ctx2d(c), k = N / (2 * MEDIO_COOKIE), pasar = (s) => {
     const pts = s.extractPoints(24);
     const camino = (lista) => lista.forEach((p, i) => (i ? x.lineTo : x.moveTo).call(x, N / 2 + p.x * k, N / 2 - p.y * k));
@@ -595,31 +626,38 @@ function colorLuz(calidez) {
 
 // ---------- Mancha de contacto bajo la joya (solo motor rápido; el trazador la calcula sola) ----------
 function manchaContacto(joya, base, radio, huella) {
-  const N = 256, ext = Math.max(huella * 1.35, radio * 0.6), k = N / (2 * ext), acum = new Float32Array(N * N);
-  const v = new THREE.Vector3(), alto = radio * 0.1;
+  const v = new THREE.Vector3(), alto = radio * 0.1, ancho = radio * 0.22, cerca = [];
   joya.updateMatrixWorld(true);
+  // los puntos de la pieza cerca de la superficie (con su peso: más pegados, más sombra)
+  let lejos = radio * 0.1;
   joya.traverse(o => {
     if (!o.isMesh || !o.geometry?.attributes?.position) return;
     const p = o.geometry.attributes.position, paso = Math.max(1, Math.floor(p.count / 150000));
     for (let i = 0; i < p.count; i += paso) {
       v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
       const h = v.y - base; if (h > alto * 5 || !Number.isFinite(h)) continue;
-      const x = Math.floor(N / 2 + v.x * k), z = Math.floor(N / 2 + v.z * k);
-      if (x < 0 || z < 0 || x >= N || z >= N) continue;
-      acum[z * N + x] += Math.exp(-h / alto) * paso;
+      cerca.push(v.x, v.z, Math.exp(-h / alto) * paso);
+      lejos = Math.max(lejos, Math.abs(v.x), Math.abs(v.z));
     }
   });
+  // la textura cubre los puntos más tres veces el desenfoque ancho: la mancha se apaga antes del borde (sin cuadro visible)
+  const N = 256, ext = Math.min(Math.max(huella, radio) * 3, lejos + 3.2 * ancho), k = N / (2 * ext), acum = new Float32Array(N * N);
+  for (let i = 0; i < cerca.length; i += 3) {
+    const x = Math.floor(N / 2 + cerca[i] * k), z = Math.floor(N / 2 + cerca[i + 1] * k);
+    if (x >= 0 && z >= 0 && x < N && z < N) acum[z * N + x] += cerca[i + 2];
+  }
   // dos desenfoques: el contacto apretado y una sombra ambiental más ancha
   const c = lienzo(N), x = ctx2d(c), img = x.createImageData(N, N);
   let max = 0; for (const a of acum) max = Math.max(max, a);
   for (let i = 0; i < N * N; i++) { const t = max ? Math.min(1, acum[i] / max * 6) : 0; img.data[4 * i] = img.data[4 * i + 1] = img.data[4 * i + 2] = t * 255; img.data[4 * i + 3] = 255; }
   x.putImageData(img, 0, 0);
   const apretado = lienzo(N), xa = ctx2d(apretado); xa.drawImage(c, 0, 0); desenfocar(xa, N, radio * 0.035 * k);
-  const ancho = lienzo(N), xb = ctx2d(ancho); xb.drawImage(c, 0, 0); desenfocar(xb, N, radio * 0.22 * k);
+  const amplio = lienzo(N), xb = ctx2d(amplio); xb.drawImage(c, 0, 0); desenfocar(xb, N, ancho * k);
   const da = xa.getImageData(0, 0, N, N).data, db = xb.getImageData(0, 0, N, N).data, sal = x.createImageData(N, N);
   let ma = 1, mb = 1; for (let i = 0; i < N * N; i++) { ma = Math.max(ma, da[4 * i]); mb = Math.max(mb, db[4 * i]); }
+  const borde = i => { const t = Math.max(Math.abs(i % N - N / 2 + 0.5), Math.abs(Math.floor(i / N) - N / 2 + 0.5)) / (N / 2); return 1 - suav(limitar((t - 0.8) / 0.2, 0, 1)); };
   for (let i = 0; i < N * N; i++) {
-    const t = Math.min(1, 0.75 * Math.min(1, 1.6 * da[4 * i] / ma) + 0.45 * Math.min(1, 1.3 * db[4 * i] / mb));
+    const t = Math.min(1, 0.75 * Math.min(1, 1.6 * da[4 * i] / ma) + 0.4 * Math.min(1, 1.3 * db[4 * i] / mb)) * borde(i);
     sal.data[4 * i] = sal.data[4 * i + 1] = sal.data[4 * i + 2] = Math.round(t * 255); sal.data[4 * i + 3] = 255;
   }
   x.putImageData(sal, 0, 0);
@@ -638,6 +676,59 @@ function manchaPiso(h, u) {
   return { tex, ext };
 }
 
+// ---------- Reflejo del acrílico (solo motor rápido; el trazador refleja de verdad) ----------
+// Un espejo sobre la cara de arriba del pedestal: dibuja la escena vista desde abajo del plano y la mezcla con el
+// acrílico según el ángulo (Fresnel: casi nada mirando de frente, mucho mirando rasante), como un acrílico de vitrina
+const SOMBREADOR_ESPEJO = {
+  name: 'EspejoAcrilico',
+  uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null }, fuerza: { value: 0.5 } },
+  vertexShader: /* glsl */`
+    uniform mat4 textureMatrix;
+    varying vec4 vUv;
+    varying vec3 vMundo;
+    #include <common>
+    #include <logdepthbuf_pars_vertex>
+    void main() {
+      vUv = textureMatrix * vec4( position, 1.0 );
+      vMundo = ( modelMatrix * vec4( position, 1.0 ) ).xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      #include <logdepthbuf_vertex>
+    }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform float fuerza;
+    varying vec4 vUv;
+    varying vec3 vMundo;
+    #include <logdepthbuf_pars_fragment>
+    void main() {
+      #include <logdepthbuf_fragment>
+      vec3 v = normalize( cameraPosition - vMundo );
+      float f = fuerza * ( 0.35 + 0.65 * pow( 1.0 - clamp( v.y, 0.0, 1.0 ), 4.0 ) );
+      gl_FragColor = vec4( texture2DProj( tDiffuse, vUv ).rgb, f );
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+};
+function espejo(tapa, alto, renderer) {
+  let geo;
+  if (tapa.tipo === 'disco') geo = new THREE.CircleGeometry(tapa.r, 96);
+  else geo = new THREE.PlaneGeometry(2 * tapa.x, 2 * tapa.z);
+  const tam = new THREE.Vector2(1024, 1024);
+  renderer?.getDrawingBufferSize(tam);
+  const r = new Reflector(geo, { shader: SOMBREADOR_ESPEJO, textureWidth: tam.x, textureHeight: tam.y, multisample: 4, clipBias: 0.0005 });
+  Object.assign(r.material, { transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  r.rotation.x = -Math.PI / 2; r.position.y = alto;
+  // el lienzo puede cambiar de tamaño (formato del video): el reflejo se dibuja siempre a la resolución de la imagen
+  const antes = r.onBeforeRender;
+  r.onBeforeRender = function (rend, escena, cam, ...resto) {
+    rend.getDrawingBufferSize(tam);
+    const rt = r.getRenderTarget();
+    if (rt.width !== tam.x || rt.height !== tam.y) rt.setSize(tam.x, tam.y);
+    antes.call(this, rend, escena, cam, ...resto);
+  };
+  return r;
+}
+
 // ---------- El escenario ----------
 export class Escenario3D {
   constructor() {
@@ -654,20 +745,28 @@ export class Escenario3D {
     if (cfg.id === 'ninguna') { this.vaciar(); return false; }
     const u = Math.max(1e-6, m.radio), hu = Math.max(m.huella || u, 0.15 * u), s = cfg.superficie, f = cfg.fondo, l = cfg.luz;
     const medidas = `${u.toPrecision(6)}|${hu.toPrecision(6)}|${(m.base || 0).toPrecision(6)}`;
-    const kGeo = JSON.stringify([s, f, medidas]), kLuz = JSON.stringify([l, cfg.ambiente, s.forma, kGeo]), kMat = JSON.stringify([s.material, s.color, f.material, f.color]);
+    // qué hay que rehacer: la geometría (formas, medidas y el material, que da la escala de la textura), la luz (y su
+    // ventana) o solo los colores. El relleno (ambiente) no rehace nada: lo aplica el estudio en cada cuadro
+    const kGeo = JSON.stringify([s.forma, s.tamano, s.altura, s.material, f.forma, f.distancia, f.material, medidas]);
+    const kLuz = JSON.stringify([l, s.tamano, kGeo]), kMat = JSON.stringify([s.material, s.color, f.material, f.color]);
     const cambioGeo = kGeo !== this.claves.geo, cambioLuz = kLuz !== this.claves.luz, cambioMat = kMat !== this.claves.mat;
     this.cfg = cfg;
     const kJoya = `${m.version ?? m.joya?.uuid}|${medidas}`;
     if (!cambioGeo && !cambioLuz && !cambioMat && this.claves.joya === kJoya) return false;
 
     if (cambioMat || !this.mats.sup) {
-      for (const k of ['sup', 'fondo']) if (this.mats[k]) { this.mats[k].map?.dispose(); this.mats[k].dispose(); }
+      const viejos = { sup: this.mats.sup, fondo: this.mats.fondo };
       this.mats.sup = crearMaterial(s.material, s.color);
       this.mats.fondo = crearMaterial(f.material, f.color);
       this.mats.fondo.normalScale.setScalar(0.6);   // el fondo es grande y queda desenfocado: su grano va más suave
+      // solo cambió el color: las mallas que ya están toman los materiales nuevos
+      for (const g of [this.grupo, this.grupoPT]) for (const o of g.children) {
+        if (o.material === viejos.sup) o.material = this.mats.sup; else if (o.material === viejos.fondo) o.material = this.mats.fondo;
+      }
+      for (const k of ['sup', 'fondo']) if (viejos[k]) { viejos[k].map?.dispose(); viejos[k].dispose(); }
     }
     const tope = (m.base || 0) - EPS * u;
-    if (cambioGeo || cambioMat) {
+    if (cambioGeo) {
       this.limpiarGrupo('geo');
       const ped = pedestal(s, u, hu, TIPOS[s.material].T * u);
       const piso = tope - ped.H;
@@ -683,6 +782,12 @@ export class Escenario3D {
         a.castShadow = sombra; a.receiveShadow = true; a.userData.parte = 'geo'; b.userData.parte = 'geo';
         this.grupo.add(a); this.grupoPT.add(b);
       }
+      // acrílico: reflejo de la joya y del fondo en la cara de arriba
+      if (s.material === 'acrilico' && ped.tapa) {
+        const e = espejo(ped.tapa, tope + EPS * u * 0.5, m.renderer);
+        e.userData.parte = 'geo'; e.renderOrder = 0.5;   // antes que la mancha de contacto
+        this.grupo.add(e);
+      }
       // sombra suave del pedestal sobre el piso (el trazador la calcula sola)
       if (ped.huellaPiso) {
         const { tex, ext } = manchaPiso(ped.huellaPiso, u);
@@ -692,7 +797,7 @@ export class Escenario3D {
       }
       this.limites = { tope, piso, alto: ped.H, fondo: B, alcance: Math.hypot(ANCHO, FRENTE, ALTO_FONDO) * u, radioSup: ped.alcanceZ, forma: s.forma, curva: fd.curva || 0 };
     }
-    if (cambioLuz || cambioGeo || cambioMat) { this.limpiarGrupo('luz'); this.armarLuz(cfg, u); }
+    if (cambioLuz || cambioGeo) { this.limpiarGrupo('luz'); this.armarLuz(cfg, u); }
     // la mancha de contacto depende de la joya: se rehace si cambió la pieza, su orientación o el pedestal
     if (cambioGeo || this.claves.joya !== kJoya) {
       this.limpiarGrupo('contacto', this.contacto);
@@ -715,9 +820,11 @@ export class Escenario3D {
     // la luz no puede venir de detrás del fondo (la taparía): de ±90° en adelante queda rasante por el costado
     const az = M.degToRad(limitar(l.angulo, -90, 90)), el = M.degToRad(limitar(l.elevacion, 10, 80));
     const L = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).normalize();
-    // dónde cae en el dibujo del gobo el fondo que se ve detrás de la joya (ejes de la cámara de sombras del foco)
-    const ex = new THREE.Vector3(0, 1, 0).cross(L).normalize(), ey = L.clone().cross(ex), atras = new THREE.Vector3(0, 0.4 * u, -this.limites.fondo);
-    const g = gobo(l.gobo, { x: atras.dot(ex) / u, y: atras.dot(ey) / u });
+    // dónde cae en el dibujo del gobo cada punto del fondo que se ve detrás de la joya (ejes de la cámara de sombras del
+    // foco). El fondo está en z = −B; el punto se lleva al plano de la joya a lo largo de la luz
+    const ex = new THREE.Vector3(0, 1, 0).cross(L).normalize(), ey = L.clone().cross(ex), B = this.limites.fondo / u, q = new THREE.Vector3();
+    const proy = (x, y) => { q.set(x, y, -B); return { x: q.dot(ex), y: q.dot(ey) }; };
+    const g = gobo(l.gobo, proy, L.x < 0 ? -1 : 1);
     const color = colorLuz(l.calidez), E = 2.6 * l.intensidad;   // irradiancia en la joya (la escala la da la exposición)
     const foco = l.gobo === 'foco', sinGobo = l.gobo === 'ninguno';
     // D: distancia del disco de la luz (en el trazador) = vértice del foco del motor rápido; así el patrón y el cono coinciden
@@ -732,7 +839,8 @@ export class Escenario3D {
     sl.shadow.bias = -0.0004; sl.shadow.normalBias = 0.015 * u;
     // la sombra de la joya: más suave cuanto más difusa la luz (el trazador la hace con el tamaño de la luz)
     sl.shadow.radius = 1.5 + (sinGobo ? 7 : 4) * l.suavidad;
-    if (g) sl.map = dibujarCookie(g, l.suavidad);
+    // (las sombras nítidas —hojas, persiana— necesitan el doble de resolución; las suaves no y así se dibujan más rápido)
+    if (g) sl.map = dibujarCookie(g, l.suavidad, penumbra(l.suavidad) < 0.3 ? 2048 : 1024);
     const tgt = new THREE.Object3D(); sl.target = tgt;
     for (const o of [sl, tgt]) { o.userData.parte = 'luz'; this.grupo.add(o); }
     // --- trazado de rayos ---
@@ -777,9 +885,10 @@ export class Escenario3D {
     this.luz = { L, D, angulo, E, sl, lp };
   }
 
-  // La escena gira con la cámara (como el estudio): el fondo siempre queda detrás y la joya gira sobre el pedestal
+  // La escena del motor rápido gira con la cámara (como el estudio): el fondo siempre queda detrás y la joya gira sobre el
+  // pedestal. La del trazador queda quieta: allá gira la joya (tornamesa del estudio), que da la misma imagen
   girar(az) {
-    for (const g of [this.grupo, this.grupoPT]) if (g.rotation.y !== az) { g.rotation.y = az; g.updateMatrixWorld(true); }
+    if (this.grupo.rotation.y !== az) { this.grupo.rotation.y = az; this.grupo.updateMatrixWorld(true); }
   }
 
   // Altura mínima de la cámara a una distancia horizontal ρ del eje: nunca por debajo de la superficie donde está la joya
@@ -791,6 +900,7 @@ export class Escenario3D {
         if (o.userData.parte !== parte) continue;
         grupo.remove(o);
         o.traverse?.(h => {
+          if (h.isReflector) { h.dispose(); h.geometry.dispose(); return; }
           if (h.isMesh && h.geometry) this.desechar(h.geometry);
           if (h.isMesh && h.material && h.material !== this.mats.sup && h.material !== this.mats.fondo) { h.material.alphaMap?.dispose(); h.material.map?.dispose(); this.desechar(h.material); }
           if (h.isLight) { h.map?.dispose(); h.shadow?.map?.dispose(); h.dispose?.(); }

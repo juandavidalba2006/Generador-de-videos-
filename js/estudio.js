@@ -48,13 +48,14 @@ function paneles(oscuro, sala = false) {
   const panel = (w, h, intensidad, pos, color = 0xffffff) => P.push({ w, h, pos: new THREE.Vector3(...pos), color: lineal(color).multiplyScalar(intensidad) });
   if (sala) {
     // sala de las escenas 3D: la luz principal (con su ventana) la pone la escena; aquí solo un relleno parejo de la sala y
-    // los mismos puntitos de luz del estudio, más suaves, para que el metal y las piedras sigan centelleando
+    // los mismos puntitos de luz del estudio, más suaves, para que el metal y las piedras sigan centelleando.
+    // Nada bajo el horizonte: ahí está el piso (en el motor rápido, una luz ahí se vería reflejada en el frente del pedestal)
     panel(10, 3, 1.6, [0, 9, 3]);
-    panel(2.4, 11, 2.2, [-10, 1, 3]); panel(2.4, 11, 1.8, [10, 0, -3]);
+    panel(2.4, 8, 2.2, [-10, 4.5, 3]); panel(2.4, 8, 1.8, [10, 4.5, -3]);
     panel(1.2, 1.2, 9, [-4, 6, 8]);
     for (let i = 0; i < 26; i++) {
       const t = i * 2.399963, y = 1 - (i + 0.5) / 26 * 2, rr = Math.sqrt(1 - y * y);
-      panel(0.9, 0.9, 6 + (i % 3) * 4, [Math.cos(t) * rr * 13, y * 13, Math.sin(t) * rr * 13], i % 4 === 0 ? 0xfff0d8 : 0xffffff);
+      if (y > 0.12) panel(0.9, 0.9, 6 + (i % 3) * 4, [Math.cos(t) * rr * 13, y * 13, Math.sin(t) * rr * 13], i % 4 === 0 ? 0xfff0d8 : 0xffffff);
     }
   } else {
   panel(10, 3, 9, [0, 9, 3]);              // caja de luz superior
@@ -90,7 +91,8 @@ export function hdrEstudio(oscuro = false, W = 1024, H = 512, sala = false) {
   const datos = new Float32Array(W * H * 4), P = paneles(oscuro, sala);
   // cúpula con degradado: claro arriba, oscuro abajo (da contraste a las facetas y volumen al metal).
   // En la sala de las escenas es más pareja y cálida: es la luz que rebota en las paredes de un estudio de fotografía
-  const arriba = sala ? lineal(0x7a7266) : lineal(oscuro ? 0x2a2622 : 0x9a948a), medio = sala ? lineal(0x5a5248) : lineal(oscuro ? 0x0b0a08 : 0x2c2822), abajo = sala ? lineal(0x2a2520) : lineal(oscuro ? 0x000000 : 0x050505);
+  // (abajo, en la sala, es el piso iluminado: con el trazador no se ve nunca porque lo tapa el piso de verdad)
+  const arriba = sala ? lineal(0x7a7266) : lineal(oscuro ? 0x2a2622 : 0x9a948a), medio = sala ? lineal(0x5a5248) : lineal(oscuro ? 0x0b0a08 : 0x2c2822), abajo = sala ? lineal(0x4a443c) : lineal(oscuro ? 0x000000 : 0x050505);
   const d = new THREE.Vector3(), q = new THREE.Vector3(), c = new THREE.Color();
   for (let j = 0; j < H; j++) {
     const th = ((j + 0.5) / H - 0.5) * Math.PI, y = Math.sin(th), ct = Math.cos(th);
@@ -153,10 +155,14 @@ export class Estudio {
     this.escenaPT = new THREE.Scene();
     this.escenaPT.environment = this.envMetal;
     this.escenaPT.background = null;   // fondo transparente: el fondo de marca se compone después
-    this.pivotePT = new THREE.Group(); this.escenaPT.add(this.pivotePT);
+    // tornamesa del trazador: con una escena 3D, en vez de girar el escenario con la cámara gira la joya (la imagen es la
+    // misma). Así el fondo y el pedestal, que son grandes, quedan quietos y el BVH del trazador no se deforma cuadro a cuadro
+    this.tornamesaPT = new THREE.Group(); this.escenaPT.add(this.tornamesaPT);
+    this.pivotePT = new THREE.Group(); this.tornamesaPT.add(this.pivotePT);
 
     this.camara = new PhysicalCamera(30, 9 / 16, 0.1, 1000);
     this.camara.apertureBlades = 7;
+    this.camaraPT = new PhysicalCamera(30, 9 / 16, 0.1, 1000);   // la del trazador: la misma, girada con la tornamesa
     this.pt = null; this.ptSucio = true;
 
     this.mat = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 1, roughness: 0.12, clearcoat: 0.35, clearcoatRoughness: 0.08 });
@@ -202,7 +208,7 @@ export class Estudio {
   // arma o ajusta el escenario a la joya de ahora (tamaño, base y orientación)
   armarEscenario() {
     if (!this.escenaActiva || !this.tieneModelo) return;
-    const cambio = this.escenario.armar(this.escena3D, { radio: this.radio, base: this.base, huella: this.huella, joya: this.pivote, version: this.versionModelo });
+    const cambio = this.escenario.armar(this.escena3D, { radio: this.radio, base: this.base, huella: this.huella, joya: this.pivote, version: this.versionModelo, renderer: this.renderer });
     if (cambio) { this.ptSucio = true; this.escena.background = new THREE.Color(this.escena3D.fondo.color); }
   }
   // sin escena el trazador vuelve a la intensidad del estudio que tenía (la que puso texturas.js)
@@ -356,11 +362,13 @@ export class Estudio {
     const ajuste = this.radio * Math.sqrt(1 + tz * tz) / tz;          // la esfera que envuelve la joya cabe justo en la franja
     const dist = ajuste / Math.max(0.05, p.zoom);
     const az = M.degToRad(p.giro), escenario = this.escenaActiva && this.escenario.limites;
+    this.giroCamara = az;
     let el = M.degToRad(M.clamp(p.inclinacion, -60, 85));
     if (escenario) {
       // con escena la cámara no baja de la superficie donde está la joya (no se mete en el pedestal ni bajo el piso):
-      // un mínimo suave, así un movimiento que baja mucho se aplana sin quiebre
-      const k = this.radio * 0.12, min = this.escenario.alturaMinima() + this.radio * 0.04, y = Math.sin(el) * dist;
+      // un mínimo suave, así un movimiento que baja mucho se aplana sin quiebre. Queda unos 3° por encima: a ras de la
+      // superficie el grano de la arena o del yeso se estira y se ve como manchas
+      const k = this.radio * 0.12, min = this.escenario.alturaMinima() + this.radio * 0.04 + dist * 0.05, y = Math.sin(el) * dist;
       const x = (y - min) / k, ys = min + k * (x > 30 ? x : Math.log1p(Math.exp(x)));
       el = Math.asin(M.clamp(ys / dist, -1, 0.999));
     }
@@ -394,7 +402,7 @@ export class Estudio {
     cam.bokehSize = Math.max(1e-3, M.clamp(p.desenfoque || 0, 0, 1) * this.radio * 0.3 * 1000);
     this.renderer.toneMappingExposure = p.exposicion;
     // el HDRI que suba la usuaria puede venir girado: se suma al giro de la tornamesa
-    const giroLuz = az + (this.rotacionHDRI || 0);
+    const giroLuz = this.giroLuz = az + (this.rotacionHDRI || 0);
     for (const e of [this.escena, this.escenaPT]) e.environmentRotation.set(0, giroLuz, 0);
     this.luces.rotation.set(0, az, 0);
     // con escena manda su luz (con sombras): las luces de apoyo del estudio iluminarían el fondo desde otro lado
@@ -458,12 +466,24 @@ export class Estudio {
       pt.rasterizeScene = false; pt.dynamicLowRes = false;
       pt.multipleImportanceSampling = true;
     }
-    const giro = this.escenaActiva ? this.escenario.grupoPT.rotation.y : 0;
-    if (this.ptSucio) { this.pt.setScene(this.escenaPT, this.camara); this.ptSucio = false; this.giroPT = giro; }
+    // con escena, la tornamesa: todo se gira −giro alrededor del eje vertical (la cámara, la luz del estudio y la joya);
+    // el escenario y su luz quedan quietos. Sin escena la cámara del trazador es la misma de siempre
+    const giro = this.escenaActiva && this.escenario.limites ? this.giroCamara || 0 : 0, c = this.camaraPT, k = this.camara;
+    c.copy(k, false);
+    for (const p of ['focusDistance', 'bokehSize', 'apertureBlades', 'apertureRotation', 'anamorphicRatio']) c[p] = k[p];
+    if (giro) {
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -giro);
+      c.position.applyQuaternion(q); c.quaternion.premultiply(q); c.up.applyQuaternion(q);
+    }
+    c.updateMatrixWorld(true);
+    const e = this.escenaPT;
+    e.environmentRotation.set(0, (this.giroLuz || 0) - giro, 0); if (e.background) e.backgroundRotation.copy(e.environmentRotation);
+    if (this.tornamesaPT.rotation.y !== -giro) { this.tornamesaPT.rotation.y = -giro; this.tornamesaPT.updateMatrixWorld(true); }
+    if (this.ptSucio) { this.pt.setScene(e, c); this.ptSucio = false; this.giroPT = giro; }
     else if (giro !== this.giroPT) {
-      // el escenario giró con la cámara: el trazador vuelve a hornear su geometría y reajusta el BVH (sin reconstruirlo)
+      // la joya giró en la tornamesa: el trazador vuelve a hornear su geometría y reajusta el BVH (sin reconstruirlo)
       const t0 = performance.now();
-      this.pt.setScene(this.escenaPT, this.camara);
+      this.pt.setScene(e, c);
       this.costosPT.push(performance.now() - t0); if (this.costosPT.length > 400) this.costosPT.shift();
       this.giroPT = giro;
     }

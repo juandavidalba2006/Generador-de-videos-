@@ -59,13 +59,13 @@ export const ESCENAS = {
   ninguna: { nombre: 'Fondo liso de marca', descripcion: 'El degradado de siempre, sin superficie.', ninguna: true },
   'pedestal-arena': {
     nombre: 'Pedestal arena', descripcion: 'Pedestal redondo de yeso, fondo taupe y luz de ventana.',
-    superficie: S('cilindro', 'yeso', '#D8CFC4', { tamano: 1.15, altura: 1.4 }), fondo: F('curva', 'yeso', '#B8A592'),
-    luz: L('ventana', { angulo: -38, elevacion: 38, suavidad: 0.4, calidez: 0.35 }), ambiente: 0.9,
+    superficie: S('cilindro', 'yeso', '#D8CFC4', { tamano: 1.15, altura: 1.4 }), fondo: F('curva', 'yeso', '#BAA698'),
+    luz: L('ventana', { angulo: -38, elevacion: 38, suavidad: 0.3, intensidad: 1.15, calidez: 0.2 }), ambiente: 0.65,
   },
   travertino: {
     nombre: 'Travertino', descripcion: 'Bloque de travertino con sombras de persiana.',
     superficie: S('cubo', 'travertino', '#E4D6C1', { tamano: 1.1, altura: 1.2 }), fondo: F('pared', 'yeso', '#CBB9A2'),
-    luz: L('persiana', { angulo: 40, elevacion: 34, suavidad: 0.3, calidez: 0.25 }), ambiente: 0.9,
+    luz: L('persiana', { angulo: 40, elevacion: 34, suavidad: 0.12, intensidad: 1.1, calidez: 0.25 }), ambiente: 0.75,
   },
   'marmol-blanco': {
     nombre: 'Mármol blanco', descripcion: 'Losa de mármol con vetas y fondo perla.',
@@ -75,27 +75,27 @@ export const ESCENAS = {
   'marmol-negro': {
     nombre: 'Mármol negro', descripcion: 'Bloque oscuro con un foco de luz: elegante y nocturno.',
     superficie: S('cubo', 'marmolNegro', '#1D1C1B', { tamano: 1.1, altura: 1.1 }), fondo: F('pared', 'concreto', '#2A2724'),
-    luz: L('foco', { angulo: -20, elevacion: 55, suavidad: 0.35, intensidad: 1.3, calidez: 0.15 }), ambiente: 0.45,
+    luz: L('foco', { angulo: -20, elevacion: 55, suavidad: 0.35, intensidad: 1.3, calidez: 0.15 }), ambiente: 0.8,
   },
   escalones: {
     nombre: 'Podio de escalones', descripcion: 'Tres niveles de yeso, como una vitrina de joyería.',
     superficie: S('escalones', 'yeso', '#E7DDD1', { tamano: 1.3, altura: 1.2 }), fondo: F('curva', 'yeso', '#D6C6B4'),
-    luz: L('ventana', { angulo: 30, elevacion: 42, suavidad: 0.5, calidez: 0.3 }), ambiente: 0.95,
+    luz: L('ventana', { angulo: 30, elevacion: 42, suavidad: 0.35, intensidad: 1.1, calidez: 0.3 }), ambiente: 0.75,
   },
   arco: {
     nombre: 'Nicho con arco', descripcion: 'Pared con un arco y la joya sobre un pedestal.',
     superficie: S('cilindro', 'yeso', '#E1D5C5', { tamano: 1, altura: 1.3 }), fondo: F('arco', 'yeso', '#C9B39C'),
-    luz: L('arco', { angulo: -45, elevacion: 36, suavidad: 0.45, calidez: 0.4 }), ambiente: 0.9,
+    luz: L('arco', { angulo: -40, elevacion: 36, suavidad: 0.35, intensidad: 1.1, calidez: 0.35 }), ambiente: 0.75,
   },
   hojas: {
     nombre: 'Sombras de palmera', descripcion: 'Luz de sol entre hojas sobre yeso claro.',
     superficie: S('cilindro', 'yeso', '#EEE5D9', { tamano: 1.2, altura: 1.1 }), fondo: F('pared', 'yeso', '#E2D0B8'),
-    luz: L('hojas', { angulo: 50, elevacion: 40, suavidad: 0.25, intensidad: 1.15, calidez: 0.6 }), ambiente: 0.85,
+    luz: L('hojas', { angulo: 45, elevacion: 40, suavidad: 0.06, intensidad: 1.2, calidez: 0.5 }), ambiente: 0.7,
   },
   terciopelo: {
     nombre: 'Terciopelo esmeralda', descripcion: 'Cojín de terciopelo verde, como un estuche de joyería.',
     superficie: S('cojin', 'terciopelo', '#1F4D3F', { tamano: 1.4, altura: 0.7 }), fondo: F('pared', 'terciopelo', '#163A30'),
-    luz: L('ninguno', { angulo: -30, elevacion: 50, suavidad: 0.7, intensidad: 1.2, calidez: 0.2 }), ambiente: 0.6,
+    luz: L('ninguno', { angulo: -30, elevacion: 50, suavidad: 0.7, intensidad: 1.2, calidez: 0.2 }), ambiente: 0.85,
   },
   espejo: {
     nombre: 'Acrílico espejo', descripcion: 'Superficie brillante que refleja la joya.',
@@ -110,7 +110,7 @@ export const ESCENAS = {
   rosa: {
     nombre: 'Rosa empolvado', descripcion: 'Pedestal rosa con luz de ventana: suave y romántico.',
     superficie: S('cilindro', 'yeso', '#EACFCB', { tamano: 1.15, altura: 1.3 }), fondo: F('curva', 'yeso', '#DDB7B2'),
-    luz: L('ventana', { angulo: 35, elevacion: 40, suavidad: 0.45, calidez: 0.25 }), ambiente: 0.95,
+    luz: L('ventana', { angulo: 35, elevacion: 40, suavidad: 0.35, intensidad: 1.1, calidez: 0.25 }), ambiente: 0.75,
   },
 };
 
