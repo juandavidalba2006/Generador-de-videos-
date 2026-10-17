@@ -513,7 +513,8 @@ export class LineaTiempo {
       // regla, cabezal o espacio vacío de un carril: mueve el cabezal (y con doble toque en una pista de cámara, crea un keyframe)
       a.tipo = 'cabezal';
       const pista = carril?.dataset.carril === 'camara' ? carril.dataset.pista : null;
-      const ahora = performance.now(), tq = this.toque;
+      // el momento del toque (no el de este código): si la vista previa 3D tiene ocupado el teléfono, el evento llega tarde
+      const ahora = e.timeStamp || performance.now(), tq = this.toque;
       if (pista && tq && tq.pista === pista && ahora - tq.cuando < DOBLE_TOQUE && Math.abs(tq.x - e.clientX) < 10) {
         this.toque = null;
         const t = this.imantar(this.tiempoEn(e.clientX));

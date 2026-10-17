@@ -362,8 +362,9 @@ function extraer(original) {
     precio = formatearPrecio(cifra, signo, moneda); return precio ? ' §p§ ' : m;
   });
   const cita = t => { citas.push(t.trim().replace(/\s+/g, ' ')); return ` §${citas.length - 1}§ `; };
-  s = s.replace(/["“«]([^"“”«»\n]{1,120})["”»]/g, (m, t) => cita(t));
-  s = s.replace(/(^|[\s(:])['‘]([^'‘’\n]{1,120})['’](?=$|[\s.,;:!?)])/g, (m, pre, t) => pre + cita(t));
+  // (entre comillas, hasta el largo que acepta el panel de textos: MAX_TEXTO_CAPA = 140)
+  s = s.replace(/["“«]([^"“”«»\n]{1,140})["”»]/g, (m, t) => cita(t));
+  s = s.replace(/(^|[\s(:])['‘]([^'‘’\n]{1,140})['’](?=$|[\s.,;:!?)])/g, (m, pre, t) => pre + cita(t));
   // sin comillas: «el texto que diga Nueva colección arriba» o «agrega el título Solitario Aurora abajo»
   // («texto arriba: ¿Para quién es? 💍»: el lugar se queda en la frase)
   s = s.replace(new RegExp(`\\b${CLAVE_TEXTO}(\\s+(?:arriba|abajo))?(\\s+que\\s+diga|\\s+que\\s+dice|\\s+diciendo|\\s*:)\\s*(?!\\s*§)${TEXTO_LIBRE}${CORTES_TEXTO}`, 'giu'), (m, clave, lugar, con, t) => `${clave}${lugar || ''} ${cita(t)}`);
