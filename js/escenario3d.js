@@ -7,6 +7,8 @@
 //  · trazado de rayos: la ventana es geometría de verdad entre la luz y la escena (de una sola cara, mirando a la luz:
 //    el trazador la usa para las sombras pero la cámara la atraviesa) y la luz tiene tamaño, así la penumbra es física.
 // Los dos usan el mismo dibujo de la ventana en el plano de la joya: el patrón cae igual en la vista previa y en el video.
+// El acrílico refleja de verdad en el trazado de rayos; en el motor rápido lleva un espejo plano encima.
+// El escenario del motor rápido gira con la cámara; el del trazador queda quieto y gira la joya (tornamesa de estudio.js).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
@@ -439,7 +441,9 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
     // pared con un nicho en arco detrás de la joya: el piso entra al nicho
     const A = Math.max(1.7 * u, alcanceZ * 1.05 + 0.5 * u), Hs = Math.max(2.2 * u, A * 1.1), N = 1.6 * u * Math.max(0.8, f.distancia);
     const piso = barrido(filasHasta(-B - N, F).map(z => ({ z, y: 0, ny: 1, nz: 0 })), xs, escalaUV);
-    const bajo = -0.06 * u, arcoY = x => Hs + Math.sqrt(Math.max(0, A * A - x * x));
+    // (el muro de encima del arco baja una nada dentro de la boca del nicho y la bóveda pasa una nada detrás del fondo
+    // del nicho: las juntas se solapan y no quedan píxeles sueltos por donde se vea el vacío)
+    const bajo = -0.06 * u, arcoY = x => Hs + Math.sqrt(Math.max(0, A * A - x * x)) - 0.01 * u;
     // (los muros de los lados entran una nada sobre el del arco: sus filas no coinciden en la junta y quedarían rendijas)
     const solape = 0.01 * u;
     const izq = muro(graduada(-W, -A + solape, u, [-A + solape]), () => bajo, Ht, u, escalaUV), der = muro(graduada(A - solape, W, u, [A - solape]), () => bajo, Ht, u, escalaUV);
@@ -457,12 +461,16 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
     let s = 0;
     const largo = contorno.map((c, i) => (i ? (s += Math.hypot(c[0] - contorno[i - 1][0], c[1] - contorno[i - 1][1])) : 0));
     const lados = rejilla(4, contorno.length, (i, j) => {
-      const c = contorno[j], z = -B + 0.01 * u - (N + 0.01 * u) * i / 3;
+      const c = contorno[j], z = -B + 0.01 * u - (N + 0.03 * u) * i / 3;
       return { p: [c[0], c[1], z], n: [c[2], c[3], 0], uv: [largo[j] / escalaUV, z / escalaUV] };
     });
     // (la rejilla de los lados queda al revés del resto: se dan vuelta los triángulos para que miren hacia adentro)
     const ix = lados.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; }
-    return { geo: mergeGeometries([piso, izq, der, centro, atras, lados].map(soloBasicos)), nicho: { A, Hs, N } };
+    // un respaldo detrás de todo: si el rasterizado deja un píxel suelto en alguna junta del arco, se ve el mismo yeso
+    const respaldo = soloBasicos(new THREE.PlaneGeometry(2 * W, Ht, 1, 1));
+    respaldo.translate(0, Ht / 2, -B - N - 0.2 * u);
+    { const p = respaldo.attributes.position, t = respaldo.attributes.uv; for (let i = 0; i < p.count; i++) t.setXY(i, p.getX(i) / escalaUV, p.getY(i) / escalaUV); }
+    return { geo: mergeGeometries([piso, izq, der, centro, atras, lados, respaldo].map(soloBasicos)), nicho: { A, Hs, N } };
   }
   // fondo curvo sin esquinas (como un rollo de papel de estudio). La curva no es un cuarto de círculo: su curvatura crece y
   // vuelve a cero en las dos puntas (el ángulo sigue un «smootherstep»); con un círculo el sombreado cambia de golpe donde
@@ -891,7 +899,7 @@ export class Escenario3D {
     if (this.grupo.rotation.y !== az) { this.grupo.rotation.y = az; this.grupo.updateMatrixWorld(true); }
   }
 
-  // Altura mínima de la cámara a una distancia horizontal ρ del eje: nunca por debajo de la superficie donde está la joya
+  // Altura mínima de la cámara: nunca por debajo de la superficie donde está la joya (no se mete en el pedestal ni el piso)
   alturaMinima() { return this.limites ? this.limites.tope : -Infinity; }
 
   limpiarGrupo(parte, g = null) {
