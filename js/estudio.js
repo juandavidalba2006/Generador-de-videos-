@@ -7,7 +7,7 @@ import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WebGLPathTracer, PhysicalCamera } from 'three-gpu-pathtracer';
 import { separarPiedras } from './piedras.js';
 import { METALES, PIEDRAS, ACABADOS } from './catalogo.js';
-import { Escenario3D } from './escenario3d.js';
+import { Escenario3D, LimpiadorPT } from './escenario3d.js';
 import { normalizarEscena, escenaOscura } from './escenas.js';
 export { METALES, PIEDRAS, ACABADOS };
 
@@ -182,10 +182,12 @@ export class Estudio {
     this.escena3D = { id: 'ninguna' };
     this.versionModelo = 0;
     this.costosPT = [];   // ms de cada actualización del BVH por el giro del escenario (para medir)
+    this.limpiezaPT = true;   // con escena, el grano del yeso se limpia al final de cada cuadro realista (ver LimpiadorPT)
   }
 
   // ---------- Escena 3D ----------
-  get escenaActiva() { return this.escena3D.id !== 'ninguna'; }
+  // (hasta que haya una joya el escenario no existe —sus medidas salen de la pieza— y se compone como sin escena)
+  get escenaActiva() { return this.escena3D.id !== 'ninguna' && !!this.escenario.limites; }
   // con escena: ¿los textos van claros? (sin escena manda el fondo de marca: null)
   get oscuro() { return this.escenaActiva ? escenaOscura(this.escena3D) : null; }
 
@@ -194,7 +196,7 @@ export class Estudio {
     const n = normalizarEscena(cfg), antes = this.escenaActiva;
     this.escena3D = n;
     const grupos = [[this.escena, this.escenario.grupo], [this.escena, this.escenario.contacto], [this.escenaPT, this.escenario.grupoPT]];
-    if (!this.escenaActiva) {
+    if (n.id === 'ninguna') {
       for (const [e, g] of grupos) e.remove(g);
       this.escenario.vaciar();
       this.escena.background = null; this.escenaPT.background = null; this.luces.visible = true;
@@ -207,7 +209,7 @@ export class Estudio {
   }
   // arma o ajusta el escenario a la joya de ahora (tamaño, base y orientación)
   armarEscenario() {
-    if (!this.escenaActiva || !this.tieneModelo) return;
+    if (this.escena3D.id === 'ninguna' || !this.tieneModelo) return;
     const cambio = this.escenario.armar(this.escena3D, { radio: this.radio, base: this.base, huella: this.huella, joya: this.pivote, version: this.versionModelo, renderer: this.renderer });
     if (cambio) { this.ptSucio = true; this.escena.background = new THREE.Color(this.escena3D.fondo.color); }
   }
@@ -469,6 +471,9 @@ export class Estudio {
     // con escena, la tornamesa: todo se gira −giro alrededor del eje vertical (la cámara, la luz del estudio y la joya);
     // el escenario y su luz quedan quietos. Sin escena la cámara del trazador es la misma de siempre
     const giro = this.escenaActiva && this.escenario.limites ? this.giroCamara || 0 : 0, c = this.camaraPT, k = this.camara;
+    // con escena, la luz del foco que rebota en el fondo y vuelve a dar en el oro deja puntitos naranja sueltos en el
+    // fondo: ahí se suavizan más los rebotes brillantes (es un uniforme: no recompila el sombreador)
+    this.pt.filterGlossyFactor = this.escenaActiva ? 0.8 : 0.35;
     c.copy(k, false);
     for (const p of ['focusDistance', 'bokehSize', 'apertureBlades', 'apertureRotation', 'anamorphicRatio']) c[p] = k[p];
     if (giro) {
@@ -492,7 +497,22 @@ export class Estudio {
   // Renderiza el cuadro actual con trazado de rayos hasta llegar a las muestras pedidas.
   // Los cuadritos (tiles) se mandan a la tarjeta en tandas y se espera a que termine cada tanda antes de mandar otra:
   // así nunca se acumula trabajo de más, la página sigue respondiendo y «Cancelar» actúa enseguida.
+  // Guía (el mismo cuadro con el motor rápido) y silueta de la joya para limpiar el grano del escenario en el render realista
+  prepararLimpieza() {
+    const r = this.renderer, L = this.limpiador || (this.limpiador = new LimpiadorPT()), tam = r.getDrawingBufferSize(new THREE.Vector2());
+    L.tamano(tam.x, tam.y);
+    const antes = r.getRenderTarget(), color = r.getClearColor(new THREE.Color()), alfa = r.getClearAlpha();
+    r.setRenderTarget(L.guia); r.clear(); r.render(this.escena, this.camara);
+    const e = this.escena, prev = e.overrideMaterial, env = e.environment, fondo = e.background, esc = this.escenario;
+    e.overrideMaterial = this.matMascara; e.environment = null; e.background = null; esc.grupo.visible = esc.contacto.visible = false;
+    r.setRenderTarget(L.mascara); r.setClearColor(0x000000, 0); r.clear(); r.render(e, this.camara);
+    e.overrideMaterial = prev; e.environment = env; e.background = fondo; esc.grupo.visible = esc.contacto.visible = true;
+    r.setClearColor(color, alfa); r.setRenderTarget(antes);
+  }
+
   async renderRealista(muestras, { alAvanzar, cancelado } = {}) {
+    const limpiar = this.limpiezaPT && this.escenaActiva && !!this.escenario.limites;
+    if (limpiar) this.prepararLimpieza();
     this.prepararPT();
     const pt = this.pt, gl = this.renderer.getContext();
     pt.updateCamera(); pt.updateEnvironment(); pt.updateMaterials(); pt.reset();
@@ -513,6 +533,7 @@ export class Estudio {
       if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
     }
     await enCurso;
+    if (limpiar) this.limpiador.aplicar(this.renderer, pt.target.texture, pt.samples);
     alAvanzar?.(1);
   }
 

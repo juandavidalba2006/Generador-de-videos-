@@ -102,7 +102,7 @@ function nivelesGruesos(c) {
 // =====================================================================================================
 // Histograma de color conjunto 4×4×4 con reparto suave entre casillas vecinas (un color en el borde de una casilla no
 // salta de una a otra con el ruido), brillo medio, cuánto es casi blanco o casi negro, y nitidez en x y en y.
-function rasgos(c) {
+export function rasgos(c) {
   if (c._rasgos) return c._rasgos;
   const { rgb, wc, hc, lum, w, h } = c, n = wc * hc, hist = new Float32Array(64);
   for (let i = 0; i < n; i++) {
@@ -190,21 +190,29 @@ export function detectarCortes(cuadros, { planoMin = PLANO_MIN } = {}) {
   const dt = (cuadros[n - 1].t - cuadros[0].t) / (n - 1) || 0.1;
   const candidatos = [];
 
-  // 1) Destellos blancos y fundidos a negro: unos pocos cuadros mucho más claros (u oscuros) que lo que los rodea
-  const base = i => {   // brillo de referencia alrededor de i, sin contar los cuadros vecinos
-    const v = []; for (let k = i - 6; k <= i + 6; k++) if (k >= 0 && k < n && Math.abs(k - i) > 2) v.push(R[k].media);
-    return v.length ? mediana(v) : R[i].media;
+  // 1) Destellos blancos y fundidos a negro: unos pocos cuadros mucho más claros (u oscuros) que lo que los rodea. El salto
+  // se mide contra lo que queda por subir (o bajar): sobre el fondo perla de la marca un destello sube solo ~30 niveles
+  // brillo y contraste de referencia a cada lado de i (sin los cuadros vecinos): el destello tiene que ser más claro que los
+  // dos lados (entre un plano claro y uno oscuro, el claro no es un destello)
+  const lado = (i, a, b) => { const v = [], d = []; for (let k = i + a; k <= i + b; k++) if (k >= 0 && k < n) { v.push(R[k].media); d.push(R[k].desv); } return v.length ? { media: mediana(v), desv: mediana(d) } : null; };
+  const base = i => {
+    const A = lado(i, -6, -3), B = lado(i, 3, 6), L = [A, B].filter(Boolean);
+    if (!L.length) return { claro: R[i].media, oscuro: R[i].media, desv: R[i].desv };
+    return { claro: Math.max(...L.map(x => x.media)), oscuro: Math.min(...L.map(x => x.media)), desv: Math.min(...L.map(x => x.desv)) };
   };
+  const masClaro = (r, b, f = 1) => r.media - b.claro > Math.max(12, 0.4 * (255 - b.claro)) * f;
+  const masOscuro = (r, b, f = 1) => b.oscuro - r.media > Math.max(20, 0.4 * b.oscuro) * f;
   const marcados = new Set();
   for (const tipo of ['flash', 'negro']) {
     for (let i = 0; i < n; i++) {
       if (marcados.has(i)) continue;
       const r = R[i], b = base(i);
-      const es = tipo === 'flash' ? (r.media - b > 38 && (r.blancos > 0.25 || r.media > 200)) : (b - r.media > 38 && r.media < 45 && r.negros > 0.5);
+      // un destello lava la imagen (casi blanca, sin contraste); un fundido la apaga
+      const es = tipo === 'flash' ? masClaro(r, b) && (r.blancos > 0.5 || r.media > 200) && r.desv < 0.75 * b.desv + 2 : masOscuro(r, b) && r.media < 50 && r.negros > 0.5;
       if (!es) continue;
       // el grupo de cuadros seguidos con la misma transición (como mucho ~0,6 s)
       let j = i;
-      while (j + 1 < n && !marcados.has(j + 1) && (tipo === 'flash' ? R[j + 1].media - b > 25 : b - R[j + 1].media > 25 && R[j + 1].media < 70)) j++;
+      while (j + 1 < n && !marcados.has(j + 1) && (tipo === 'flash' ? masClaro(R[j + 1], b, 0.6) : masOscuro(R[j + 1], b, 0.6) && R[j + 1].media < 70)) j++;
       if ((j - i + 1) * dt > 0.65) { i = j; continue; }   // un tramo largo blanco o negro no es una transición
       let pico = i;
       for (let k = i; k <= j; k++) if (tipo === 'flash' ? R[k].media > R[pico].media : R[k].media < R[pico].media) pico = k;
@@ -218,7 +226,31 @@ export function detectarCortes(cuadros, { planoMin = PLANO_MIN } = {}) {
     }
   }
 
-  // 2) Cortes de imagen: un salto aislado (mucho mayor que lo de alrededor). Un paneo rápido cambia mucho varios cuadros
+  // 2) Barridos: uno o dos cuadros borrosos (mucho menos nítidos que los de los dos lados) entre dos planos distintos. El
+  // cambio queda repartido en dos pares de cuadros, así que se compara el cuadro de antes con el de después
+  const nitidez = k => R[k].gx + R[k].gy;
+  for (let i = 1; i + 1 < n; i++) {
+    if (marcados.has(i) || marcados.has(i - 1)) continue;
+    let j = i;
+    if (j + 2 < n && nitidez(j + 1) < 0.65 * nitidez(j + 2) && nitidez(j + 1) < 0.65 * nitidez(i - 1)) j++;   // dos cuadros borrosos
+    if (j + 1 >= n || marcados.has(j + 1)) continue;
+    const ref = Math.min(nitidez(i - 1), nitidez(j + 1)), borr = Math.max(...Array.from({ length: j - i + 1 }, (_, q) => nitidez(i + q)));
+    if (!(borr < 0.65 * ref)) continue;
+    const a = cuadros[i - 1], c = cuadros[j + 1];
+    const salto = Math.max(1.7 * difHistograma(a, c), 0.62 * residuoAlineado(a, c).residuo);
+    // el salto entre los dos lados tiene que ser el de un corte (y no el de un paneo rápido que se puede alinear)
+    const vecinos = [];
+    for (let q = i - 5; q <= j + 5; q++) if ((q < i - 1 || q > j) && q >= 0 && q + 1 < n && !marcados.has(q) && !marcados.has(q + 1)) vecinos.push(s[q]);
+    const fondo = vecinos.length ? percentil(vecinos, 0.7) : 0;
+    if (salto < Math.max(0.3, 2 * fondo + 0.1)) continue;
+    // el corte: el primer cuadro borroso que ya muestra el plano nuevo (el que más se parece al cuadro de después)
+    let k = i;
+    for (let q = i; q <= j; q++) { const ra = residuoAlineado(cuadros[q], a).residuo, rc = residuoAlineado(cuadros[q], c).residuo; if (rc <= ra) { k = q; break; } k = q + 1; }
+    for (let q = i; q <= j; q++) marcados.add(q);
+    candidatos.push({ k, t: cuadros[k].t, transicion: 'barrido', confianza: limitar(0.5 + salto - fondo, 0.5, 1), zona: [a.t, c.t], ini: i, fin: j });
+  }
+
+  // 3) Cortes de imagen: un salto aislado (mucho mayor que lo de alrededor). Un paneo rápido cambia mucho varios cuadros
   // seguidos; un corte, uno solo.
   for (let i = 0; i < pares.length; i++) {
     const k = i + 1;   // primer cuadro del plano nuevo
@@ -234,19 +266,17 @@ export function detectarCortes(cuadros, { planoMin = PLANO_MIN } = {}) {
     candidatos.push({ k, t: cuadros[k].t, transicion: 'seco', confianza: limitar((v - umbral) / umbral + 0.5, 0.3, 1), zona: [cuadros[i].t, cuadros[k].t], ini: k, fin: k, puntaje: v });
   }
 
-  // 3) Barrido: alrededor de un corte, la imagen se borra en una dirección (cae mucho la nitidez de 1 a 3 cuadros)
+  // un corte seco con el cuadro de un lado más borroso que los de su propio plano también es un barrido (cada lado se
+  // compara con su plano: el plano nuevo puede ser un macro mucho más nítido que el anterior, y eso no es un barrido)
   for (const c of candidatos) {
     if (c.transicion !== 'seco') continue;
-    const nit = k => (k >= 0 && k < n ? Math.min(R[k].gx, R[k].gy) / Math.max(R[k].gx, R[k].gy, 1e-6) * Math.max(R[k].gx, R[k].gy) : 0);
-    const ref = mediana([c.k - 5, c.k - 4, c.k - 3, c.k + 2, c.k + 3, c.k + 4].filter(k => k >= 0 && k < n).map(k => R[k].gx + R[k].gy));
-    const borr = [c.k - 2, c.k - 1, c.k, c.k + 1].filter(k => k >= 0 && k < n);
-    const minimo = Math.min(...borr.map(k => R[k].gx + R[k].gy));
-    const direccional = Math.min(...borr.map(k => Math.min(R[k].gx, R[k].gy) / Math.max(R[k].gx, R[k].gy, 1e-6)));
-    void nit;
-    if (ref > 0 && minimo < 0.62 * ref && direccional < 0.75) {
+    const lado = (ks) => mediana(ks.filter(k => k >= 0 && k < n).map(nitidez));
+    const refViejo = lado([c.k - 4, c.k - 3, c.k - 2]), refNuevo = lado([c.k + 1, c.k + 2, c.k + 3]);
+    const borroViejo = c.k - 1 >= 0 && refViejo > 0 && nitidez(c.k - 1) < 0.62 * refViejo;
+    const borroNuevo = refNuevo > 0 && nitidez(c.k) < 0.62 * refNuevo;
+    if (borroViejo || borroNuevo) {
       c.transicion = 'barrido';
-      const malos = borr.filter(k => R[k].gx + R[k].gy < 0.8 * ref);
-      c.zona = [cuadros[Math.max(0, Math.min(...malos) - 1)].t, cuadros[Math.min(n - 1, Math.max(...malos) + 1)].t];
+      c.zona = [cuadros[Math.max(0, c.k - (borroViejo ? 2 : 1))].t, cuadros[Math.min(n - 1, c.k + (borroNuevo ? 1 : 0))].t];
     }
   }
 
@@ -606,6 +636,130 @@ export function movimientoEntre(a, b, caja = null, centro = null) {
 }
 
 // =====================================================================================================
+// ---------- Movimiento directo (con los gradientes de toda la región) ----------
+// =====================================================================================================
+// Los bloques sufren con el borde liso de un aro: a lo largo del borde no se sabe cuánto se corrió (problema de apertura) y
+// un ladeo o un zoom se miden de menos. Aquí cada píxel aporta solo lo que sí dice (el movimiento a través de su borde) y
+// el modelo paramétrico junta todo (Bergen et al., 1992): de lo grueso a lo fino, con pesos robustos (los brillos que
+// resbalan por el metal no mandan). Modelo pseudo-perspectivo de 8 parámetros, con x, y en px desde el centro del cuadro:
+//   u = a0 + a1·x + a2·y + (c1·x² + c2·x·y)/f      v = b0 + b1·x + b2·y + (c1·x·y + c2·y²)/f
+// c1 y c2 son el «trapecio» que deja girar la cámara (o la pieza) alrededor de un eje vertical u horizontal: lo que se
+// acerca crece. Ese término no depende de la forma de la pieza: dice hacia dónde gira aunque la silueta sea simétrica.
+// Con modelo 4 es una similitud (traslación, escala, giro de la imagen): para el fondo.
+export const FOV_VERTICAL = 30;   // el de la cámara de la app (estudio.js): con él c1 y c2 se vuelven grados de la app
+
+function desenfocar(d, w, h) {
+  // binomial 1-2-1 en x y en y: la linealización de los gradientes pide una imagen suave
+  const t = new Float32Array(w * h), o = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const f = y * w;
+    for (let x = 0; x < w; x++) t[f + x] = (d[f + (x > 0 ? x - 1 : 0)] + 2 * d[f + x] + d[f + (x < w - 1 ? x + 1 : x)]) * 0.25;
+  }
+  for (let y = 0; y < h; y++) {
+    const a = (y > 0 ? y - 1 : 0) * w, b = y * w, c = (y < h - 1 ? y + 1 : y) * w;
+    for (let x = 0; x < w; x++) o[b + x] = (t[a + x] + 2 * t[b + x] + t[c + x]) * 0.25;
+  }
+  return o;
+}
+const cacheSuaves = new Map();
+function piramideSuave(c) {
+  let p = cacheSuaves.get(c);
+  if (p) { cacheSuaves.delete(c); cacheSuaves.set(c, p); return p; }
+  p = [{ d: desenfocar(c.lum, c.w, c.h), w: c.w, h: c.h }];
+  for (let k = 1; k < 4; k++) { const r = reducir(p[k - 1].d, p[k - 1].w, p[k - 1].h); p.push({ d: desenfocar(r.d, r.w, r.h), w: r.w, h: r.h }); }
+  cacheSuaves.set(c, p);
+  while (cacheSuaves.size > 6) cacheSuaves.delete(cacheSuaves.keys().next().value);
+  return p;
+}
+
+// u, v (px del nivel 0) del modelo en (x, y)
+export function flujoModelo(p, x, y, f) {
+  return [p[0] + p[1] * x + p[2] * y + (p[6] * x * x + p[7] * x * y) / f, p[3] + p[4] * x + p[5] * y + (p[6] * x * y + p[7] * y * y) / f];
+}
+
+let bufDirecto = new Float32Array(0);
+// a, b: cuadros; dentro(ux, uy) (0..1) elige la región en a. p0: punto de partida [a0, a1, a2, b0, b1, b2, c1, c2].
+// Devuelve { p, n (píxeles con peso), error (residuo robusto, niveles de gris) } o null si la región no tiene con qué medir.
+export function movimientoDirecto(a, b, dentro, { modelo = 8, p0 = null, f = null, pesoPixel = null } = {}) {
+  const PA = piramideSuave(a), PB = piramideSuave(b), W0 = a.w, H0 = a.h;
+  const F = f || (H0 / 2) / Math.tan(FOV_VERTICAL * Math.PI / 360);
+  const p = p0 ? p0.slice(0, 8) : [0, 0, 0, 0, 0, 0, 0, 0];
+  while (p.length < 8) p.push(0);
+  const np = modelo === 8 ? 8 : modelo === 6 ? 6 : 4, n = np + 1;   // (+1: el cambio de brillo entre los dos cuadros)
+  const M = new Float64Array(n * n), V = new Float64Array(n), J = new Float64Array(n);
+  let usados = 0, error = 0;
+  for (let L = 3; L >= 0; L--) {
+    const A = PA[L], B = PB[L], s = 1 / (1 << L), w = A.w, h = A.h;
+    if (bufDirecto.length < w * h * 5) bufDirecto = new Float32Array(w * h * 5);
+    const buf = bufDirecto;
+    const iteraciones = L === 0 ? 3 : 5;
+    for (let it = 0; it < iteraciones; it++) {
+      // 1) residuos de cada píxel con gradiente, con B muestreada donde el modelo dice que fue a parar
+      let k = 0;
+      for (let y = 1; y < h - 1; y++) {
+        const uy = (y + 0.5) / h, Y = (y + 0.5) / s - H0 / 2;
+        for (let x = 1; x < w - 1; x++) {
+          const ux = (x + 0.5) / w;
+          if (!dentro(ux, uy)) continue;
+          const i = y * w + x, gx = (A.d[i + 1] - A.d[i - 1]) * 0.5, gy = (A.d[i + w] - A.d[i - w]) * 0.5;
+          if (gx * gx + gy * gy < 2) continue;
+          const X = (x + 0.5) / s - W0 / 2;
+          const u = p[0] + p[1] * X + p[2] * Y + (p[6] * X * X + p[7] * X * Y) / F, v = p[3] + p[4] * X + p[5] * Y + (p[6] * X * Y + p[7] * Y * Y) / F;
+          const bx = x + u * s, by = y + v * s;
+          if (bx < 0 || by < 0 || bx > w - 1.001 || by > h - 1.001) continue;
+          const x0 = bx | 0, y0 = by | 0, fx = bx - x0, fy = by - y0, j = y0 * w + x0;
+          const vb = (B.d[j] * (1 - fx) + B.d[j + 1] * fx) * (1 - fy) + (B.d[j + w] * (1 - fx) + B.d[j + w + 1] * fx) * fy;
+          buf[k] = X; buf[k + 1] = Y; buf[k + 2] = gx * s; buf[k + 3] = gy * s; buf[k + 4] = vb - A.d[i];
+          k += 5;
+        }
+      }
+      const m = k / 5;
+      if (m < 40) { if (L === 0 && !usados) return null; break; }
+      // 2) escala robusta del residuo (mediana de una muestra) y pesos de Tukey
+      const muestra = [], salto = Math.max(1, Math.floor(m / 800));
+      for (let q = 0; q < m; q += salto) muestra.push(Math.abs(buf[q * 5 + 4]));
+      error = 1.4826 * mediana(muestra) + 0.4;
+      const c = 4.685 * error;
+      M.fill(0); V.fill(0);
+      let suma = 0;
+      for (let q = 0; q < k; q += 5) {
+        const e = buf[q + 4], z = Math.abs(e) / c;
+        if (z >= 1) continue;
+        let wq = (1 - z * z) * (1 - z * z);
+        if (pesoPixel) wq *= pesoPixel((buf[q] + W0 / 2) / W0, (buf[q + 1] + H0 / 2) / H0);
+        if (!(wq > 0)) continue;
+        const X = buf[q], Y = buf[q + 1], Gx = buf[q + 2], Gy = buf[q + 3];
+        if (np === 4) { J[0] = Gx; J[1] = Gy; J[2] = Gx * X + Gy * Y; J[3] = -Gx * Y + Gy * X; J[4] = 1; }
+        else {
+          J[0] = Gx; J[1] = Gx * X; J[2] = Gx * Y; J[3] = Gy; J[4] = Gy * X; J[5] = Gy * Y;
+          if (np === 8) { J[6] = (Gx * X * X + Gy * X * Y) / F; J[7] = (Gx * X * Y + Gy * Y * Y) / F; }
+          J[np] = 1;
+        }
+        for (let r = 0; r < n; r++) { const jr = wq * J[r]; V[r] -= jr * e; for (let cc = r; cc < n; cc++) M[r * n + cc] += jr * J[cc]; }
+        suma += wq;
+      }
+      usados = suma;
+      for (let r = 0; r < n; r++) for (let cc = 0; cc < r; cc++) M[r * n + cc] = M[cc * n + r];
+      for (let r = 0; r < n; r++) M[r * n + r] = M[r * n + r] * 1.0001 + 1e-9;
+      const filas = [], vec = [];
+      for (let r = 0; r < n; r++) { filas.push(Array.from(M.subarray(r * n, r * n + n))); vec.push(V[r]); }
+      const d = resolver3(filas, vec);
+      if (!d || d.some(x => !Number.isFinite(x))) break;
+      if (np === 4) { p[0] += d[0]; p[3] += d[1]; p[1] += d[2]; p[5] += d[2]; p[2] -= d[3]; p[4] += d[3]; }
+      else for (let r = 0; r < np; r++) p[r] += d[r];
+      if (Math.abs(d[0]) + Math.abs(np === 4 ? d[1] : d[3]) < 0.02 / s && it > 1) break;
+    }
+  }
+  if (!usados || p.some(x => !Number.isFinite(x))) return null;
+  return { p, n: Math.round(usados), error, f: F };
+}
+// Escalas en x y en y, giro de la imagen (grados, + = horario en pantalla) y trapecios (grados de la app) de un modelo directo
+export function leerModelo(r) {
+  const p = r.p;
+  return { sx: 1 + p[1], sy: 1 + p[5], rot: Math.atan2(p[4] - p[2], 2 + p[1] + p[5]) * GRADOS, c1: p[6] * GRADOS, c2: p[7] * GRADOS };
+}
+
+// =====================================================================================================
 // ---------- Movimiento de cada plano ----------
 // =====================================================================================================
 // Curvas de la app (las mismas fórmulas de proyecto.js): cada plano se resume con la que mejor siga su perfil
@@ -673,15 +827,28 @@ function* movimientoPorPasos(cuadros, cortes, { duracion } = {}) {
     for (let i = 0; i < n; i++) { const t = cuadros[i].t; if (t >= inicio - 1e-6 && t < fin - 1e-6 && !tapado(t)) idx.push(i); }
     const plano = { indice: p, inicio: r3(inicio), fin: r3(fin) };
     const objs = idx.map(i => objetoEn(cuadros[i]));
-    // la caja de la pieza (con un margen) separa los bloques del centro de los del fondo
     const pasos = [{ t: idx.length ? r3(cuadros[idx[0]].t) : r3(inicio), giro: 0, zoom: 1, inclinacion: 0, lateral: 0, altura: 0, rodar: 0 }];
     const crudos = [];
     for (let k = 0; k + 1 < idx.length; k++) {
       const a = cuadros[idx[k]], b = cuadros[idx[k + 1]], o = objs[k];
+      // la caja de la pieza (con un margen) separa los bloques del centro de los del fondo
       // (en un macro la pieza llena el cuadro: el centro y el borde igual se separan para ver si el borde se mueve con ella)
-      const caja = o && !o.llena ? cajaDilatada(o) : { x0: 0.25, x1: 0.75, y0: 0.25, y1: 0.75 };
-      const m = movimientoEntre(a, b, caja, o && !o.llena ? o : null);
-      crudos.push({ m, o, dt: b.t - a.t, t: b.t, w: a.w, h: a.h });
+      const pieza = o && !o.llena;
+      const caja = pieza ? cajaDilatada(o) : { x0: 0.25, x1: 0.75, y0: 0.25, y1: 0.75 };
+      const m = movimientoEntre(a, b, caja, pieza ? o : null);
+      // los bloques dan el punto de partida; el ajuste directo, la medida fina de la pieza y del fondo
+      const semilla = M => (M ? [M.a[0], M.a[1], M.a[2], M.b[0], M.b[1], M.b[2], 0, 0] : null);
+      const enCaja = pieza ? (x, y) => x >= caja.x0 && x <= caja.x1 && y >= caja.y0 && y <= caja.y1 : () => true;
+      let dirPieza = movimientoDirecto(a, b, enCaja, { modelo: 8, p0: semilla(m.pieza || m.todo) });
+      if (dirPieza && dirPieza.n < 60) dirPieza = null;
+      let dirFondo = null;
+      if (pieza) {
+        const lejos = cajaDilatada(o, 0.04);
+        dirFondo = movimientoDirecto(a, b, (x, y) => !(x >= lejos.x0 && x <= lejos.x1 && y >= lejos.y0 && y <= lejos.y1), { modelo: 4, p0: semilla(m.fondo && m.fondo !== m.pieza ? m.fondo : m.todo) });
+        // un fondo liso (el degradado de la marca) casi no tiene con qué medir: no cuenta
+        if (dirFondo && dirFondo.n < 150) dirFondo = null;
+      }
+      crudos.push({ m, dirPieza, dirFondo, o, dt: b.t - a.t, t: b.t, w: a.w, h: a.h });
       hechos++;
       yield hechos / Math.max(1, n);
     }
@@ -692,14 +859,44 @@ function* movimientoPorPasos(cuadros, cortes, { duracion } = {}) {
   return planos;
 }
 
-function cajaDilatada(o) {
-  const mx = Math.max(0.06, o.w * 0.15), my = Math.max(0.04, o.h * 0.15), cx = o.cx ?? o.x, cy = o.cy ?? o.y;
+function cajaDilatada(o, extra = 0) {
+  const mx = Math.max(0.06, o.w * 0.15) + extra, my = Math.max(0.04, o.h * 0.15) + extra, cx = o.cx ?? o.x, cy = o.cy ?? o.y;
   return { x0: cx - o.w / 2 - mx, x1: cx + o.w / 2 + mx, y0: cy - o.h / 2 - my, y1: cy + o.h / 2 + my };
 }
 function resumenObjeto(objs) {
   const v = objs.filter(Boolean);
   if (!v.length) return { x: 0.5, y: 0.5, tam: 1, llena: false, visto: false };
   return { x: r3(mediana(v.map(o => o.x))), y: r3(mediana(v.map(o => o.y))), tam: r3(mediana(v.map(o => o.tam))), llena: v.some(o => o.llena), visto: true };
+}
+
+// Ancho aparente de una pieza plana (un aro, un dije) girada θ desde de frente: |cos θ| + ε·|sin θ| (ε: su grosor, con la
+// cabeza o la piedra, en proporción al ancho)
+const anchoGirado = (th, eps) => { const r = th * Math.PI / 180; return Math.abs(Math.cos(r)) + eps * Math.abs(Math.sin(r)); };
+// Ajusta la serie del ancho relativo (ln, el primero = 0) con una pieza que gira de θ0 a θ0 + Δ siguiendo una curva.
+// Devuelve { delta (≥ 0, grados), theta0, curva, error } o null. El sentido no sale de aquí (el ancho es simétrico): lo da
+// el trapecio. Se prefiere empezar cerca de de frente, recorrer poco y las curvas sencillas.
+export function ajustarGiro3D(us, lnA) {
+  const n = us.length;
+  if (n < 3) return null;
+  const sel = [];
+  const salto = Math.max(1, Math.floor(n / 40));
+  for (let k = 0; k < n; k += salto) sel.push(k);
+  if (sel[sel.length - 1] !== n - 1) sel.push(n - 1);
+  let mejor = null;
+  for (const eps of [0.1, 0.25, 0.4]) for (const [curva, fn] of Object.entries(CURVAS_AJUSTE)) {
+    const castigo = curva === 'lineal' ? 0 : curva === 'suave' ? 0.003 : 0.006;
+    const fu = sel.map(k => fn(us[k]));
+    for (let th0 = -85; th0 <= 85; th0 += 5) {
+      const g0 = Math.log(anchoGirado(th0, eps));
+      for (let D = 2.5; D <= 270; D += 2.5) {
+        let e = 0;
+        for (let q = 0; q < sel.length; q++) { const d = Math.log(anchoGirado(th0 + D * fu[q], eps)) - g0 - lnA[sel[q]]; e += d * d; }
+        e = Math.sqrt(e / sel.length) + castigo + 0.0015 * Math.abs(th0) / 10 + 0.001 * D / 30;
+        if (!mejor || e < mejor.error) mejor = { delta: D, theta0: th0, curva, eps, error: e };
+      }
+    }
+  }
+  return mejor;
 }
 
 // De los ajustes de cada par de cuadros a las pistas de la app
@@ -712,11 +909,16 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
   const vistos = objs.filter(o => o && !o.llena).length / objs.length;
   const llena = objs.filter(o => o?.llena).length > objs.length / 2;
 
-  // por paso: traslación de la pieza (en su centro), del fondo (si se ve), escalas y giro de imagen
+  // por paso: traslación de la pieza (en su centro) y del fondo (si se ve), escalas, giro de la imagen y trapecios
   const P = crudos.map((c, k) => {
-    const px = ox[k], py = oy[k], m = c.m;
-    const tc = m.pieza ? evaluarAfin(m.pieza, px, py) : null, tf = m.fondo ? evaluarAfin(m.fondo, px, py) : null;
-    return { tc, tf, capas: m.capas, dP: m.pieza ? descomponer(m.pieza) : null, dF: m.fondo ? descomponer(m.fondo) : null, radio: m.capas === 2 ? m.radioPieza : null, t: c.t, objDx: ox[k + 1] - ox[k], objDy: oy[k + 1] - oy[k] };
+    const px = ox[k], py = oy[k], m = c.m, dP = c.dirPieza, dF = c.dirFondo;
+    // con dos capas en los bloques (la textura de la pieza corre y el resto queda quieto), su traslación es la de la capa:
+    // el ajuste directo de toda la caja se quedaría con lo quieto
+    const tc = m.capas === 2 && m.pieza ? evaluarAfin(m.pieza, px, py) : dP ? flujoModelo(dP.p, px, py, dP.f) : m.pieza ? evaluarAfin(m.pieza, px, py) : null;
+    const tf = dF ? flujoModelo(dF.p, px, py, dF.f) : m.fondo && !dP ? evaluarAfin(m.fondo, px, py) : null;
+    const lP = dP ? leerModelo(dP) : m.pieza ? { ...descomponer(m.pieza), c1: 0, c2: 0 } : null;
+    const lF = dF ? leerModelo(dF) : m.fondo && !dP ? { ...descomponer(m.fondo), c1: 0, c2: 0 } : null;
+    return { tc, tf, capas: m.capas, lP, lF, radio: m.capas === 2 ? m.radioPieza : null, t: c.t, objDx: ox[k + 1] - ox[k], objDy: oy[k + 1] - oy[k] };
   });
   const suma = f => P.reduce((a, p) => a + (f(p) || 0), 0);
   const conPieza = P.filter(p => p.tc).length / P.length;
@@ -742,7 +944,6 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
     if (Sf !== null && Math.abs(Sc) >= 1.5) {
       if (Math.abs(Sf - Sc) < 0.35 * Math.abs(Sc) + 1) return true;   // el fondo va con la pieza
       if (conFondo > 0.6) {
-        // la pieza se mueve distinto que el fondo: ¿la silueta acompaña (se traslada) o se queda (gira)?
         if (llena || vistos < 0.5) return false;
         const rel = Sc - Sf, relO = Do * conFondo - Sf;
         return Math.sign(relO) === Math.sign(rel) && Math.abs(relO) > 0.5 * Math.abs(rel);
@@ -752,34 +953,67 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
     return Math.sign(Do) === Math.sign(Dc) && Math.abs(Do) > 0.5 * Math.abs(Dc);
   };
   const tx = traslada(Dcx, Scx, Sfx, Dox), ty = traslada(Dcy, Scy, Sfy, Doy);
-  if (globalThis.__depurar) console.log({ Dcx, Scx, Sfx, Dox, Dcy, Scy, Sfy, Doy, conFondo, conPieza, dosCapas, vistos, llena, tx, ty, radioX, radioY });
 
-  // zoom de cada paso: la escala vertical si gira en horizontal (la silueta se encoge a lo ancho al girar), la horizontal si
-  // gira en vertical, y la media si nada gira
+  // Giro 3D de una pieza que no es un disco plano de frente: la silueta se angosta (gira alrededor de un eje vertical) o se
+  // achata (eje horizontal) sin que la otra medida cambie igual; el trapecio dice hacia qué lado. Un zoom cambia las dos igual.
+  const conLP = P.filter(p => p.lP);
+  let lx = 0, ly = 0;
+  const serieX = [0], serieY = [0];
+  P.forEach(p => { if (p.lP) { lx += Math.log(limitar(p.lP.sx, 0.5, 2)); ly += Math.log(limitar(p.lP.sy, 0.5, 2)); } serieX.push(lx); serieY.push(ly); });
+  const Sc1 = conLP.reduce((a, p) => a + p.lP.c1, 0), Sc2 = conLP.reduce((a, p) => a + p.lP.c2, 0);
+  const A1 = conLP.reduce((a, p) => a + Math.abs(p.lP.c1), 0), A2 = conLP.reduce((a, p) => a + Math.abs(p.lP.c2), 0);
+  const eje = Math.abs(Sc1) >= Math.abs(Sc2) ? 'x' : 'y';
+  const serieA = serieX.map((x, k) => (eje === 'x' ? x - serieY[k] : serieY[k] - x));
+  const rangoA = Math.max(...serieA) - Math.min(...serieA);
+  const Sk = eje === 'x' ? Sc1 : -Sc2, coherenciaK = (eje === 'x' ? Math.abs(Sc1) / Math.max(1e-9, A1) : Math.abs(Sc2) / Math.max(1e-9, A2));
+  // con el fondo a la vista y quieto, la cámara no se acercó: lo que cambió la silueta es la pieza girando
+  let giro3D = null;
+  if (conLP.length >= 3 && rangoA > 0.05 && coherenciaK > 0.4 && Math.abs(Sk) > 4) {
+    const t0m = pasosT0(P, pasos), t1m = P[P.length - 1].t;
+    const us = [pasos[0].t, ...P.map(p => p.t)].map(t => (t1m > t0m ? (t - t0m) / (t1m - t0m) : 0));
+    const aj = ajustarGiro3D(us, serieA);
+    if (aj && aj.delta >= 5) giro3D = { ...aj, signo: Math.sign(Sk), eje, us, coherencia: coherenciaK };
+  }
+  // sin silueta que cambie, un trapecio fuerte y parejo también es un giro (una pieza redonda que rota, vista de lado)
+  if (!giro3D && conLP.length >= 3 && coherenciaK > 0.7 && Math.abs(Sk) > 15 && (eje === 'x' ? !tx || Math.abs(Dcx) < 0.05 * w : !ty || Math.abs(Dcy) < 0.05 * h)) {
+    giro3D = { delta: Math.abs(Sk), theta0: 0, curva: null, signo: Math.sign(Sk), eje, porTrapecio: true, coherencia: coherenciaK };
+  }
+
+  // zoom de cada paso: la escala del eje que no gira (la silueta se angosta al girar, la altura no), o la media
   const escalaPaso = p => {
-    const d = p.dP; if (!d) return 1;
+    const d = p.lP; if (!d) return 1;
+    if (giro3D && !giro3D.porTrapecio) return giro3D.eje === 'x' ? d.sy : d.sx;
     if (!tx && ty) return d.sy;
     if (tx && !ty) return d.sx;
-    if (!tx && !ty) return Math.sqrt(Math.max(1e-6, d.sx * d.sy));
-    return d.escala;
+    return Math.sqrt(Math.max(1e-6, d.sx * d.sy));
   };
   const acc = { giro: 0, zoom: 1, inclinacion: 0, lateral: 0, altura: 0, rodar: 0 };
   const vel = [];
-  P.forEach(p => {
+  P.forEach((p, k) => {
     const cx = p.tc ? p.tc[0] : p.objDx, cy = p.tc ? p.tc[1] : p.objDy;
-    const fx = p.tf ? p.tf[0] : 0, fy = p.tf ? p.tf[1] : 0;
     let dl, da, dg = 0, di = 0;
     // girando, el frente de la pieza corre a la izquierda cuando la cámara rodea hacia la derecha (giro positivo en la app)
     if (tx) dl = cx / (w / 2); else { dg = -(cx - p.objDx) / (K_GIRO * radioX) * GRADOS; dl = p.objDx / (w / 2); }
     if (ty) da = -cy / (h / 2); else { di = (cy - p.objDy) / (K_INCLINACION * radioY) * GRADOS; da = -p.objDy / (h / 2); }
-    void fx; void fy;
+    if (giro3D) {
+      // el giro 3D manda en su eje: lo que traía el corrimiento de la textura se reemplaza por el del modelo
+      const paso = giro3D.porTrapecio ? (giro3D.eje === 'x' ? p.lP?.c1 || 0 : -(p.lP?.c2 || 0))
+        : giro3D.signo * giro3D.delta * (CURVAS_AJUSTE[giro3D.curva](giro3D.us[k + 1]) - CURVAS_AJUSTE[giro3D.curva](giro3D.us[k]));
+      if (giro3D.eje === 'x') dg = paso; else di = paso;
+    }
     const z = limitar(escalaPaso(p), 0.7, 1.4);
-    // roll: el giro de toda la imagen (el del fondo si se ve; si no, el de la pieza)
-    const rot = p.dF ? p.dF.rot : p.dP ? p.dP.rot : 0;
-    acc.giro += dg; acc.inclinacion += di; acc.lateral += dl; acc.altura += da; acc.zoom *= z; acc.rodar += rot;
+    // roll: el giro de toda la imagen (el del fondo si se ve; si no, el de la pieza). En la app, rodar positivo ladea la
+    // cámara a la derecha: la imagen gira al revés del reloj
+    const rot = p.lF ? p.lF.rot : p.lP ? p.lP.rot : 0;
+    acc.giro += dg; acc.inclinacion += di; acc.lateral += dl; acc.altura += da; acc.zoom *= z; acc.rodar -= rot;
     pasos.push({ t: r3(p.t), giro: r2(acc.giro), zoom: r3(acc.zoom), inclinacion: r2(acc.inclinacion), lateral: r3(acc.lateral), altura: r3(acc.altura), rodar: r2(acc.rodar) });
-    vel.push({ dg, di, dl, da, dz: Math.log(z), rot });
+    vel.push({ dg, di, dl, da, dz: Math.log(z), rot: -rot });
   });
+  // una pieza que gira en 3D, vista sin fondo, «ladea» un poco su silueta (la perspectiva): no es un roll de la cámara
+  const sinFondoRot = P.filter(p => p.lF).length < P.length / 2;
+  if (giro3D && sinFondoRot && Math.abs(acc.rodar) < 0.35 * giro3D.delta) {
+    acc.rodar = 0; pasos.forEach(q => { q.rodar = 0; }); vel.forEach(v => { v.rot = 0; });
+  }
 
   // confianza: cuántos pasos tienen medida, y si el movimiento va siempre hacia el mismo lado
   const coherencia = f => { const tot = vel.reduce((a, v) => a + Math.abs(f(v)), 0), neto = Math.abs(vel.reduce((a, v) => a + f(v), 0)); return tot > 1e-9 ? neto / tot : 0; };
@@ -791,7 +1025,8 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
   const total = serie[serie.length - 1] - serie[0];
   const t0 = pasos[0].t, t1 = pasos[pasos.length - 1].t;
   let curva = 'lineal', errorCurva = 0;
-  if (Math.abs(total) > 1e-6 && t1 > t0) ({ curva, error: errorCurva } = ajustarCurva(pasos.map((p, k) => ({ u: (p.t - t0) / (t1 - t0), v: (serie[k] - serie[0]) / total }))));
+  if (giro3D?.curva && (dominante === 'giro' || dominante === 'inclinacion') && (giro3D.eje === 'x') === (dominante === 'giro')) ({ curva, error: errorCurva } = { curva: giro3D.curva, error: r3(giro3D.error) });
+  else if (Math.abs(total) > 1e-6 && t1 > t0) ({ curva, error: errorCurva } = ajustarCurva(pasos.map((p, k) => ({ u: (p.t - t0) / (t1 - t0), v: (serie[k] - serie[0]) / total }))));
   // lo medido va del primer al último cuadro mirado; el plano sigue hasta un cuadro antes del corte (y empieza en el corte):
   // se extiende el recorrido a todo el plano con la forma de la curva (en un «frenar» el final casi no suma)
   const fn = CURVAS_AJUSTE[curva], largo = Math.max(1e-3, fin - 1 / 30 - inicio);
@@ -802,10 +1037,11 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
   const o0 = resumenObjeto(objs.slice(0, 3));
   const zoomDesde = limitar(o0.llena ? 2.6 : o0.tam / TAM_ZOOM_1, 0.4, 4);
   const lat0 = limitar(2 * (o0.x - 0.5), -0.5, 0.5), alt0 = limitar(1 - 2 * o0.y, -0.5, 0.5);
+  const confGiro3D = giro3D ? r2(limitar(conPieza * giro3D.coherencia * limitar(giro3D.delta / 20, 0, 1) * (giro3D.porTrapecio ? 0.6 : 1), 0, 1)) : null;
   const movimiento = {
-    giro: { grados: r2(acc.giro), confianza: conf(v => v.dg, acc.giro, 12) },
+    giro: { grados: r2(acc.giro), confianza: giro3D?.eje === 'x' ? confGiro3D : conf(v => v.dg, acc.giro, 12) },
     zoom: { desde: r2(zoomDesde), hasta: r2(limitar(zoomDesde * acc.zoom, 0.4, 4)), factor: r3(acc.zoom), confianza: conf(v => v.dz, Math.log(acc.zoom), 0.06) },
-    inclinacion: { delta: r2(acc.inclinacion), confianza: conf(v => v.di, acc.inclinacion, 8) },
+    inclinacion: { delta: r2(acc.inclinacion), confianza: giro3D?.eje === 'y' ? confGiro3D : conf(v => v.di, acc.inclinacion, 8) },
     lateral: { desde: r3(lat0), hasta: r3(limitar(lat0 + acc.lateral, -0.5, 0.5)), delta: r3(acc.lateral), confianza: conf(v => v.dl, acc.lateral, 0.08) },
     altura: { desde: r3(alt0), hasta: r3(limitar(alt0 + acc.altura, -0.5, 0.5)), delta: r3(acc.altura), confianza: conf(v => v.da, acc.altura, 0.08) },
     rodar: { grados: r2(acc.rodar), confianza: conf(v => v.rot, acc.rodar, 4) },
@@ -813,8 +1049,11 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
     fondoVisible: conFondo > 0.6,
     curva, errorCurva, principal: dominante, extension: r2(k),
   };
+  if (giro3D) oculto(movimiento, 'giro3D', { eje: giro3D.eje, delta: giro3D.delta, theta0: giro3D.theta0, curva: giro3D.curva, trapecio: r2(Sk), porTrapecio: !!giro3D.porTrapecio });
+  if (globalThis.__depurar) console.log({ Dcx, Scx, Sfx, Dox, Dcy, Scy, Sfy, Doy, conFondo, conPieza, dosCapas, vistos, llena, tx, ty, radioX, radioY, Sc1, Sc2, rangoA, eje, coherenciaK, giro3D });
   return { pasos, movimiento };
 }
+const pasosT0 = (P, pasos) => pasos[0].t;
 
 // cuánto se nota cada pista (para escoger la principal): 30° de giro ≈ zoom ×1,25 ≈ 0,15 de corrimiento ≈ 10° de roll
 function principal(acc) {
@@ -1088,6 +1327,6 @@ export async function analizarVideo(fuente, { alAvanzar, cancelado, fps = FPS_AN
     };
   } finally {
     lectura.video.cerrar();
-    cachePiramides.clear();
+    cachePiramides.clear(); cacheSuaves.clear();
   }
 }

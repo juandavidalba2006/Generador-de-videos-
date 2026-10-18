@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { PhysicalSpotLight, ShapedAreaLight } from 'three-gpu-pathtracer';
 import { mapaNormalDesde } from './texturas.js';
 import { normalizarEscena } from './escenas.js';
@@ -84,7 +85,7 @@ function puntos(N, cantidad, semilla, { rx = [1, 3], ry = [1, 3], fuerza = [0.5,
 // ---------- Materiales ----------
 // T: lado de una repetición de la textura, en radios de la joya; N: píxeles; rug: rugosidad (mín, máx)
 const TIPOS = {
-  yeso:         { T: 3.2, N: 1024, rug: [0.84, 0.96], relieve: 0.14 },
+  yeso:         { T: 3.2, N: 1024, rug: [0.84, 0.96], relieve: 0.06 },
   travertino:   { T: 6,   N: 1024, rug: [0.55, 0.85], relieve: 0.8 },
   marmolBlanco: { T: 8,   N: 1024, rug: [0.1, 0.2],   relieve: 0.06, capa: 0.5 },
   marmolNegro:  { T: 8,   N: 1024, rug: [0.08, 0.18], relieve: 0.06, capa: 0.6 },
@@ -108,8 +109,9 @@ function patron(tipo) {
     // yeso de estudio: casi liso, con un grano finísimo y manchas suaves de la mano del yesero
     const fino = fbm(N, 160, 2, 11), mancha = fbm(N, 3, 4, 12), poro = puntos(N, 260, 13, { rx: [0.6, 1.3], ry: [0.6, 1.3], fuerza: [0.2, 0.6] });
     for (let i = 0; i < n; i++) {
-      alto[i] = 0.55 + 0.3 * (fino[i] - 0.5) + 0.08 * (mancha[i] - 0.5) - 0.3 * poro[i];
-      varia[i] = 1 + 0.045 * (mancha[i] - 0.5) + 0.02 * (fino[i] - 0.5) - 0.03 * poro[i];
+      alto[i] = 0.55 + 0.2 * (fino[i] - 0.5) + 0.08 * (mancha[i] - 0.5) - 0.3 * poro[i];
+      // (el grano casi no cambia el color: a la distancia de la foto el yeso se ve liso, no como arena)
+      varia[i] = 1 + 0.045 * (mancha[i] - 0.5) + 0.008 * (fino[i] - 0.5) - 0.015 * poro[i];
       rug[i] = fino[i];
     }
   } else if (tipo === 'travertino') {
@@ -497,23 +499,30 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
 // detrás de la joya (en radios, la joya en 0, 0). Así los parales, el arco o las hojas se ven siempre en el cuadro, venga
 // de donde venga la luz, y la joya queda en un vidrio iluminado. lado: −1 si la luz viene de la izquierda, 1 si de la derecha.
 const LIBRE = 1.3;   // radio alrededor de la joya que ningún paral ni hoja tapa
-function gobo(tipo, proy, lado = -1) {
+// proyTope(x, z): lo mismo para un punto de la cara de arriba de la superficie; R: radio de esa cara (en radios)
+function gobo(tipo, proy, lado = -1, proyTope = null, R = 1.5) {
   const X = (x, y = 1.5) => proy(x, y).x, Y = (x, y) => proy(x, y).y;
   // un paral nunca pasa sobre la joya: se corre hasta dejarla libre
   const fuera = (v, ancho) => (Math.abs(v) - ancho >= LIBRE ? v : Math.sign(v || lado) * (LIBRE + ancho));
   if (tipo === 'ventana') {
-    // ventana de vidrios: con la cámara normal el fondo visible va de la base de la joya a ~1,6 radios de alto y ±1,8 a los
-    // lados; ahí caen el paral vertical (del lado de la luz) y el travesaño (en diagonal, justo encima de la joya). Al
-    // alejarse se ve además el borde de arriba de la ventana
-    const ax = 0.36 * Math.abs(X(1) - X(0)), ay = 0.36 * Math.abs(Y(0, 1) - Y(0, 0));
-    const mx = fuera(X(lado * 1.0), ax), my = fuera(Y(0, 1.2), ay);
-    const lejosX = X(lado * 4.5), cercaX = X(-lado * 4.5);
-    const x0 = Math.min(lejosX, cercaX, -2.8), x1 = Math.max(lejosX, cercaX, 2.8);
-    const y0 = Math.min(Y(0, -3), -2.9), y1 = Math.max(Y(0, 2.9), my + ay + 1);
-    // un travesaño más abajo cruza el borde de adelante del pedestal (una franja de sombra como en las fotos de estudio)
-    const yb = -(LIBRE + ay + 0.5);
-    const cortes = [[x0, mx - ax], [mx + ax, x1]], filas = [[y0, yb - ay], [yb + ay, my - ay], [my + ay, y1]], huecos = [];
-    for (const [a, b] of cortes) for (const [c, d] of filas) if (b > a && d > c) huecos.push(rect(a, c, b, d));
+    // ventana de cuatro vidrios, pensada como la foto de referencia. Visto desde la luz, el fondo que se ve detrás de la
+    // joya cae a un lado de ella (el de la luz) y la cara del pedestal alrededor de ella. Así:
+    //  · un paral en el borde del cuadro del lado contrario a la luz y otro a un lado de la joya: dos franjas verticales en
+    //    el fondo (el primero cruza además el pedestal por detrás de la joya, en diagonal);
+    //  · un travesaño que en el fondo pasa en diagonal justo por encima de la joya;
+    //  · el marco del lado contrario a la luz roza la joya: su sombra se come el frente del pedestal en diagonal;
+    //  · el alféizar baja por el costado del pedestal y el dintel queda arriba (se ven al alejarse: un charco de luz).
+    const ax = 0.22, ay = 0.2;   // medio paral y medio travesaño, en radios en el plano de la joya
+    const m1 = fuera(X(-lado * 1.55), ax), m2 = fuera(X(lado * 0.8), ax), t1 = fuera(Y(0, 1.15), ay);
+    const cerca = -lado * (LIBRE + 0.15);   // el marco que roza la joya (del lado del frente)
+    const lejos = lado * Math.max(Math.abs(X(lado * 2.7)), Math.abs(m2) + ax + 0.6, Math.abs(m1) + ax + 0.6);
+    const frente = proyTope ? proyTope(0, R).y : -1.5;   // el borde de adelante de la cara del pedestal
+    const y0 = Math.min(frente - 0.6, -(LIBRE + 0.4)), y1 = Math.max(Y(0, 3.2), t1 + ay + 1);
+    // los vidrios: el vano entre los dos marcos menos los parales (que nunca tocan la joya: la joya queda siempre en un vidrio)
+    let cortes = [[Math.min(cerca, lejos), Math.max(cerca, lejos)]];
+    for (const m of [m1, m2]) cortes = cortes.flatMap(([a, b]) => [[a, Math.min(b, m - ax)], [Math.max(a, m + ax), b]]);
+    const filas = [[y0, t1 - ay], [t1 + ay, y1]], huecos = [];
+    for (const [a, b] of cortes) for (const [c, d] of filas) if (b - a > 0.05 && d - c > 0.05) huecos.push(rect(a, c, b, d));
     return { pared: true, huecos };
   }
   if (tipo === 'persiana') {
@@ -832,7 +841,8 @@ export class Escenario3D {
     // foco). El fondo está en z = −B; el punto se lleva al plano de la joya a lo largo de la luz
     const ex = new THREE.Vector3(0, 1, 0).cross(L).normalize(), ey = L.clone().cross(ex), B = this.limites.fondo / u, q = new THREE.Vector3();
     const proy = (x, y) => { q.set(x, y, -B); return { x: q.dot(ex), y: q.dot(ey) }; };
-    const g = gobo(l.gobo, proy, L.x < 0 ? -1 : 1);
+    const T = this.limites.tope / u, proyTope = (x, z) => { q.set(x, T, z); return { x: q.dot(ex), y: q.dot(ey) }; };
+    const g = gobo(l.gobo, proy, L.x < 0 ? -1 : 1, proyTope, Math.max(this.limites.radioSup / u, 1));
     const color = colorLuz(l.calidez), E = 2.6 * l.intensidad;   // irradiancia en la joya (la escala la da la exposición)
     const foco = l.gobo === 'foco', sinGobo = l.gobo === 'ninguno';
     // D: distancia del disco de la luz (en el trazador) = vértice del foco del motor rápido; así el patrón y el cono coinciden
@@ -924,6 +934,77 @@ export class Escenario3D {
     for (const k of ['sup', 'fondo']) if (this.mats[k]) { this.mats[k].map?.dispose(); this.mats[k].dispose(); this.mats[k] = null; }
     this.cfg = null; this.claves = {}; this.limites = null; this.luz = null;
   }
+}
+
+// ---------- Limpieza del ruido del escenario en el render realista ----------
+// El trazador converge rápido en la joya (refleja luces) pero lento en el yeso del fondo y del pedestal, que recibe la luz
+// rebotada de toda la sala: a 48–128 muestras queda un grano que en el video «hierve» cuadro a cuadro. Al terminar el
+// cuadro se promedia cada píxel del escenario con sus vecinos parecidos, guiado por el mismo cuadro hecho con el motor
+// rápido (sin ruido, con las mismas texturas y la misma ventana): solo se mezclan píxeles con el mismo dibujo en la guía,
+// así no se borran las vetas, el grano de la arena ni el borde de las sombras. La joya (su silueta, con el borde suave)
+// queda tal cual, con todos sus destellos, y sus píxeles no entran en el promedio del fondo.
+const SOMBREADOR_LIMPIEZA = {
+  uniforms: { mapaPT: { value: null }, guia: { value: null }, mascara: { value: null }, pixel: { value: new THREE.Vector2() }, salto: { value: 1 }, sigmaColor: { value: 0.1 }, sigmaGuia: { value: 0.035 } },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D mapaPT, guia, mascara;
+    uniform vec2 pixel;
+    uniform float salto, sigmaColor, sigmaGuia;
+    varying vec2 vUv;
+    // a valores de pantalla (con la exposición y el tono del estudio): el ruido y los bordes se miden como se ven
+    vec3 pantalla( vec3 c ) {
+      #ifdef TONE_MAPPING
+      c = toneMapping( c );
+      #endif
+      return linearToOutputTexel( vec4( c, 1.0 ) ).rgb;
+    }
+    vec3 trazado( vec2 uv ) { return pantalla( texture2D( mapaPT, uv ).rgb ); }
+    vec3 guiado( vec2 uv ) { return pantalla( texture2D( guia, uv ).rgb ); }
+    void main() {
+      vec3 c0 = trazado( vUv );
+      // cuánto del píxel es joya (la silueta viene suavizada en los bordes): el borde se mezcla en esa proporción
+      float m = min( 1.0, 1.5 * texture2D( mascara, vUv ).r );
+      if ( m > 0.999 ) { gl_FragColor = vec4( c0, 1.0 ); return; }
+      // el color de referencia es el promedio de 3×3 (un píxel solo es casi puro ruido)
+      vec3 ref = vec3( 0.0 );
+      for ( int j = -1; j <= 1; j ++ ) for ( int i = -1; i <= 1; i ++ ) ref += trazado( vUv + vec2( i, j ) * pixel );
+      ref /= 9.0;
+      vec3 g0 = guiado( vUv ), suma = vec3( 0.0 );
+      float peso = 0.0, kc = 0.5 / ( sigmaColor * sigmaColor ), kg = 0.5 / ( sigmaGuia * sigmaGuia );
+      for ( int j = -4; j <= 4; j ++ ) for ( int i = -4; i <= 4; i ++ ) {
+        vec2 d = vec2( i, j ), q = vUv + d * pixel * salto;
+        vec3 c = trazado( q ), dc = c - ref, dg = guiado( q ) - g0;
+        float w = exp( - dot( d, d ) / 12.5 - dot( dg, dg ) * kg - dot( dc, dc ) * kc ) * ( 1.0 - texture2D( mascara, q ).r );
+        suma += c * w; peso += w;
+      }
+      vec3 limpio = peso > 1e-4 ? suma / peso : c0;
+      gl_FragColor = vec4( mix( limpio, c0, m ), 1.0 );
+    }`,
+};
+export class LimpiadorPT {
+  constructor() {
+    const rt = () => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.guia = rt(); this.mascara = rt();
+    this.quad = new FullScreenQuad(new THREE.ShaderMaterial({ ...SOMBREADOR_LIMPIEZA, uniforms: THREE.UniformsUtils.clone(SOMBREADOR_LIMPIEZA.uniforms), depthTest: false, depthWrite: false, blending: THREE.NoBlending }));
+  }
+  tamano(w, h) { for (const t of [this.guia, this.mascara]) if (t.width !== w || t.height !== h) t.setSize(w, h); }
+  // Dibuja en el lienzo el cuadro del trazador (textura lineal) ya limpio; muestras: las que lleva (fija la fuerza)
+  aplicar(renderer, textura, muestras) {
+    const u = this.quad.material.uniforms, w = this.guia.width, h = this.guia.height;
+    u.mapaPT.value = textura; u.guia.value = this.guia.texture; u.mascara.value = this.mascara.texture;
+    u.pixel.value.set(1 / w, 1 / h);
+    // el grano no depende del tamaño del cuadro: en un video grande el promedio toma vecinos más separados (mismo costo)
+    u.salto.value = Math.max(1, Math.round(Math.min(w, h) / 600));
+    // ruido medido en el yeso (pantalla, 0..1): ≈ 0,3/√muestras; se mezcla lo que difiere menos de unas 2,5 veces eso
+    u.sigmaColor.value = 2.5 * 0.3 / Math.sqrt(Math.max(4, muestras));
+    const antes = renderer.getRenderTarget(), auto = renderer.autoClear;
+    renderer.setRenderTarget(null); renderer.autoClear = false;
+    this.quad.render(renderer);
+    renderer.autoClear = auto; renderer.setRenderTarget(antes);
+  }
+  dispose() { this.guia.dispose(); this.mascara.dispose(); this.quad.material.dispose(); this.quad.dispose(); }
 }
 
 // (para las pruebas)

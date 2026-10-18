@@ -60,7 +60,7 @@ export const ESCENAS = {
   'pedestal-arena': {
     nombre: 'Pedestal arena', descripcion: 'Pedestal redondo de yeso, fondo taupe y luz de ventana.',
     superficie: S('cilindro', 'yeso', '#D8CFC4', { tamano: 1.15, altura: 1.4 }), fondo: F('curva', 'yeso', '#BAA698'),
-    luz: L('ventana', { angulo: -38, elevacion: 38, suavidad: 0.3, intensidad: 1.15, calidez: 0.2 }), ambiente: 0.65,
+    luz: L('ventana', { angulo: 35, elevacion: 38, suavidad: 0.3, intensidad: 1.15, calidez: 0.2 }), ambiente: 0.65,
   },
   travertino: {
     nombre: 'Travertino', descripcion: 'Bloque de travertino con sombras de persiana.',
