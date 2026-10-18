@@ -1,12 +1,13 @@
 # Generador de videos · Atelier & Co
 
 Estudio de video en el navegador para crear videos de joyería a partir de archivos **STL**, con render
-**hiperrealista** (trazado de rayos), listos para un reel de Instagram o para el catálogo.
+**hiperrealista** (trazado de rayos), listos para un reel de Instagram o para el catálogo. La joya se apoya en una
+**escena 3D** (pedestal, fondo y luz de ventana, como en una foto de estudio) o flota sobre el fondo liso de la marca.
 Usa el mismo estilo, los mismos colores y las mismas tipografías que la página de Atelier & Co.
 
 Funciona como un editor de video (al estilo de CapCut): arriba la **vista previa** y, a su lado, el **inspector**
-con pestañas (Modelo, Materiales, Textos, Sonido, Asistente y Exportar); abajo, a todo el ancho, la **línea de
-tiempo** con keyframes, textos y sonidos. Cuando bajas a la línea de tiempo, la joya se sigue viendo en miniatura en
+con pestañas (Modelo, Materiales, Escena, Textos, Sonido, Asistente, Replicar y Exportar); abajo, a todo el ancho, la
+**línea de tiempo** con keyframes, cortes, textos y sonidos. Cuando bajas a la línea de tiempo, la joya se sigue viendo en miniatura en
 el menú lateral (tócala para volver arriba). En el celular todo queda en una sola columna: vista previa, pestañas y
 línea de tiempo.
 
@@ -18,13 +19,41 @@ línea de tiempo.
 2. **Materiales**: metal (oro amarillo, rosa o blanco 18k o 14k, plata 925, platino), acabado (pulido espejo,
    pulido, satinado, arenado) y piedra (diamante, esmeralda, rubí, zafiro, perla…). Aquí también van los
    **bitmaps** de las piedras y del metal y la **iluminación HDRI** (ver más abajo).
-3. **Línea de tiempo**: escoge un *Movimiento base* y ajústalo con **keyframes**, o pídeselo al **Asistente**.
-4. **Textos** y **Sonido**: plantillas con gancho, efectos virales y música.
-5. **Exportar**: formato, fondo, sombra, calidad y cuadros por segundo. *Crear video* hace el MP4 (con sonido);
+3. **Escena**: dónde se apoya la joya (pedestal de yeso, mármol, travertino, terciopelo, arena…), el fondo y la luz
+   con sombras de ventana, persiana u hojas de palmera. *Fondo liso de marca* es el degradado de siempre, con su fondo y su
+   sombra (ver «Escenas» más abajo).
+4. **Línea de tiempo**: escoge un *Movimiento base* y ajústalo con **keyframes** y **cortes**, o pídeselo al **Asistente**.
+5. **Textos** y **Sonido**: plantillas con gancho, efectos virales y música.
+6. **Replicar**: pega el enlace de un reel de Instagram que te guste (o sube el video) y el estudio copia sus
+   movimientos de cámara, sus cortes y su fondo con tu joya (ver «Replicar un reel» más abajo).
+7. **Exportar**: formato, calidad y cuadros por segundo. *Crear video* hace el MP4 (con sonido);
    *Foto para catálogo* descarga un PNG hiperrealista del cuadro donde está el cabezal.
 
 Con **Ver este cuadro hiperrealista** (debajo de la vista previa) revisas cómo quedará el render final antes de
 crear todo el video. La barra espaciadora reproduce o pausa, y el botón del parlante activa el sonido de la vista previa.
+
+## Escenas (pestaña Escena)
+
+Una escena es el lugar donde está la joya: una **superficie** (pedestal redondo, bloque, losa baja, escalones, cojín o
+directo en el piso), un **fondo** (curvo sin esquinas, pared y piso, o un nicho con arco) y una **luz** que puede dibujar
+sombras de **ventana**, **persiana**, **hojas de palmera**, una ventana con arco o un **foco** de luz. El estudio arranca con
+*Pedestal arena*: el pedestal de yeso, el fondo taupe y la luz de ventana de las fotos de catálogo.
+
+- Toca una tarjeta para cambiar de escena: hay 11 listas (Pedestal arena, Travertino, Mármol blanco, Mármol negro, Podio de
+  escalones, Nicho con arco, Sombras de palmera, Terciopelo esmeralda, Acrílico espejo, Arena y sol, Rosa empolvado).
+- **Personalizar**: cambia la forma, el material (yeso, travertino, mármol, concreto, terciopelo, lino, arena, madera,
+  acrílico) y el color de la superficie y del fondo; de dónde viene la luz, qué tan alta está, qué tan suaves son las
+  sombras, su intensidad y su calidez, y el relleno de la sala. La tarjeta queda marcada como *Ajustada*; *Volver a la escena
+  lista* la deja como era.
+- **Fondo liso de marca**: la joya flota sobre el degradado de la marca, como antes. Ahí están el **Fondo** (Perla, Oro
+  suave, Rosa empolvado, Bosque, Esmeralda, Granate, Negro estudio) y la **Sombra bajo la pieza**.
+- La escena gira con la cámara, como una tornamesa: el fondo siempre queda detrás de la joya y la pieza parece girar sobre el
+  pedestal. La cámara no baja de la superficie (no se mete dentro del pedestal). En una escena oscura los textos del video se
+  pintan claros solos.
+- La escena se ve en la vista previa y, con la luz y las sombras calculadas de verdad, en el render hiperrealista
+  (el *Desenfoque macro* también desenfoca el fondo, como en una foto con poca profundidad de campo). Con escena, el
+  trazado de rayos tarda unas **6 veces más** por cuadro que con el fondo liso.
+- La escena se guarda con el proyecto. Los proyectos de antes (sin escena) se abren con el fondo liso de marca, como se hicieron.
 
 ## Keyframes (como en CapCut)
 
@@ -45,6 +74,18 @@ Posición lateral, Foco en la piedra, Inclinación (roll), Exposición y Desenfo
   principio, ideal para reels que se repiten sin salto.
 - Los textos se ven como barras (arrástralas o estira sus bordes) y los sonidos como bloques que se pueden correr.
 
+### Cortes
+
+Un **corte** parte el video en planos: en el corte la cámara salta de un keyframe al siguiente sin pasar por el medio,
+como en los reels con varias tomas.
+
+- **✂ Corte en el cabezal** pone un corte donde está el cabezal (o haz doble clic en el carril *Cortes*). Se ve como una
+  marca ✂ arriba de las pistas y una línea que atraviesa todas.
+- Toca la marca para elegir la **transición**: *Corte seco*, *Flash blanco*, *Fundido a negro* o *Barrido*; *Supr* (o
+  *Eliminar*) lo quita. Arrastra la marca para moverlo (los keyframes del corte se mueven con él).
+- Si el corte cae en medio de un giro, la cámara sigue girando a los dos lados del corte (no se congela).
+- Las transiciones se ven en la vista previa y salen en el video. Todo se puede deshacer.
+
 ## Asistente (chat)
 
 En la pestaña **Asistente** describes con tus palabras lo que quieres y el asistente lo convierte en keyframes,
@@ -55,8 +96,12 @@ textos, efectos y música. Por ejemplo:
 - «Hazlo estilo viral con whoosh y brillo»
 - «Vista desde arriba que baja hasta quedar de frente», «dura 10 segundos», «música phonk»,
   «agrega el texto 'Nueva colección' arriba», «precio $ 4.800.000»
+- Cortes: «pon un corte a los 3 segundos», «corte con flash en 2,5», «haz 3 cortes», «cortes al ritmo de la música»,
+  «quita los cortes»
+- Escena: «pon la joya en un pedestal de mármol», «fondo con sombras de palmera», «escena oscura», «luz desde la
+  derecha», «más suave la luz», «sin fondo» (vuelve al fondo liso de marca)
 
-Todo lo que hace se puede deshacer con *Deshacer* en la línea de tiempo.
+Todo lo que hace se puede deshacer con *Deshacer* en la línea de tiempo (también un cambio de escena).
 
 **Con IA (recomendado)**: el asistente usa Claude a través de la función `api/chat.js`. Para activarlo en Vercel:
 
@@ -74,6 +119,33 @@ no puede usarla desde el navegador de sus visitas) y acepta hasta 8 pedidos por 
 conexión. Si publicas el estudio también en un dominio propio, agrégalo en la variable `ORIGENES_PERMITIDOS`
 (por ejemplo `https://www.tudominio.com`; varios, separados por comas). En Anthropic Console también puedes ponerle
 un tope de gasto mensual a la clave.
+
+## Replicar un reel (pestaña Replicar)
+
+¿Viste un reel de joyería que te encantó? El estudio lo mira y arma lo mismo con tu joya:
+
+1. Pega el **enlace del reel** (en Instagram: *Compartir → Copiar enlace*) y toca **Analizar**, o **sube el video**
+   (MP4, MOV o WebM; si dura más de 60 s se usa el primer minuto).
+2. El estudio lo analiza en tu navegador: lee los cuadros, busca los **cortes** (secos, con flash, fundidos a negro o
+   barridos), mide el **movimiento de la cámara** en cada plano (giro, acercamiento, altura, inclinación, posición) y los
+   **colores del fondo y de la superficie**. Con IA, además, Claude mira unos fotogramas y reconoce la joya, el metal, la
+   piedra, la escena, el encuadre de cada plano y los textos que aparecen.
+3. Revisa el resultado: la tira de planos con lo que hace la cámara en cada uno, la escena parecida y la joya. Marca qué
+   quieres usar (*Movimientos y cortes*, *Escena*, *Metal y piedra*, *Textos*, *Sonidos en los cortes*, *Música parecida*,
+   *Duración igual al video*) y toca **Aplicar al proyecto**. Si no te gusta, *Deshacer* lo devuelve todo (también la
+   escena y los materiales).
+
+Lo que hay que saber del enlace, para no llevarse sorpresas:
+
+- Solo funciona con reels **públicos** y cuando Instagram deja que otra página los muestre: no sirve con reels privados, con
+  carruseles de fotos ni con los que tienen música con derechos que Instagram no comparte. Tampoco funciona abriendo el
+  estudio en el computador sin Vercel (dice «El enlace solo funciona en la página publicada; sube el archivo»).
+- Si el enlace no funciona, **descarga el reel** (o graba la pantalla mientras se reproduce) y súbelo: el análisis es el mismo.
+- El video se usa solo como referencia: se analiza en tu navegador y **no se guarda**. Los textos que copie la IA son los de
+  otra marca: por eso vienen sin marcar.
+- **Sin IA** (sin la clave o en el computador) igual se replican los movimientos, los cortes y los colores con el análisis de
+  tu equipo; la joya y los textos se reconocen solo con IA. El análisis con IA usa la misma `ANTHROPIC_API_KEY` del chat
+  (función `api/analizar.js`).
 
 ## Bitmaps y luz (pestaña Materiales)
 
@@ -117,8 +189,8 @@ cuando la cámara llega a la piedra.
 ## Guardar y abrir proyectos
 
 El proyecto se **guarda solo** en este navegador y se recupera al volver a abrir la página. Con
-**Guardar proyecto** descargas un archivo `.atelier.json` (keyframes, textos, sonidos, formato, fondo, materiales y
-los bitmaps escogidos) para seguir en otro momento o en otro equipo con **Abrir**. *Nuevo* empieza de cero (se puede
+**Guardar proyecto** descargas un archivo `.atelier.json` (keyframes, cortes, textos, sonidos, escena, formato, fondo,
+materiales y los bitmaps escogidos) para seguir en otro momento o en otro equipo con **Abrir**. *Nuevo* empieza de cero (se puede
 deshacer). El STL, una canción subida, una imagen propia de bitmap y el HDRI no van dentro del archivo: al abrir el
 proyecto (o al recuperarlo) el estudio te avisa cuáles tienes que volver a subir, y antes de crear el video te avisa si
 falta tu canción.
@@ -132,7 +204,8 @@ falta tu canción.
 | Hiperrealista (128 muestras) | Menos grano, piedras más limpias | 15–50 min |
 | Máxima (320 muestras) | Para fotos o videos cortos muy cuidados | más de 1 h |
 
-\* Video de 8 s en 1080×1920 con una tarjeta de video de computador de escritorio. En un portátil
+\* Video de 8 s en 1080×1920 con el fondo liso, con una tarjeta de video de computador de escritorio. **Con una escena 3D
+cada cuadro tarda unas 6 veces más** (el pedestal, el fondo y la luz de la ventana también se calculan con luz real). En un portátil
 sencillo o en el celular tarda bastante más. Deja la pestaña abierta y visible mientras trabaja
 (la pantalla no se apaga mientras crea el video). Puedes cancelar en cualquier momento.
 
@@ -147,18 +220,23 @@ sencillo o en el celular tarda bastante más. Deja la pestaña abierta y visible
 ## Privacidad
 
 El modelo 3D, el render y el video se procesan en tu navegador: **tus diseños no se suben a ningún servidor**.
-Solo el asistente con IA envía lo que escribes en el chat y un resumen del proyecto (duración, keyframes,
+Solo el asistente con IA envía lo que escribes en el chat y un resumen del proyecto (duración, keyframes, cortes, escena,
 textos, sonidos, medidas y materiales de la pieza) a la función `api/chat.js` para responder; nunca el STL.
+Al replicar un reel, el video se analiza en tu navegador; con IA solo viajan unos fotogramas pequeños (hasta 16 JPEG) y
+las medidas del análisis a `api/analizar.js`. Con un enlace, `api/reel.js` busca el video público del reel y lo pasa a tu
+navegador por partes (no lo guarda).
 
 ## Cómo publicarla
 
-Es una página estática más una función para el asistente. En **Vercel** se sube tal cual (la carpeta raíz es el
-sitio y `api/chat.js` se detecta sola; las dependencias salen de `package.json`). Configura `ANTHROPIC_API_KEY`
-como se explica arriba. Para probarla en el computador:
+Es una página estática más tres funciones: `api/chat.js` (asistente), `api/analizar.js` (la IA que mira un reel) y
+`api/reel.js` (el enlace de Instagram). En **Vercel** se sube tal cual (la carpeta raíz es el sitio y las funciones de
+`api/` se detectan solas; las dependencias salen de `package.json`). Configura `ANTHROPIC_API_KEY` como se explica arriba:
+la usan el chat y el análisis de reels. Como el chat, las otras dos solo responden a la página del estudio y tienen su propio
+tope por conexión: 4 análisis por minuto y 30 por hora; 6 enlaces por minuto y 40 por hora. Para probarla en el computador:
 
 ```bash
 python3 -m http.server 8000
-# y abre http://localhost:8000  (el chat funciona en modo básico)
+# y abre http://localhost:8000  (el chat funciona en modo básico; Replicar, solo subiendo el video y sin IA)
 ```
 
 ## Cómo está hecha
@@ -172,6 +250,12 @@ python3 -m http.server 8000
   físicos de metal y piedras con su índice de refracción real, y el trazado de rayos con
   [three-gpu-pathtracer](https://github.com/gkjohnson/three-gpu-pathtracer). La luz gira con la cámara,
   así que el resultado es el de una tornamesa con la pieza girando bajo luces fijas.
+- `js/escenas.js` (las escenas listas y su validación), `js/escenario3d.js` (pedestal, fondo, materiales procedurales y
+  la luz con su ventana, en el motor rápido y en el trazador) y `js/panel-escena.js` (la pestaña Escena).
+- `js/transiciones.js`: el flash, el fundido a negro y el barrido de los cortes.
+- `js/analizador.js` (cortes, movimiento y colores de un video, en el navegador), `js/replica.js` (del análisis a un plan
+  para el proyecto), `js/replicar.js` (la pestaña Replicar), `js/reel.js` y `api/reel.js` (el enlace de Instagram),
+  `js/analisis-ia.js` y `api/analizar.js` (la IA que mira el reel). `lib/servidor.js`: lo común de las funciones.
 - `js/texturas.js`: bitmaps de piedras y metal (proyección de UV para el STL) y HDRI.
 - `js/textos.js`: capas de texto, plantillas y animaciones. `js/composicion.js`: fondo de marca, sombra de
   contacto, la joya y los textos de cada cuadro.

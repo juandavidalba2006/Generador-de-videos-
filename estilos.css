@@ -152,6 +152,8 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 #h-asistente #chat{flex:1 1 auto;min-height:0}
 #h-asistente .cht-lista{flex:1 1 auto;height:auto;min-height:180px}
 #h-asistente .cht-titulo h3{display:none}
+/* la escena y el replicador traen su propio título: en la hoja ya está el h2 (y en el celular, la pestaña) */
+#h-escena .pes-cab h3,#h-replicar .rpl[data-estado=inicio] .rpl-cab h3,#h-replicar .rpl[data-estado=error] .rpl-cab h3{display:none}
 .zona-linea{grid-area:linea;min-width:0;scroll-margin-top:16px}
 /* las pistas se vuelven a dibujar enteras: el navegador no debe tomarlas como ancla al corregir el scroll */
 .zona-linea .lt-pistas{overflow-anchor:none}
@@ -188,6 +190,9 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
 .prog-datos{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:var(--tinta2);font-variant-numeric:tabular-nums;flex-wrap:wrap}
 .resultado video{width:100%;border-radius:10px;background:#000;display:block;max-height:60vh}
 .resultado{display:flex;flex-direction:column;gap:10px}
+/* en Exportar: qué escena (o fondo liso) va a tener el video; se cambia en la pestaña Escena */
+.escena-exportar{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap;margin:0;font-size:13.5px;color:var(--tinta2);background:var(--perla);border-radius:8px;padding:8px 10px 8px 12px}
+.escena-exportar b{color:var(--tinta);font-weight:600}
 .aviso-cal{font-size:13px;color:var(--tinta2);background:var(--oro-suave);border-radius:8px;padding:10px 12px;margin:0}
 
 /* centrado con left/right + margin auto (con left:50% el ancho se ajustaba a la mitad derecha de la pantalla y en el celular
@@ -240,10 +245,10 @@ input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--o
   .cab-acciones{width:100%}
   .cab-acciones .btn{flex:1 1 auto;padding:6px 10px}
   .guardado{display:none}
-  /* las seis pestañas a la vista, en dos filas, con su ícono (sin tener que deslizar la tira) */
-  .pestanas{margin:12px 12px 0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-radius:16px;gap:3px}
-  .pestanas button{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 4px;border-radius:12px;font-size:13.5px;min-width:0}
-  .pestanas svg{display:block}
+  /* las ocho pestañas a la vista, en dos filas de cuatro, con el ícono encima del nombre (sin tener que deslizar la tira) */
+  .pestanas{margin:12px 12px 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-radius:16px;gap:3px}
+  .pestanas button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:7px 2px 6px;border-radius:12px;font-size:12.5px;line-height:1.15;min-width:0}
+  .pestanas svg{display:block;width:18px;height:18px}
 }
 @media (max-width:520px){.grid2,.grid3{grid-template-columns:1fr}.hojas{padding:18px 16px 22px}.acciones .btn{flex:1 1 100%}.pasos{padding-left:30px}}
 

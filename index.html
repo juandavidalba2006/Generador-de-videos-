@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Atelier &amp; Co · Estudio de video</title>
-<meta name="description" content="Sube el STL de una joya y crea un video hiperrealista para Instagram o el catálogo de Atelier & Co: keyframes, textos, sonidos y un asistente de cámara.">
+<meta name="description" content="Sube el STL de una joya y crea un video hiperrealista para Instagram o el catálogo de Atelier & Co: escenas con pedestal y luz de ventana, keyframes, cortes, textos, sonidos, un asistente de cámara y la réplica de un reel.">
 <meta name="theme-color" content="#17150F">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,6 +16,8 @@
 <link rel="stylesheet" href="estilos-sonido.css">
 <link rel="stylesheet" href="estilos-texturas.css">
 <link rel="stylesheet" href="estilos-chat.css">
+<link rel="stylesheet" href="estilos-escena.css">
+<link rel="stylesheet" href="estilos-replicar.css">
 <script type="importmap">
 {
   "imports": {
@@ -38,9 +40,11 @@
     <nav id="nav" aria-label="Secciones del editor">
       <a href="#modelo" data-pestana="modelo" aria-current="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Modelo 3D</a>
       <a href="#materiales" data-pestana="materiales"><svg viewBox="0 0 24 24"><path d="M6 3h12l3 6-9 12L3 9z"/><path d="M3 9h18M9 3l3 6 3-6M12 21L9 9M12 21l3-12"/></svg>Materiales</a>
+      <a href="#escena" data-pestana="escena"><svg viewBox="0 0 24 24"><path d="M3.5 3.5v8.5a7 7 0 007 7h10"/><path d="M10 12.2c0 .9 1.8 1.6 4 1.6s4-.7 4-1.6-1.8-1.6-4-1.6-4 .7-4 1.6zM10 12.2v4.4c0 .9 1.8 1.6 4 1.6s4-.7 4-1.6v-4.4"/><circle cx="14" cy="7.4" r="2"/></svg>Escena</a>
       <a href="#textos" data-pestana="textos"><svg viewBox="0 0 24 24"><path d="M5 7V4.5h14V7M12 4.5v15M9 19.5h6"/></svg>Textos</a>
       <a href="#sonido" data-pestana="sonido"><svg viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg>Sonido</a>
       <a href="#asistente" data-pestana="asistente"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10.5H10l-6 4.5z"/><path d="M8.5 10.75h.01M12 10.75h.01M15.5 10.75h.01"/></svg>Asistente</a>
+      <a href="#replicar" data-pestana="replicar"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12.5" height="12.5" rx="2"/><path d="M16 8V5A1.5 1.5 0 0014.5 3.5h-9A1.5 1.5 0 004 5v9.5A1.5 1.5 0 005.5 16H8"/><path d="M12.6 11.6v5.3l4.3-2.65z"/></svg>Replicar</a>
       <a href="#exportar" data-pestana="exportar"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>Exportar</a>
       <a href="#lineaTiempo" class="nav-linea" data-ir="lineaTiempo"><svg viewBox="0 0 24 24"><path d="M3 6.5h18M3 12h18M3 17.5h18"/><path d="M8 9.5l2.5 2.5L8 14.5 5.5 12z" fill="currentColor"/></svg>Línea de tiempo</a>
     </nav>
@@ -86,9 +90,11 @@
         <div class="pestanas subnav" id="pestanas" role="tablist" aria-label="Secciones">
           <button type="button" role="tab" data-pestana="modelo" id="tab-modelo" aria-controls="h-modelo" aria-selected="true">Modelo</button>
           <button type="button" role="tab" data-pestana="materiales" id="tab-materiales" aria-controls="h-materiales" aria-selected="false" tabindex="-1">Materiales</button>
+          <button type="button" role="tab" data-pestana="escena" id="tab-escena" aria-controls="h-escena" aria-selected="false" tabindex="-1">Escena</button>
           <button type="button" role="tab" data-pestana="textos" id="tab-textos" aria-controls="h-textos" aria-selected="false" tabindex="-1">Textos</button>
           <button type="button" role="tab" data-pestana="sonido" id="tab-sonido" aria-controls="h-sonido" aria-selected="false" tabindex="-1">Sonido</button>
           <button type="button" role="tab" data-pestana="asistente" id="tab-asistente" aria-controls="h-asistente" aria-selected="false" tabindex="-1">Asistente</button>
+          <button type="button" role="tab" data-pestana="replicar" id="tab-replicar" aria-controls="h-replicar" aria-selected="false" tabindex="-1">Replicar</button>
           <button type="button" role="tab" data-pestana="exportar" id="tab-exportar" aria-controls="h-exportar" aria-selected="false" tabindex="-1">Exportar</button>
         </div>
 
@@ -117,9 +123,11 @@
             </div>
             <ol class="pasos">
               <li><b>Materiales:</b> metal, piedra y bitmaps para darle realismo.</li>
-              <li><b>Línea de tiempo:</b> escoge un movimiento base y ajústalo con keyframes, o pídeselo al <b>Asistente</b>.</li>
+              <li><b>Escena:</b> el pedestal, el fondo y la luz de ventana donde se apoya la joya (o el fondo liso de la marca).</li>
+              <li><b>Línea de tiempo:</b> escoge un movimiento base y ajústalo con keyframes y cortes, o pídeselo al <b>Asistente</b>.</li>
               <li><b>Textos y Sonido:</b> plantillas con gancho, efectos virales y música.</li>
-              <li><b>Exportar:</b> formato, fondo y calidad del video.</li>
+              <li><b>Replicar:</b> pega el enlace de un reel que te guste (o súbelo) y copia sus movimientos, cortes y fondo.</li>
+              <li><b>Exportar:</b> formato, calidad y cuadros por segundo del video.</li>
             </ol>
           </div>
 
@@ -135,27 +143,41 @@
             <div id="panelTexturas"></div>
           </div>
 
+          <div class="hoja" id="h-escena" role="tabpanel" aria-labelledby="tab-escena" data-pestana="escena" hidden>
+            <h2><span class="num">iii.</span>Escena</h2>
+            <div id="panelEscena"></div>
+            <!-- ajustes del «Fondo liso de marca»: main.js los pone dentro del panel (solo se ven con esa escena) -->
+            <div class="pila" id="ajustesLiso">
+              <div class="campo"><span class="et">Fondo</span><div class="fondos" id="fondos"></div></div>
+              <label class="rango"><span>Sombra bajo la pieza</span><input type="range" id="sombra" min="0" max="1.6" step="0.05" value="1"><output></output></label>
+            </div>
+          </div>
+
           <div class="hoja" id="h-textos" role="tabpanel" aria-labelledby="tab-textos" data-pestana="textos" hidden>
-            <h2><span class="num">iii.</span>Textos</h2>
+            <h2><span class="num">iv.</span>Textos</h2>
             <div id="panelTextos"></div>
           </div>
 
           <div class="hoja" id="h-sonido" role="tabpanel" aria-labelledby="tab-sonido" data-pestana="sonido" hidden>
-            <h2><span class="num">iv.</span>Sonido</h2>
+            <h2><span class="num">v.</span>Sonido</h2>
             <div id="panelSonido"></div>
           </div>
 
           <div class="hoja" id="h-asistente" role="tabpanel" aria-labelledby="tab-asistente" data-pestana="asistente" hidden>
-            <h2><span class="num">v.</span>Asistente de cámara</h2>
+            <h2><span class="num">vi.</span>Asistente de cámara</h2>
             <div id="chat"></div>
           </div>
 
+          <div class="hoja" id="h-replicar" role="tabpanel" aria-labelledby="tab-replicar" data-pestana="replicar" hidden>
+            <h2><span class="num">vii.</span>Replicar un reel</h2>
+            <div id="panelReplicar"></div>
+          </div>
+
           <div class="hoja" id="h-exportar" role="tabpanel" aria-labelledby="tab-exportar" data-pestana="exportar" hidden>
-            <h2><span class="num">vi.</span>Crear video</h2>
+            <h2><span class="num">viii.</span>Crear video</h2>
             <div class="pila">
               <div class="campo"><span class="et">Formato</span><div class="chips" id="formatos" role="group" aria-label="Formato"></div></div>
-              <div class="campo"><span class="et">Fondo</span><div class="fondos" id="fondos"></div></div>
-              <label class="rango"><span>Sombra bajo la pieza</span><input type="range" id="sombra" min="0" max="1.6" step="0.05" value="1"><output></output></label>
+              <p class="escena-exportar"><span id="escenaExportar"></span><button type="button" class="btn sec chico" id="irEscena">Cambiar la escena</button></p>
               <div class="grid2">
                 <label>Calidad del render<select id="calidad">
                   <option value="0">Rápida · vista previa (segundos)</option>
