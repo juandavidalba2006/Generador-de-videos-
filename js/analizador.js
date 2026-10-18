@@ -381,7 +381,9 @@ export function objetoEn(c) {
   const x0 = pctPeso(xs, 0.03), x1 = pctPeso(xs, 0.97), y0 = pctPeso(ys, 0.03), y1 = pctPeso(ys, 0.97);
   const bw = Math.max(1 / wc, x1 - x0 + 1 / wc), bh = Math.max(1 / hc, y1 - y0 + 1 / hc);
   const tam = Math.max(bw * w, bh * h) / Math.min(w, h);
-  return oculto(c, '_objeto', { x: r3(mx), y: r3(my), cx: r3((x0 + x1) / 2), cy: r3((y0 + y1) / 2), w: r3(bw), h: r3(bh), tam: r3(tam), llena: llena || bw * bh > 0.7, masa: r3(masa / n) });
+  const obj = { x: r3(mx), y: r3(my), cx: r3((x0 + x1) / 2), cy: r3((y0 + y1) / 2), w: r3(bw), h: r3(bh), tam: r3(tam), llena: llena || bw * bh > 0.7, masa: r3(masa / n) };
+  oculto(obj, 'peso', { d: peso, w: wc, h: hc });   // dónde está la pieza, píxel a píxel (en la imagen de color)
+  return oculto(c, '_objeto', obj);
 }
 
 // =====================================================================================================
@@ -631,6 +633,15 @@ export function movimientoEntre(a, b, caja = null, centro = null) {
     const deFondo = M1.puntos.filter(v => v.region === 'fondo').length;
     return { pieza: M1, fondo: deFondo >= 8 ? M1 : null, todo: M1, capas: 1, n: vectores.length, radioPieza: extension(M1), vectores };
   }
+  // dos grupos dentro de la pieza (casi sin bloques del fondo) y el grande también se mueve: el chico son brillos que
+  // resbalan por el metal o una parte que el ajuste no explica; la pieza es el grande y se mueve como una sola capa.
+  // (si el grande está quieto, es el fondo que se ve dentro de la caja y el chico, la pieza que gira: tornamesa)
+  const deCentro = M => M.puntos.filter(v => v.region === 'centro').length / M.puntos.length;
+  const quieta = M => Math.hypot(...evaluarAfin(M, cx, cy)) < 0.35;
+  if (caja && deCentro(M1) > 0.75 && deCentro(M2) > 0.75 && M2.puntos.length < 0.5 * M1.puntos.length && !quieta(M1)) {
+    const deFondo = M1.puntos.filter(v => v.region === 'fondo').length;
+    return { pieza: M1, fondo: deFondo >= 8 ? M1 : null, todo: M1, capas: 1, n: vectores.length, radioPieza: extension(M1), vectores };
+  }
   const [P, F] = lejania(M1) <= lejania(M2) ? [M1, M2] : [M2, M1];
   return { pieza: P, fondo: F, todo: M1, capas: 2, n: vectores.length, radioPieza: extension(P), vectores };
 }
@@ -839,16 +850,20 @@ function* movimientoPorPasos(cuadros, cortes, { duracion } = {}) {
       // los bloques dan el punto de partida; el ajuste directo, la medida fina de la pieza y del fondo
       const semilla = M => (M ? [M.a[0], M.a[1], M.a[2], M.b[0], M.b[1], M.b[2], 0, 0] : null);
       const enCaja = pieza ? (x, y) => x >= caja.x0 && x <= caja.x1 && y >= caja.y0 && y <= caja.y1 : () => true;
-      let dirPieza = movimientoDirecto(a, b, enCaja, { modelo: 8, p0: semilla(m.pieza || m.todo) });
-      if (dirPieza && dirPieza.n < 60) dirPieza = null;
-      let dirFondo = null;
+      let dirFondo = null, fuera = null;
       if (pieza) {
         const lejos = cajaDilatada(o, 0.04);
-        dirFondo = movimientoDirecto(a, b, (x, y) => !(x >= lejos.x0 && x <= lejos.x1 && y >= lejos.y0 && y <= lejos.y1), { modelo: 4, p0: semilla(m.fondo && m.fondo !== m.pieza ? m.fondo : m.todo) });
+        fuera = (x, y) => !(x >= lejos.x0 && x <= lejos.x1 && y >= lejos.y0 && y <= lejos.y1);
+        dirFondo = movimientoDirecto(a, b, fuera, { modelo: 4, p0: semilla(m.fondo && m.fondo !== m.pieza ? m.fondo : m.todo) });
         // un fondo liso (el degradado de la marca) casi no tiene con qué medir: no cuenta
         if (dirFondo && dirFondo.n < 150) dirFondo = null;
       }
-      crudos.push({ m, dirPieza, dirFondo, o, dt: b.t - a.t, t: b.t, w: a.w, h: a.h });
+      // con un fondo con textura (piso, mármol, sombras de ventana) la caja de un aro es casi toda fondo visto a través de él:
+      // la pieza se mide solo sobre su silueta
+      const conMascara = pieza && o.peso && dirFondo;
+      let dirPieza = movimientoDirecto(a, b, enCaja, { modelo: 8, p0: semilla(m.pieza || m.todo), pesoPixel: conMascara ? mascaraDe(o) : null });
+      if (dirPieza && dirPieza.n < 60) dirPieza = null;
+      crudos.push({ m, dirPieza, dirFondo, o, dt: b.t - a.t, t: b.t, w: a.w, h: a.h, a, b, fuera });
       hechos++;
       yield hechos / Math.max(1, n);
     }
@@ -859,6 +874,16 @@ function* movimientoPorPasos(cuadros, cortes, { duracion } = {}) {
   return planos;
 }
 
+// La silueta de la pieza (de objetoEn), dilatada un píxel: su borde es lo que más dice cómo se mueve
+function mascaraDe(o) {
+  if (o._mascara) return o._mascara;
+  const { d, w, h } = o.peso, sil = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (!(d[y * w + x] > 0)) continue;
+    for (let j = Math.max(0, y - 1); j <= Math.min(h - 1, y + 1); j++) for (let i = Math.max(0, x - 1); i <= Math.min(w - 1, x + 1); i++) sil[j * w + i] = 1;
+  }
+  return oculto(o, '_mascara', (ux, uy) => sil[Math.min(h - 1, Math.floor(uy * h)) * w + Math.min(w - 1, Math.floor(ux * w))]);
+}
 function cajaDilatada(o, extra = 0) {
   const mx = Math.max(0.06, o.w * 0.15) + extra, my = Math.max(0.04, o.h * 0.15) + extra, cx = o.cx ?? o.x, cy = o.cy ?? o.y;
   return { x0: cx - o.w / 2 - mx, x1: cx + o.w / 2 + mx, y0: cy - o.h / 2 - my, y1: cy + o.h / 2 + my };
@@ -875,7 +900,7 @@ const anchoGirado = (th, eps) => { const r = th * Math.PI / 180; return Math.abs
 // Ajusta la serie del ancho relativo (ln, el primero = 0) con una pieza que gira de θ0 a θ0 + Δ siguiendo una curva.
 // Devuelve { delta (≥ 0, grados), theta0, curva, error } o null. El sentido no sale de aquí (el ancho es simétrico): lo da
 // el trapecio. Se prefiere empezar cerca de de frente, recorrer poco y las curvas sencillas.
-export function ajustarGiro3D(us, lnA) {
+export function ajustarGiro3D(us, lnA, { th0Min = -85, th0Max = 85 } = {}) {
   const n = us.length;
   if (n < 3) return null;
   const sel = [];
@@ -886,7 +911,7 @@ export function ajustarGiro3D(us, lnA) {
   for (const eps of [0.1, 0.25, 0.4]) for (const [curva, fn] of Object.entries(CURVAS_AJUSTE)) {
     const castigo = curva === 'lineal' ? 0 : curva === 'suave' ? 0.003 : 0.006;
     const fu = sel.map(k => fn(us[k]));
-    for (let th0 = -85; th0 <= 85; th0 += 5) {
+    for (let th0 = th0Min; th0 <= th0Max; th0 += 5) {
       const g0 = Math.log(anchoGirado(th0, eps));
       for (let D = 2.5; D <= 270; D += 2.5) {
         let e = 0;
@@ -952,7 +977,12 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
     if (llena || vistos < 0.5) return dosCapas < 0.5;
     return Math.sign(Do) === Math.sign(Dc) && Math.abs(Do) > 0.5 * Math.abs(Dc);
   };
-  const tx = traslada(Dcx, Scx, Sfx, Dox), ty = traslada(Dcy, Scy, Sfy, Doy);
+  // en un acercamiento fuerte la textura y la silueta se corren distinto aunque la pieza no gire (el centro del zoom no es
+  // el de la pieza y lo que entra o sale del cuadro mueve la silueta): ahí no se lee un giro de ese corrimiento
+  // (zoom: las dos escalas crecen o se achican juntas; una silueta que solo se angosta es la pieza girando)
+  const lnSx = P.reduce((a, p) => a + (p.lP ? Math.log(limitar(p.lP.sx, 0.5, 2)) : 0), 0), lnSy = P.reduce((a, p) => a + (p.lP ? Math.log(limitar(p.lP.sy, 0.5, 2)) : 0), 0);
+  const zoomFuerte = Math.sign(lnSx) === Math.sign(lnSy) && Math.min(Math.abs(lnSx), Math.abs(lnSy)) > 0.18;
+  const tx = traslada(Dcx, Scx, Sfx, Dox), ty = zoomFuerte || traslada(Dcy, Scy, Sfy, Doy);
 
   // Giro 3D de una pieza que no es un disco plano de frente: la silueta se angosta (gira alrededor de un eje vertical) o se
   // achata (eje horizontal) sin que la otra medida cambie igual; el trapecio dice hacia qué lado. Un zoom cambia las dos igual.
@@ -971,11 +1001,22 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
   if (conLP.length >= 3 && rangoA > 0.05 && coherenciaK > 0.4 && Math.abs(Sk) > 4) {
     const t0m = pasosT0(P, pasos), t1m = P[P.length - 1].t;
     const us = [pasos[0].t, ...P.map(p => p.t)].map(t => (t1m > t0m ? (t - t0m) / (t1m - t0m) : 0));
-    const aj = ajustarGiro3D(us, serieA);
+    // la altura de la cámara casi siempre empieza entre un poco por debajo y unos 45° por encima de la pieza: con ese rango
+    // no se confunde un recorrido largo cerca de de frente con uno corto visto muy desde arriba
+    const aj = ajustarGiro3D(us, serieA, eje === 'y' ? { th0Min: -20, th0Max: 45 } : {});
     if (aj && aj.delta >= 5) giro3D = { ...aj, signo: Math.sign(Sk), eje, us, coherencia: coherenciaK };
   }
+  // Con el piso a la vista, el trapecio de la caja lo pone sobre todo el piso que rodea la pieza, no ella. El piso mismo dice
+  // hacia dónde fue la cámara: al bajar, lo cercano (abajo) sube y lo lejano baja, la imagen del piso se aplasta en vertical
+  // (y no en horizontal, como en un zoom); al subir, se estira. Una pared sola no se deforma: ahí queda el trapecio.
+  if (giro3D && giro3D.eje === 'y' && conFondo > 0.6) {
+    const an = anisotropiaFondo(crudos);
+    if (an !== null && Math.abs(an) > 0.06) giro3D.signo = Math.sign(an);
+  }
   // sin silueta que cambie, un trapecio fuerte y parejo también es un giro (una pieza redonda que rota, vista de lado)
-  if (!giro3D && conLP.length >= 3 && coherenciaK > 0.7 && Math.abs(Sk) > 15 && (eje === 'x' ? !tx || Math.abs(Dcx) < 0.05 * w : !ty || Math.abs(Dcy) < 0.05 * h)) {
+  // (no con un acercamiento grande ni con el piso a la vista: acercarse a un piso también lo deforma en trapecio)
+  const lnEscala = conLP.reduce((a, p) => a + 0.5 * Math.log(limitar(p.lP.sx * p.lP.sy, 0.25, 4)), 0);
+  if (!giro3D && conLP.length >= 3 && coherenciaK > 0.7 && Math.abs(Sk) > 15 && conFondo < 0.3 && Math.abs(lnEscala) < 0.15 && (eje === 'x' ? !tx || Math.abs(Dcx) < 0.05 * w : !ty || Math.abs(Dcy) < 0.05 * h)) {
     giro3D = { delta: Math.abs(Sk), theta0: 0, curva: null, signo: Math.sign(Sk), eje, porTrapecio: true, coherencia: coherenciaK };
   }
 
@@ -1004,7 +1045,9 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
     const z = limitar(escalaPaso(p), 0.7, 1.4);
     // roll: el giro de toda la imagen (el del fondo si se ve; si no, el de la pieza). En la app, rodar positivo ladea la
     // cámara a la derecha: la imagen gira al revés del reloj
-    const rot = p.lF ? p.lF.rot : p.lP ? p.lP.rot : 0;
+    // con las dos medidas, las dos tienen que verlo (un roll gira toda la imagen): si no, es la perspectiva del piso o la
+    // pieza que gira en 3D, y se toma lo que tienen en común
+    const rot = p.lF && p.lP ? (Math.sign(p.lF.rot) === Math.sign(p.lP.rot) ? Math.sign(p.lF.rot) * Math.min(Math.abs(p.lF.rot), Math.abs(p.lP.rot)) : 0) : p.lF ? p.lF.rot : p.lP ? p.lP.rot : 0;
     acc.giro += dg; acc.inclinacion += di; acc.lateral += dl; acc.altura += da; acc.zoom *= z; acc.rodar -= rot;
     pasos.push({ t: r3(p.t), giro: r2(acc.giro), zoom: r3(acc.zoom), inclinacion: r2(acc.inclinacion), lateral: r3(acc.lateral), altura: r3(acc.altura), rodar: r2(acc.rodar) });
     vel.push({ dg, di, dl, da, dz: Math.log(z), rot: -rot });
@@ -1054,6 +1097,20 @@ function combinarPasos(crudos, objs, pasos, inicio, fin) {
   return { pasos, movimiento };
 }
 const pasosT0 = (P, pasos) => pasos[0].t;
+// Σ ln(sy/sx) del fondo (alrededor de la pieza, con un ajuste afín) en hasta 12 pares del plano, llevado a todo el plano
+function anisotropiaFondo(crudos) {
+  const sel = crudos.filter(c => c.fuera && c.a);
+  if (sel.length < 3) return null;
+  const salto = Math.max(1, Math.floor(sel.length / 12));
+  let suma = 0, k = 0;
+  for (let q = 0; q < sel.length; q += salto) {
+    const c = sel[q], r = movimientoDirecto(c.a, c.b, c.fuera, { modelo: 6, p0: c.dirFondo ? c.dirFondo.p : null });
+    if (!r || r.n < 150) continue;
+    const l = leerModelo(r);
+    if (l.sx > 0 && l.sy > 0) { suma += Math.log(l.sy / l.sx); k++; }
+  }
+  return k >= 3 ? suma * sel.length / k : null;
+}
 
 // cuánto se nota cada pista (para escoger la principal): 30° de giro ≈ zoom ×1,25 ≈ 0,15 de corrimiento ≈ 10° de roll
 function principal(acc) {

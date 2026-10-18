@@ -1,0 +1,122 @@
+/* Panel Replicar: enlace o video de referencia → análisis (pasos) → resultado (planos, escena, joya y qué aplicar) */
+.rpl{display:flex;flex-direction:column;gap:16px;min-width:0;max-width:100%;container-type:inline-size}
+.rpl h3{font-family:var(--serif);font-weight:500;font-size:18px;line-height:1.2;margin:0}
+.rpl h4{font-family:var(--serif);font-weight:500;font-size:16px;line-height:1.2;margin:0;color:var(--tinta)}
+.rpl p{margin:0}
+.rpl-cab{display:flex;flex-direction:column;gap:3px}
+.rpl-cab:has(.rpl-sello){flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.rpl-ayuda{font-size:12.5px;line-height:1.4;color:var(--tinta2);font-weight:400;overflow-wrap:anywhere}
+.rpl-botones{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.rpl-botones .btn svg{width:15px;height:15px}
+
+/* Inicio: el enlace, la zona para soltar el video y la nota honesta sobre Instagram */
+.rpl-enlace{display:flex;flex-direction:column;gap:6px;margin:0}
+.rpl-fila{display:flex;gap:8px;align-items:stretch}
+.rpl-fila .btn{flex:none}
+.rpl-campo{position:relative;flex:1 1 auto;min-width:0;display:flex}
+.rpl-campo svg{position:absolute;left:11px;top:50%;width:17px;height:17px;transform:translateY(-50%);fill:none;stroke:var(--oro);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.rpl-campo input{padding-left:36px;font-size:14.5px}
+.rpl-o{display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--tinta2)}
+.rpl-o::before,.rpl-o::after{content:'';flex:1;height:1px;background:var(--linea)}
+.rpl-soltar{border:1.5px dashed #C9BFA8;border-radius:10px;padding:22px 16px;text-align:center;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;
+  background:linear-gradient(180deg,rgba(244,231,200,.35),transparent);transition:border-color .18s,background-color .18s;color:var(--tinta2)}
+.rpl-soltar:hover,.rpl-soltar.encima{border-color:var(--oro-vivo);background:var(--oro-suave)}
+.rpl-soltar:focus-within{outline:2px solid var(--oro);outline-offset:2px}
+.rpl-soltar svg{width:32px;height:32px;fill:none;stroke:var(--oro);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.rpl-soltar b{font-family:var(--serif);font-weight:500;font-size:18px;color:var(--tinta);margin-top:4px}
+.rpl-soltar input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.rpl-nota{font-size:12.5px;line-height:1.45;color:var(--tinta2);background:var(--perla);border-radius:8px;padding:10px 12px}
+.rpl-nota b{color:var(--tinta);font-weight:600}
+.rpl-ia{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.4;color:var(--tinta2)}
+.rpl-ia svg,.rpl-error svg,.rpl-sello svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;margin-top:1px}
+.rpl-ia.si{color:var(--esm)}
+.rpl-error{display:flex;gap:10px;align-items:flex-start;background:var(--gra-suave);color:var(--gra);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.45}
+.rpl-error > div{display:flex;flex-direction:column;gap:10px;min-width:0}
+.rpl-error p{color:var(--tinta)}
+
+/* Bajando y analizando */
+.rpl-progreso{display:flex;flex-direction:column;gap:8px}
+.rpl-prog{height:6px;border-radius:999px;background:var(--linea);overflow:hidden}
+.rpl-prog i{display:block;height:100%;width:3%;background:linear-gradient(90deg,var(--oro),var(--oro-vivo));transition:width .25s ease}
+.rpl-prog-texto{font-size:13px;color:var(--tinta2);font-variant-numeric:tabular-nums}
+.rpl-pasos{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.rpl-pasos li{display:grid;grid-template-columns:22px 1fr auto;align-items:center;gap:10px;padding:8px 0;font-size:14px;color:var(--tinta2);border-bottom:1px solid var(--linea)}
+.rpl-pasos li:last-child{border-bottom:0}
+.rpl-paso-icono{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--linea);display:grid;place-items:center;box-sizing:border-box}
+.rpl-paso-icono svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.rpl-paso-p{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--tinta2)}
+.rpl-pasos li[data-estado=curso]{color:var(--tinta);font-weight:500}
+.rpl-pasos li[data-estado=curso] .rpl-paso-icono{border-color:var(--oro-suave);border-top-color:var(--oro-vivo);animation:rpl-gira .9s linear infinite}
+.rpl-pasos li[data-estado=hecho]{color:var(--tinta)}
+.rpl-pasos li[data-estado=hecho] .rpl-paso-icono{background:var(--esm);border-color:var(--esm);color:#fff}
+.rpl-pasos li[data-estado=omitido] .rpl-paso-icono{border:0;color:var(--oro-texto)}
+.rpl-pasos li[data-estado=omitido] .rpl-paso-icono svg{width:20px;height:20px;stroke-width:1.6}
+@keyframes rpl-gira{to{transform:rotate(360deg)}}
+
+/* Resultado */
+.rpl-sello{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--tinta2);border:1px solid var(--linea);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.rpl-sello.ia{color:var(--oro-texto);border-color:var(--oro)}
+.rpl-resumen{font-size:14.5px;line-height:1.5;color:var(--tinta)}
+.rpl-avisos{margin:0;padding:10px 12px 10px 28px;background:var(--oro-suave);border-radius:8px;font-size:12.5px;line-height:1.45;color:var(--tinta);display:flex;flex-direction:column;gap:4px}
+.rpl-bloque{display:flex;flex-direction:column;gap:10px;min-width:0;margin:0}
+
+/* La tira de planos: miniatura, duración, qué hace la cámara y la transición entre uno y otro */
+.rpl-tira{list-style:none;margin:0;padding:2px 2px 8px;display:flex;align-items:stretch;gap:6px;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:thin;overscroll-behavior-x:contain}
+.rpl-plano{flex:0 0 132px;display:flex;flex-direction:column;gap:6px;scroll-snap-align:start;min-width:0}
+.rpl-foto{position:relative;display:block;aspect-ratio:9/16;max-height:200px;border-radius:8px;overflow:hidden;background:var(--perla);border:1px solid var(--linea)}
+.rpl-foto img{display:block;width:100%;height:100%;object-fit:cover}
+.rpl-foto em{position:absolute;left:6px;top:6px;font-style:normal;font-size:11px;font-weight:600;line-height:1;padding:4px 7px;border-radius:999px;background:rgba(23,21,15,.75);color:#F4E7C8}
+.rpl-plano-dato{font-size:12px;color:var(--tinta2)}
+.rpl-plano-dato b{color:var(--tinta);font-weight:600;font-variant-numeric:tabular-nums}
+.rpl-plano-desc{font-size:12.5px;line-height:1.35;color:var(--tinta)}
+.rpl-tr{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;padding-top:44px;width:44px;text-align:center;font-size:10.5px;line-height:1.2;color:var(--tinta2)}
+.rpl-tr svg{width:22px;height:22px;fill:none;stroke:var(--oro);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:var(--oro);background:var(--papel);border:1px solid var(--linea);border-radius:50%;padding:4px;box-sizing:content-box}
+
+/* La escena y la joya que se vieron */
+.rpl-dos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.rpl-tarjeta{display:flex;gap:12px;align-items:flex-start;background:var(--perla);border-radius:10px;padding:12px;min-width:0}
+.rpl-tarjeta > div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rpl-tarjeta p{font-size:13.5px;color:var(--tinta);overflow-wrap:anywhere}
+.rpl-escena canvas{flex:none;width:64px;height:80px;border-radius:8px;border:1px solid var(--linea);background:var(--papel)}
+.rpl-ic{flex:none;width:30px;height:30px;fill:none;stroke:var(--oro);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
+.rpl-muestras{display:flex;gap:6px;margin-top:2px}
+.rpl-muestras i{width:20px;height:20px;border-radius:50%;background:var(--c);box-shadow:inset 0 0 0 1px rgba(0,0,0,.14)}
+
+/* Qué aplicar */
+.rpl-partes{border:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px 14px}
+.rpl-partes legend{font-family:var(--serif);font-weight:500;font-size:16px;color:var(--tinta);padding:0;margin-bottom:8px}
+.rpl-casilla{flex-direction:row;align-items:flex-start;gap:9px;padding:6px 0;color:var(--tinta);cursor:pointer}
+.rpl-casilla input{width:18px;height:18px;margin:1px 0 0;flex:none;accent-color:var(--oro-vivo);cursor:pointer}
+.rpl-casilla > span{display:flex;flex-direction:column;gap:1px;min-width:0}
+.rpl-casilla b{font-weight:500;font-size:14px;color:var(--tinta)}
+.rpl-casilla.apagada{cursor:default}
+.rpl-casilla.apagada b{color:var(--tinta2)}
+.rpl-casilla.apagada input{cursor:default}
+.rpl-hecho{font-size:13px;color:var(--esm);background:var(--esm-suave);border-radius:8px;padding:9px 12px}
+.rpl-hecho.mal{color:var(--gra);background:var(--gra-suave)}
+
+/* Panel angosto (celular): el botón «Analizar» debajo del campo, una columna para las tarjetas y las casillas */
+@container (max-width:460px){
+  .rpl-fila{flex-direction:column}
+  .rpl-fila .btn{width:100%}
+  .rpl-dos,.rpl-partes{grid-template-columns:minmax(0,1fr)}
+  .rpl-plano{flex-basis:116px}
+  .rpl-botones .btn{flex:1 1 auto}
+}
+
+@media (prefers-color-scheme: dark){
+  .rpl-soltar{border-color:#5A5446;background:linear-gradient(180deg,rgba(62,52,24,.4),transparent)}
+  .rpl-nota,.rpl-tarjeta{background:#16140F}
+  .rpl-error{background:var(--gra-suave)}
+  .rpl-error p{color:#F4F1EA}
+  .rpl-avisos{background:var(--oro-suave)}
+  .rpl-foto{background:#16140F}
+  .rpl-tr svg{background:#26231C;border-color:#4A4438}
+  .rpl-pasos li[data-estado=hecho] .rpl-paso-icono{color:#0F1614}
+  .rpl-muestras i{box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
+  .rpl-escena canvas{border-color:#4A4438}
+}
+@media (prefers-reduced-motion: reduce){
+  .rpl-soltar,.rpl-prog i{transition:none}
+  .rpl-pasos li[data-estado=curso] .rpl-paso-icono{animation:none;border-color:var(--oro-vivo)}
+}

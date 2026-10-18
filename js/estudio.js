@@ -218,7 +218,7 @@ export class Estudio {
     const e = this.escenaPT;
     if (e.environment === this.envSala) e.environment = this.envMetal;
     if (this.envPT && e.environmentIntensity === this.envPT.escrito) e.environmentIntensity = this.envPT.base;
-    this.envPT = null;
+    this.envPT = null; e.backgroundIntensity = 1;
   }
 
   get tieneModelo() { return !!this.mallaMetal; }
@@ -434,12 +434,14 @@ export class Estudio {
     if (ept.environment === this.envMetal) ept.environment = this.envSala;
     // relleno (ambiente): en el motor rápido solo toca los materiales de la escena (la joya sigue con su estudio)
     for (const m of [E.mats.sup, E.mats.fondo]) if (m) { m.envMap = propio ? e.environment : this.pmSala; m.envMapIntensity = this.escena3D.ambiente * (e.environmentIntensity ?? 1); m.envMapRotation.copy(e.environmentRotation); }
-    // en el trazador el relleno es la intensidad del estudio (la de texturas.js por el relleno de la escena)
-    const k = this.escena3D.ambiente;
+    // en el trazador el relleno es la intensidad del estudio (la de texturas.js por el relleno de la escena).
+    // Con la sala, ×3: en el trazador la joya refleja la sala (en el motor rápido, el estudio, que es mucho más brillante);
+    // así el oro brilla como en la vista previa y la sala rellena las sombras de la ventana como en la foto de referencia
+    const k = this.escena3D.ambiente, g = ept.environment === this.envSala ? 3 : 1;
     if (!this.envPT || ept.environmentIntensity !== this.envPT.escrito) this.envPT = { base: ept.environmentIntensity ?? 1 };
-    this.envPT.escrito = ept.environmentIntensity = this.envPT.base * k;
+    this.envPT.escrito = ept.environmentIntensity = this.envPT.base * k * g;
     // los rayos que escapan (por encima del fondo o a través de una piedra) ven el estudio, no un hueco transparente
-    ept.background = ept.environment; ept.backgroundRotation.copy(ept.environmentRotation); ept.backgroundIntensity = 1;
+    ept.background = ept.environment; ept.backgroundRotation.copy(ept.environmentRotation); ept.backgroundIntensity = g;
   }
 
   renderRapido() {
@@ -474,6 +476,10 @@ export class Estudio {
     // con escena, la luz del foco que rebota en el fondo y vuelve a dar en el oro deja puntitos naranja sueltos en el
     // fondo: ahí se suavizan más los rebotes brillantes (es un uniforme: no recompila el sombreador)
     this.pt.filterGlossyFactor = this.escenaActiva ? 0.8 : 0.35;
+    // con escena casi todos los píxeles rebotan en el yeso hasta que la ruleta rusa los corta: con 8 rebotes la imagen
+    // cambia menos de un 1 % (los diamantes tienen aparte sus rebotes por dentro) y cada cuadro cuesta un 25–40 % menos.
+    // Sin escena los rayos salen enseguida y los 14 de siempre no cuestan nada (son para el oro y los diamantes)
+    this.pt.bounces = this.escenaActiva ? 8 : 14;
     c.copy(k, false);
     for (const p of ['focusDistance', 'bokehSize', 'apertureBlades', 'apertureRotation', 'anamorphicRatio']) c[p] = k[p];
     if (giro) {
