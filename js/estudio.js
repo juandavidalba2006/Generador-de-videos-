@@ -183,6 +183,7 @@ export class Estudio {
     this.versionModelo = 0;
     this.costosPT = [];   // ms de cada actualización del BVH por el giro del escenario (para medir)
     this.limpiezaPT = true;   // con escena, el grano del yeso se limpia al final de cada cuadro realista (ver LimpiadorPT)
+    this.gananciaSalaPT = 1.5;   // brillo de la sala en el trazador (ver poseEscena)
   }
 
   // ---------- Escena 3D ----------
@@ -435,9 +436,9 @@ export class Estudio {
     // relleno (ambiente): en el motor rápido solo toca los materiales de la escena (la joya sigue con su estudio)
     for (const m of [E.mats.sup, E.mats.fondo]) if (m) { m.envMap = propio ? e.environment : this.pmSala; m.envMapIntensity = this.escena3D.ambiente * (e.environmentIntensity ?? 1); m.envMapRotation.copy(e.environmentRotation); }
     // en el trazador el relleno es la intensidad del estudio (la de texturas.js por el relleno de la escena).
-    // Con la sala, ×3: en el trazador la joya refleja la sala (en el motor rápido, el estudio, que es mucho más brillante);
-    // así el oro brilla como en la vista previa y la sala rellena las sombras de la ventana como en la foto de referencia
-    const k = this.escena3D.ambiente, g = ept.environment === this.envSala ? 3 : 1;
+    // Con la sala se sube (gananciaSalaPT): en el trazador la joya refleja la sala, no el estudio del motor rápido, que es
+    // mucho más brillante. Más de ×1,5 deja el oro más vivo pero lava las ventanas y la sombra de contacto en los yesos claros
+    const k = this.escena3D.ambiente, g = ept.environment === this.envSala ? this.gananciaSalaPT : 1;
     if (!this.envPT || ept.environmentIntensity !== this.envPT.escrito) this.envPT = { base: ept.environmentIntensity ?? 1 };
     this.envPT.escrito = ept.environmentIntensity = this.envPT.base * k * g;
     // los rayos que escapan (por encima del fondo o a través de una piedra) ven el estudio, no un hueco transparente
