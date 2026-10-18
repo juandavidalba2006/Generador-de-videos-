@@ -572,8 +572,9 @@ function hojasDePalma(proy, lado) {
     for (let i = 1; i < n; i++) {
       const s = i / n, p = c.getPointAt(s), t = c.getTangentAt(s), l = l0 * Math.sin(Math.PI * (0.15 + 0.7 * s)) * (0.75 + 0.35 * R());
       for (const ladoF of [-1, 1]) {
-        // folíolo: una lanza fina que sale hacia adelante y se dobla un poco por su peso
-        const ang = Math.atan2(t.y, t.x) + ladoF * (0.75 + 0.3 * R()), dx = Math.cos(ang), dy = Math.sin(ang), w = (0.07 + 0.04 * R()) * escala;
+        // folíolo: una lanza que sale hacia adelante y se dobla un poco por su peso (no muy fina: con la luz de área del
+        // trazador de rayos una hoja angosta se borra en la penumbra y la sombra de la palmera no se lee)
+        const ang = Math.atan2(t.y, t.x) + ladoF * (0.75 + 0.3 * R()), dx = Math.cos(ang), dy = Math.sin(ang), w = (0.13 + 0.06 * R()) * escala;
         const f = new THREE.Shape(), punta = [p.x + dx * l, p.y + dy * l - 0.15 * l], medio = [p.x + dx * l * 0.5 - dy * w, p.y + dy * l * 0.5 + dx * w];
         f.moveTo(p.x, p.y); f.quadraticCurveTo(medio[0], medio[1], punta[0], punta[1]);
         f.quadraticCurveTo(p.x + dx * l * 0.5 + dy * w, p.y + dy * l * 0.5 - dx * w, p.x, p.y);
@@ -973,10 +974,12 @@ const SOMBREADOR_LIMPIEZA = {
       ref /= 9.0;
       vec3 g0 = guiado( vUv ), suma = vec3( 0.0 );
       float peso = 0.0, kc = 0.5 / ( sigmaColor * sigmaColor ), kg = 0.5 / ( sigmaGuia * sigmaGuia );
+      // vecinos hasta 4 píxeles (peso espacial con σ = 3 px: con 8 muestras el grano del yeso baja más de 3 veces sin
+      // borrar las sombras de la ventana, que respeta la guía)
       for ( int j = -4; j <= 4; j ++ ) for ( int i = -4; i <= 4; i ++ ) {
         vec2 d = vec2( i, j ), q = vUv + d * pixel * salto;
         vec3 c = trazado( q ), dc = c - ref, dg = guiado( q ) - g0;
-        float w = exp( - dot( d, d ) / 12.5 - dot( dg, dg ) * kg - dot( dc, dc ) * kc ) * ( 1.0 - texture2D( mascara, q ).r );
+        float w = exp( - dot( d, d ) / 18.0 - dot( dg, dg ) * kg - dot( dc, dc ) * kc ) * ( 1.0 - texture2D( mascara, q ).r );
         suma += c * w; peso += w;
       }
       vec3 limpio = peso > 1e-4 ? suma / peso : c0;

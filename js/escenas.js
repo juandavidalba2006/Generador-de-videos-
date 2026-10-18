@@ -80,7 +80,7 @@ export const ESCENAS = {
   escalones: {
     nombre: 'Podio de escalones', descripcion: 'Tres niveles de yeso, como una vitrina de joyería.',
     superficie: S('escalones', 'yeso', '#E7DDD1', { tamano: 1.3, altura: 1.2 }), fondo: F('curva', 'yeso', '#D6C6B4'),
-    luz: L('ventana', { angulo: 30, elevacion: 42, suavidad: 0.35, intensidad: 1.1, calidez: 0.3 }), ambiente: 0.75,
+    luz: L('ventana', { angulo: 30, elevacion: 40, suavidad: 0.25, intensidad: 1.2, calidez: 0.3 }), ambiente: 0.7,
   },
   arco: {
     nombre: 'Nicho con arco', descripcion: 'Pared con un arco y la joya sobre un pedestal.',
@@ -90,7 +90,7 @@ export const ESCENAS = {
   hojas: {
     nombre: 'Sombras de palmera', descripcion: 'Luz de sol entre hojas sobre yeso claro.',
     superficie: S('cilindro', 'yeso', '#EEE5D9', { tamano: 1.2, altura: 1.1 }), fondo: F('pared', 'yeso', '#E2D0B8'),
-    luz: L('hojas', { angulo: 45, elevacion: 40, suavidad: 0.06, intensidad: 1.2, calidez: 0.5 }), ambiente: 0.7,
+    luz: L('hojas', { angulo: 45, elevacion: 40, suavidad: 0.06, intensidad: 1.25, calidez: 0.5 }), ambiente: 0.6,
   },
   terciopelo: {
     nombre: 'Terciopelo esmeralda', descripcion: 'Cojín de terciopelo verde, como un estuche de joyería.',
@@ -110,7 +110,7 @@ export const ESCENAS = {
   rosa: {
     nombre: 'Rosa empolvado', descripcion: 'Pedestal rosa con luz de ventana: suave y romántico.',
     superficie: S('cilindro', 'yeso', '#EACFCB', { tamano: 1.15, altura: 1.3 }), fondo: F('curva', 'yeso', '#DDB7B2'),
-    luz: L('ventana', { angulo: 35, elevacion: 40, suavidad: 0.35, intensidad: 1.1, calidez: 0.25 }), ambiente: 0.75,
+    luz: L('ventana', { angulo: 35, elevacion: 38, suavidad: 0.28, intensidad: 1.15, calidez: 0.25 }), ambiente: 0.7,
   },
 };
 

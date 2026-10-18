@@ -7,9 +7,9 @@ Usa el mismo estilo, los mismos colores y las mismas tipografías que la página
 
 Funciona como un editor de video (al estilo de CapCut): arriba la **vista previa** y, a su lado, el **inspector**
 con pestañas (Modelo, Materiales, Escena, Textos, Sonido, Asistente, Replicar y Exportar); abajo, a todo el ancho, la
-**línea de tiempo** con keyframes, cortes, textos y sonidos. Cuando bajas a la línea de tiempo, la joya se sigue viendo en miniatura en
-el menú lateral (tócala para volver arriba). En el celular todo queda en una sola columna: vista previa, pestañas y
-línea de tiempo.
+**línea de tiempo** con keyframes, cortes, textos y sonidos. Cuando bajas a la línea de tiempo, la joya se sigue viendo
+en miniatura en el menú lateral (tócala para volver arriba). En el celular todo queda en una sola columna: vista previa,
+pestañas (en dos filas de cuatro) y línea de tiempo.
 
 ## Cómo se usa
 
