@@ -16,7 +16,8 @@
 .pes-marco{position:relative;display:block;border-radius:10px;border:1px solid var(--linea);overflow:hidden;background:var(--perla);transition:border-color .18s,transform .18s,box-shadow .18s}
 .pes-mini{display:block;width:100%;height:auto;aspect-ratio:4/5}
 .pes-ficha b{font-weight:500;font-size:12px;line-height:1.25;color:var(--tinta2);overflow-wrap:anywhere}
-.pes-ficha:hover .pes-marco{transform:translateY(-2px);border-color:var(--oro)}
+/* (solo con mouse: en el celular el «hover» se queda pegado donde se tocó y una tarjeta parecería elegida) */
+@media (hover:hover){.pes-ficha:hover .pes-marco{transform:translateY(-2px);border-color:var(--oro)}}
 .pes-ficha:focus-visible .pes-marco{outline:2px solid var(--oro);outline-offset:2px}
 .pes-ficha[aria-pressed=true] .pes-marco{border:2px solid var(--oro-vivo);box-shadow:0 6px 16px -10px rgba(23,21,15,.55)}
 .pes-ficha[aria-pressed=true] b{color:var(--tinta);font-weight:600}
@@ -52,7 +53,7 @@
 .pes-color input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0;border:0}
 .pes-color:focus-within{outline:2px solid var(--oro);outline-offset:2px}
 .pes-muestra{all:unset;box-sizing:border-box;cursor:pointer;width:24px;height:24px;border-radius:50%;flex:none;background:var(--c);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);transition:transform .15s,box-shadow .15s}
-.pes-muestra:hover{transform:scale(1.1)}
+@media (hover:hover){.pes-muestra:hover{transform:scale(1.1)}}
 .pes-muestra[aria-pressed=true]{box-shadow:0 0 0 2px var(--papel),0 0 0 3.5px var(--oro-vivo)}
 .pes-muestra:focus-visible{outline:2px solid var(--oro);outline-offset:3px}
 
