@@ -28,6 +28,7 @@ export const MATERIALES_ESCENA = {
   madera:       'Madera clara',
   acrilico:     'Acrílico brillante',
 };
+// (La escena «Sombras de palmera» y su sombra de hojas se quitaron a pedido de la joyera: no se vuelven a agregar.)
 export const GOBOS = {
   ninguno:  'Luz suave (sin sombras)',
   ventana:  'Ventana',
