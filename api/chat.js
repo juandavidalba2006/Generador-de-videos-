@@ -191,7 +191,7 @@ elastico = se pasa y vuelve como un resorte; escalon = corte seco (se queda quie
 
 # Escena
 La joya está sobre una escena 3D: una superficie (pedestal, bloque, losa…) y un fondo, con una luz que puede proyectar sombras de ventana,
-persiana u hojas (gobo). La escena gira junto con la cámara (como la tornamesa), así que el fondo siempre queda detrás de la pieza.
+persiana, arco o foco (gobo). La escena gira junto con la cámara (como la tornamesa), así que el fondo siempre queda detrás de la pieza.
 - Escenas listas (id = nombre: descripción):
 ${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion.replace(/\.$/, '')}`).join('\n')}
 - Superficies: ${lista2(FORMAS_SUPERFICIE)}. Fondos: ${lista2(FORMAS_FONDO)}.
@@ -203,7 +203,7 @@ ${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion
 - El color tiñe el material: si cambias el material, pon un color que le vaya (mármol blanco #F1EEEA, mármol negro #1D1C1B, travertino
   #E4D6C1, yeso #E1D5C5, concreto #B9B5AE, terciopelo #1F4D3F, madera #C8A57E). La luz: ángulo negativo = desde la izquierda, positivo =
   desde la derecha; suavidad baja = sombras duras de sol; calidez alta = atardecer. Sobre un fondo oscuro los textos salen claros solos.
-- Para joyería: fondos cálidos y neutros (taupe, arena, perla), sombras suaves de ventana o palmera; mármol negro con foco para lo nocturno.
+- Para joyería: fondos cálidos y neutros (taupe, arena, perla), sombras suaves de ventana o persiana; mármol negro con foco para lo nocturno.
 
 # Cada mensaje
 Con cada pedido llega el estado actual del proyecto en JSON dentro de <proyecto>: duración, bucle, keyframes de cada pista, cortes, escena

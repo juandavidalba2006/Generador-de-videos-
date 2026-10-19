@@ -32,7 +32,6 @@ export const GOBOS = {
   ninguno:  'Luz suave (sin sombras)',
   ventana:  'Ventana',
   persiana: 'Persiana',
-  hojas:    'Hojas de palmera',
   arco:     'Ventana con arco',
   foco:     'Foco (círculo de luz)',
 };
@@ -86,11 +85,6 @@ export const ESCENAS = {
     nombre: 'Nicho con arco', descripcion: 'Pared con un arco y la joya sobre un pedestal.',
     superficie: S('cilindro', 'yeso', '#E1D5C5', { tamano: 1, altura: 1.3 }), fondo: F('arco', 'yeso', '#C9B39C'),
     luz: L('arco', { angulo: -40, elevacion: 36, suavidad: 0.35, intensidad: 1.1, calidez: 0.35 }), ambiente: 0.75,
-  },
-  hojas: {
-    nombre: 'Sombras de palmera', descripcion: 'Luz de sol entre hojas sobre yeso claro.',
-    superficie: S('cilindro', 'yeso', '#EEE5D9', { tamano: 1.2, altura: 1.1 }), fondo: F('pared', 'yeso', '#E2D0B8'),
-    luz: L('hojas', { angulo: 45, elevacion: 40, suavidad: 0.06, intensidad: 1.25, calidez: 0.5 }), ambiente: 0.6,
   },
   terciopelo: {
     nombre: 'Terciopelo esmeralda', descripcion: 'Cojín de terciopelo verde, como un estuche de joyería.',

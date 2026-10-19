@@ -494,9 +494,9 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
 }
 
 // ---------- Gobos: el dibujo de la ventana en el plano de la joya (en radios, mirando desde la luz) ----------
-// pared: una pared opaca con huecos (por donde entra la luz); siluetas: formas opacas sueltas (hojas).
+// pared: una pared opaca con huecos (por donde entra la luz); siluetas: formas opacas sueltas.
 // El dibujo se piensa en el fondo: proy(x, y) dice dónde cae en el plano del gobo el punto (x, y) del fondo que se ve
-// detrás de la joya (en radios, la joya en 0, 0). Así los parales, el arco o las hojas se ven siempre en el cuadro, venga
+// detrás de la joya (en radios, la joya en 0, 0). Así los parales o el arco se ven siempre en el cuadro, venga
 // de donde venga la luz, y la joya queda en un vidrio iluminado. lado: −1 si la luz viene de la izquierda, 1 si de la derecha.
 const LIBRE = 1.3;   // radio alrededor de la joya que ningún paral ni hoja tapa
 // proyTope(x, z): lo mismo para un punto de la cara de arriba de la superficie; R: radio de esa cara (en radios)
@@ -552,47 +552,8 @@ function gobo(tipo, proy, lado = -1, proyTope = null, R = 1.5) {
     };
     return { pared: true, huecos: [mitad(true), mitad(false)] };
   }
-  if (tipo === 'hojas') return { pared: false, siluetas: hojasDePalma(proy, lado) };
   return null;   // ninguno y foco no llevan ventana
 }
-// Hojas de palmera: un tallo curvo con folíolos finos a los dos lados. Las frondas se ubican en el fondo (entran desde los
-// bordes del cuadro) y se pasan al plano del gobo; los folíolos se dibujan allá, con un largo medido en el fondo
-function hojasDePalma(proy, lado) {
-  const R = azar(7), formas = [];
-  const P = (x, y) => { const q = proy(lado * x, y); return new THREE.Vector2(q.x, q.y); };
-  const escala = Math.abs(proy(1, 0).x - proy(0, 0).x);
-  const fronda = (desde, curva, hasta, largo, densidad = 0.13) => {
-    const c = new THREE.QuadraticBezierCurve(P(...desde), P(...curva), P(...hasta));
-    const L = c.getLength(), n = Math.floor(L / densidad / escala), l0 = largo * escala;
-    // tallo
-    const tallo = new THREE.Shape(), puntosT = c.getSpacedPoints(24), g = 0.05 * escala;
-    puntosT.forEach((p, i) => { const t = c.getTangentAt(i / 24), nx = -t.y * g, ny = t.x * g; i ? tallo.lineTo(p.x + nx, p.y + ny) : tallo.moveTo(p.x + nx, p.y + ny); });
-    for (let i = 24; i >= 0; i--) { const p = puntosT[i], t = c.getTangentAt(i / 24); tallo.lineTo(p.x + t.y * g, p.y - t.x * g); }
-    formas.push(tallo);
-    for (let i = 1; i < n; i++) {
-      const s = i / n, p = c.getPointAt(s), t = c.getTangentAt(s), l = l0 * Math.sin(Math.PI * (0.15 + 0.7 * s)) * (0.75 + 0.35 * R());
-      for (const ladoF of [-1, 1]) {
-        // folíolo: una lanza que sale hacia adelante y se dobla un poco por su peso (no muy fina: con la luz de área del
-        // trazador de rayos una hoja angosta se borra en la penumbra y la sombra de la palmera no se lee)
-        const ang = Math.atan2(t.y, t.x) + ladoF * (0.75 + 0.3 * R()), dx = Math.cos(ang), dy = Math.sin(ang), w = (0.13 + 0.06 * R()) * escala;
-        const f = new THREE.Shape(), punta = [p.x + dx * l, p.y + dy * l - 0.15 * l], medio = [p.x + dx * l * 0.5 - dy * w, p.y + dy * l * 0.5 + dx * w];
-        f.moveTo(p.x, p.y); f.quadraticCurveTo(medio[0], medio[1], punta[0], punta[1]);
-        f.quadraticCurveTo(p.x + dx * l * 0.5 + dy * w, p.y + dy * l * 0.5 - dx * w, p.x, p.y);
-        formas.push(f);
-      }
-    }
-  };
-  // (x positivo = el lado de donde viene la luz). Las frondas entran desde los bordes y dejan un claro de sol sobre la joya
-  // (con la cámara normal el fondo se ve entre ~0,3 y 1,6 radios de alto —más abajo lo tapa el pedestal— y ±1,7 a los lados)
-  fronda([3.0, 1.7], [2.0, 1.2], [0.8, 0.95], 0.75);
-  fronda([-3.0, 1.3], [-2.0, 0.85], [-0.9, 0.7], 0.7);
-  fronda([-2.2, 3.2], [-1.4, 2.2], [-0.5, 1.35], 0.75);
-  fronda([1.9, 3.4], [1.5, 2.4], [1.0, 1.6], 0.7);
-  fronda([3.2, 0.2], [2.4, 0.5], [1.4, 0.35], 0.6);
-  // ninguna hoja sobre la joya: se quitan los folíolos que caigan en el claro
-  return formas.filter(f => !f.getPoints(8).some(p => Math.hypot(p.x, p.y) < LIBRE * 0.85));
-}
-
 // Penumbra del patrón en el plano de la joya (en radios) según la suavidad
 const penumbra = s => 0.1 + 2.4 * Math.pow(s, 1.5);
 
@@ -858,7 +819,7 @@ export class Escenario3D {
     sl.shadow.bias = -0.0004; sl.shadow.normalBias = 0.015 * u;
     // la sombra de la joya: más suave cuanto más difusa la luz (el trazador la hace con el tamaño de la luz)
     sl.shadow.radius = 1.5 + (sinGobo ? 7 : 4) * l.suavidad;
-    // (las sombras nítidas —hojas, persiana— necesitan el doble de resolución; las suaves no y así se dibujan más rápido)
+    // (las sombras nítidas —persiana, ventana— necesitan el doble de resolución; las suaves no y así se dibujan más rápido)
     if (g) sl.map = dibujarCookie(g, l.suavidad, penumbra(l.suavidad) < 0.3 ? 2048 : 1024);
     const tgt = new THREE.Object3D(); sl.target = tgt;
     for (const o of [sl, tgt]) { o.userData.parte = 'luz'; this.grupo.add(o); }

@@ -73,7 +73,7 @@ ${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion
    con mucho fuego = diamante…). Escoge de las listas; si no se distingue, «desconocido» / «desconocida»; sin piedras, «ninguna».
 2. La escena: dónde se apoya la joya (pedestal redondo, bloque, losa baja, escalones, cojín o directo en el piso), su material y
    su color; el fondo (curvo sin esquinas, pared y piso, nicho con arco), su material y su color; la luz: de qué lado viene, si
-   proyecta sombras con forma (ventana, persiana, hojas, arco, círculo de foco) o es suave sin sombras, si son duras o difusas, si
+   proyecta sombras con forma (ventana, persiana, arco, círculo de foco; si son hojas o plantas, elige la ventana) o es suave sin sombras, si son duras o difusas, si
    es cálida o fría. En escena.id va la escena lista más parecida, y en superficie, fondo y luz lo que de verdad se ve (los colores
    en #RRGGBB tal como se ven en la parte iluminada; los de <analisis_local> son una medida automática y pueden incluir sombras).
    «ninguna» solo si el fondo es liso y no se ve ninguna superficie.

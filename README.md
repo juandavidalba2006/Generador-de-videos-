@@ -20,7 +20,7 @@ pestañas (en dos filas de cuatro) y línea de tiempo.
    pulido, satinado, arenado) y piedra (diamante, esmeralda, rubí, zafiro, perla…). Aquí también van los
    **bitmaps** de las piedras y del metal y la **iluminación HDRI** (ver más abajo).
 3. **Escena**: dónde se apoya la joya (pedestal de yeso, mármol, travertino, terciopelo, arena…), el fondo y la luz
-   con sombras de ventana, persiana u hojas de palmera. *Fondo liso de marca* es el degradado de siempre, con su fondo y su
+   con sombras de ventana, persiana, arco o foco. *Fondo liso de marca* es el degradado de siempre, con su fondo y su
    sombra (ver «Escenas» más abajo).
 4. **Línea de tiempo**: escoge un *Movimiento base* y ajústalo con **keyframes** y **cortes**, o pídeselo al **Asistente**.
 5. **Textos** y **Sonido**: plantillas con gancho, efectos virales y música.
@@ -36,11 +36,11 @@ crear todo el video. La barra espaciadora reproduce o pausa, y el botón del par
 
 Una escena es el lugar donde está la joya: una **superficie** (pedestal redondo, bloque, losa baja, escalones, cojín o
 directo en el piso), un **fondo** (curvo sin esquinas, pared y piso, o un nicho con arco) y una **luz** que puede dibujar
-sombras de **ventana**, **persiana**, **hojas de palmera**, una ventana con arco o un **foco** de luz. El estudio arranca con
+sombras de **ventana**, **persiana**, una ventana con arco o un **foco** de luz. El estudio arranca con
 *Pedestal arena*: el pedestal de yeso, el fondo taupe y la luz de ventana de las fotos de catálogo.
 
-- Toca una tarjeta para cambiar de escena: hay 11 listas (Pedestal arena, Travertino, Mármol blanco, Mármol negro, Podio de
-  escalones, Nicho con arco, Sombras de palmera, Terciopelo esmeralda, Acrílico espejo, Arena y sol, Rosa empolvado).
+- Toca una tarjeta para cambiar de escena: hay 10 listas (Pedestal arena, Travertino, Mármol blanco, Mármol negro, Podio de
+  escalones, Nicho con arco, Terciopelo esmeralda, Acrílico espejo, Arena y sol, Rosa empolvado).
 - **Personalizar**: cambia la forma, el material (yeso, travertino, mármol, concreto, terciopelo, lino, arena, madera,
   acrílico) y el color de la superficie y del fondo; de dónde viene la luz, qué tan alta está, qué tan suaves son las
   sombras, su intensidad y su calidez, y el relleno de la sala. La tarjeta queda marcada como *Ajustada*; *Volver a la escena
@@ -98,7 +98,7 @@ textos, efectos y música. Por ejemplo:
   «agrega el texto 'Nueva colección' arriba», «precio $ 4.800.000»
 - Cortes: «pon un corte a los 3 segundos», «corte con flash en 2,5», «haz 3 cortes», «cortes al ritmo de la música»,
   «quita los cortes»
-- Escena: «pon la joya en un pedestal de mármol», «fondo con sombras de palmera», «escena oscura», «luz desde la
+- Escena: «pon la joya en un pedestal de mármol», «fondo con luz de ventana», «escena oscura», «luz desde la
   derecha», «más suave la luz», «sin fondo» (vuelve al fondo liso de marca)
 
 Todo lo que hace se puede deshacer con *Deshacer* en la línea de tiempo (también un cambio de escena).

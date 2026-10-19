@@ -28,7 +28,6 @@ const ICONO = {
   ninguno: '<circle cx="12" cy="12" r="7.5" opacity=".35"/><circle cx="12" cy="12" r="4"/>',
   ventana: '<rect x="5" y="4" width="14" height="16" rx="1"/><path d="M12 4v16M5 12h14"/>',
   persiana: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
-  hojas: '<path d="M4 20C9 15 12 10 20 4"/><path d="M9 15l-4-2M9 15l1 4M13 11l-4-3M13 11l2 4M17 7l-3-3M17 7l3 2"/>',
   foco: '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2.2"/>',
   reiniciar: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v5h5"/>',
 };
@@ -57,7 +56,7 @@ export function dibujarMiniatura(lienzo, cfg) {
     const p = x.createLinearGradient(0, 80, 0, 150); p.addColorStop(0, 'rgba(255,255,255,0)'); p.addColorStop(1, 'rgba(255,255,255,.16)');
     x.fillStyle = p; x.fillRect(0, 80, 120, 70);
   }
-  // la luz: la ventana, la persiana, las hojas, el arco o el foco, insinuados en el fondo
+  // la luz: la ventana, la persiana, el arco o el foco, insinuados en el fondo
   luzMiniatura(x, l, oscuro);
   // la superficie
   const tope = superficieMiniatura(x, s, f);
@@ -94,18 +93,6 @@ function luzMiniatura(x, l, oscuro) {
     x.translate(60, 60); x.rotate(izq ? 0.42 : -0.42);
     x.fillStyle = luz(0.3 * nitido + 0.06);
     for (let y = -90; y < 90; y += 13) x.fillRect(-90, y, 180, 6.5);
-  } else if (l.gobo === 'hojas') {
-    x.fillStyle = luz(0.2); x.fillRect(0, 0, 120, 150);
-    x.strokeStyle = sombra(0.24 * nitido + 0.06); x.lineCap = 'round';
-    const hoja = (x0, y0, x1, y1, n) => {
-      x.lineWidth = 1.2; x.beginPath(); x.moveTo(x0, y0); x.quadraticCurveTo((x0 + x1) / 2, Math.min(y0, y1) - 8, x1, y1); x.stroke();
-      x.lineWidth = 2.6;
-      for (let i = 1; i < n; i++) {
-        const t = i / n, px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t - Math.sin(Math.PI * t) * 8, L = 9 * Math.sin(Math.PI * Math.min(1, t + 0.15));
-        x.beginPath(); x.moveTo(px, py); x.lineTo(px - L * 0.5, py - L); x.moveTo(px, py); x.lineTo(px + L * 0.6, py + L * 0.3); x.stroke();
-      }
-    };
-    hoja(izq ? -6 : 126, 6, izq ? 44 : 76, 34, 8); hoja(izq ? 128 : -8, 26, izq ? 84 : 36, 50, 7); hoja(izq ? -4 : 124, 84, izq ? 30 : 90, 70, 5);
   } else if (l.gobo === 'foco') {
     const g = x.createRadialGradient(60, 92, 0, 60, 92, 46 + 24 * l.suavidad); g.addColorStop(0, luz(0.5)); g.addColorStop(0.55, luz(0.22)); g.addColorStop(1, 'rgba(0,0,0,0)');
     x.fillStyle = g; x.fillRect(0, 0, 120, 150);

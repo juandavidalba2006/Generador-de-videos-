@@ -407,7 +407,7 @@ export function resumenProyecto(proyecto = {}, info = {}) {
 // =====================================================================================================
 export const AYUDA = 'Puedo mover la cámara, poner cortes, cambiar la escena y la duración, y poner textos, sonidos o música. Prueba con frases como: ' +
   '«gira 2 vueltas y termina enfocando la piedra», «empieza desde arriba y baja hasta quedar de frente», «acércate al diamante en 3 segundos», ' +
-  '«pon un corte con flash a los 3 segundos», «pon la joya en un pedestal de mármol», «fondo con sombras de palmera», ' +
+  '«pon un corte con flash a los 3 segundos», «pon la joya en un pedestal de mármol», «fondo con luz de ventana», ' +
   '«pon un whoosh al inicio», «música phonk», «dura 10 segundos» o «agrega el texto "Nueva colección" arriba».';
 
 const PALABRAS = { un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, dieciocho: 18, veinte: 20, veinticinco: 25, treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, noventa: 90, cien: 100 };
@@ -579,7 +579,7 @@ const FORMAS_PALABRAS = [
 const SUSTANTIVO_FONDO = /\b(?:fondo|pared|nicho|muro|telon)\b/g;
 const SUSTANTIVO_SUPERFICIE = /\b(?:pedestal|superficie|base|bloque|cubo|losa|cojin|podio|escalones|columna|mesa|piso|suelo|bandeja|placa|plancha)\b/g;
 const GOBOS_PALABRAS = [
-  ['arco', /\bventana(?:l)?\s+(?:con\s+)?(?:arco|arquead[oa])\b/], ['hojas', /\bpalmeras?\b|\bhojas\b|\bfollaje\b|\bplantas?\b|\bramas\b/],
+  ['arco', /\bventana(?:l)?\s+(?:con\s+)?(?:arco|arquead[oa])\b/],
   ['persiana', /\bpersianas?\b|\brejilla\b|\blineas\s+de\s+luz\b|\brayas\s+de\s+luz\b/], ['ventana', /\bventana(?:l|s)?\b/],
   ['foco', /\bun\s+foco\s+de\s+luz\b|\bluz\s+de\s+foco\b|\bspot\b|\breflector\b|\bcirculo\s+de\s+luz\b|\bcenital\s+de\s+luz\b/],
 ];
@@ -657,10 +657,9 @@ function analizarEscena(k, r0) {
       e.luz.angulo = /derecha|lado|lateral/.test(lado) ? 45 : /izquierda/.test(lado) ? -45 : /atras|detras|contraluz/.test(lado) ? 165 : 0;
       e.luz.lado = lado === 'lateral' || lado === 'lado' ? 'derecha' : lado;
     }
-    // sombras de ventana, persiana, palmera…
+    // sombras de ventana, persiana, arco…
     if (sacar(/\bsin\s+sombras\b|\bsin\s+gobo\b|\bluz\s+pareja\b/)) e.luz.gobo = 'ninguno';
     else for (const [id, re] of GOBOS_PALABRAS) if (sacar(re)) { e.luz.gobo = id; break; }
-    if (e.preset === 'hojas') e.luz.gobo ||= 'hojas';
     // lo que ya se entendió no lo vuelven a leer la cámara ni la luz de la cámara
     r = r.replace(/\b(?:la\s+)?(?:joya|pieza|anillo)\s+(?:en|sobre)\s+(?:un|una|el|la)?\b/g, ' ')
       .replace(/\b(?:escena|fondo|pared|nicho|pedestal|superficie|base|bloque|cubo|losa|cojin|podio|escalones|columna|sombras?|arco|curvo|redondo|liso|gobo)\b/g, ' ');
@@ -1092,7 +1091,7 @@ function proyectoBase(p) {
 function fueraDeAqui(x) {
   if (/\b(?:metal|oro(?:\s+(?:rosa|blanco|amarillo))?|plata|platino|acabado|material|color\s+de\s+la\s+(?:piedra|gema))\b/.test(x)) return 'El metal, el acabado y el color de las piedras se cambian en la pestaña «Materiales». Aquí puedo mover la cámara y poner textos, sonidos o música.';
   if (/\b(?:logo|logotipo|marca|escarabajo)\b/.test(x)) return 'El logo de Atelier & Co está en la pestaña «Textos»: ahí lo mueves, cambias cuándo aparece o lo ocultas.';
-  if (/\b(?:fondo|color\s+de\s+fondo|escena|superficie|pedestal|decorado)\b/.test(x)) return 'Puedo cambiar la escena: prueba «pon la joya en un pedestal de mármol», «fondo con sombras de palmera», «luz desde la derecha» o «fondo liso». También la eliges en la pestaña «Escena».';
+  if (/\b(?:fondo|color\s+de\s+fondo|escena|superficie|pedestal|decorado)\b/.test(x)) return 'Puedo cambiar la escena: prueba «pon la joya en un pedestal de mármol», «fondo con luz de ventana», «luz desde la derecha» o «fondo liso». También la eliges en la pestaña «Escena».';
   if (/\bsombras?\b/.test(x)) return 'La sombra bajo la pieza del fondo liso se ajusta en la pestaña «Escena». En una escena 3D la sombra la da su luz: prueba «sombras más suaves» o «luz desde la izquierda».';
   if (/\b(?:export\w*|descarg\w*|guarda\w*\s+el\s+video|crea\w*\s+el\s+video|compart\w*|subir\s+a\s+instagram)\b/.test(x)) return 'Para crear y descargar el video usa la pestaña «Exportar».';
   if (/\b(?:stl|archivo|modelo\s+3d|otro\s+anillo|otra\s+joya)\b/.test(x)) return 'Para cambiar la joya sube otro archivo STL en la pestaña «Modelo».';
