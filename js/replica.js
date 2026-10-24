@@ -184,10 +184,17 @@ function valoresPlano(pa, pi, previo, alterna, avisos) {
   let i0 = pi && esNum(pi.inclinacionDesde) ? pi.inclinacionDesde : PISTAS.inclinacion.def - dInc / 2;
   i0 = limitar(i0, PISTAS.inclinacion.min, PISTAS.inclinacion.max);
   const i1 = limitar(i0 + dInc, PISTAS.inclinacion.min, PISTAS.inclinacion.max);
-  // posición de la pieza en el cuadro (del flujo; un macro va centrado). No se deja que la pieza se salga del cuadro.
+  // posición de la pieza en el cuadro (del flujo). No se deja que la pieza se salga del cuadro.
+  // Un macro va centrado: la pieza llena el cuadro y su «centro» medido no es la piedra. Si la cámara recorrió la pieza de
+  // lado o de arriba abajo, el recorrido se conserva (en la app «lateral» y «altura» corren la mira: es el mismo paneo)
+  // repartido a los dos lados del centro, así la piedra no se sale; antes quedaba «Plano quieto».
   const macro = encuadre === 'macro';
-  const l0 = macro ? 0 : limitar(num(m?.lateral?.desde, 0), -0.35, 0.35), l1 = macro ? 0 : limitar(num(m?.lateral?.hasta, l0), -0.35, 0.35);
-  const a0 = macro ? 0 : limitar(num(m?.altura?.desde, 0), -0.35, 0.35), a1 = macro ? 0 : limitar(num(m?.altura?.hasta, a0), -0.35, 0.35);
+  const centrado = pista => {
+    const d = num(pista?.delta, num(pista?.hasta, 0) - num(pista?.desde, 0)), dd = Math.abs(d) >= 0.04 ? limitar(d, -0.6, 0.6) : 0;
+    return dd ? [-dd / 2, dd / 2] : [0, 0];
+  };
+  const [l0, l1] = macro ? centrado(m?.lateral) : [limitar(num(m?.lateral?.desde, 0), -0.35, 0.35), limitar(num(m?.lateral?.hasta, num(m?.lateral?.desde, 0)), -0.35, 0.35)];
+  const [a0, a1] = macro ? centrado(m?.altura) : [limitar(num(m?.altura?.desde, 0), -0.35, 0.35), limitar(num(m?.altura?.hasta, num(m?.altura?.desde, 0)), -0.35, 0.35)];
   // roll: el ladeo con que empieza lo dice la IA (absoluto); el cambio, el flujo
   const rF = num(m?.rodar?.grados, 0);
   const r0 = limitar(pi && esNum(pi.rodar) && Math.abs(rF) < 4 ? pi.rodar : 0, PISTAS.rodar.min, PISTAS.rodar.max);

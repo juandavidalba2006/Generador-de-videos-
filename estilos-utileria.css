@@ -1,0 +1,90 @@
+/* Panel de utilería: tipos de estuche (tarjetas dibujadas), estilos de la marca, colores, posición, apertura y STL.
+   Mismo lenguaje que estilos-escena.css */
+.put{display:flex;flex-direction:column;gap:20px;min-width:0;max-width:100%;container-type:inline-size}
+.put .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.put h3{font-family:var(--serif);font-weight:500;font-size:18px;line-height:1.2;margin:0}
+.put h4{font-family:var(--serif);font-weight:500;font-size:16px;line-height:1.2;margin:0;color:var(--tinta)}
+.put-bloque{display:flex;flex-direction:column;gap:14px;min-width:0}
+.put-cab{display:flex;flex-direction:column;gap:3px}
+.put-ayuda{font-size:12.5px;line-height:1.4;color:var(--tinta2);margin:0;font-weight:400}
+.put-campos{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:14px}
+.put-campos:disabled{opacity:.5}
+.put-campos:disabled button,.put-campos:disabled input,.put-campos:disabled select{cursor:not-allowed}
+
+/* Tarjetas de los tipos: el dibujito cuadrado y el nombre */
+.put-galeria{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:12px 10px}
+.put-ficha{all:unset;cursor:pointer;min-width:0;display:flex;flex-direction:column;gap:6px;align-items:stretch;text-align:center}
+.put-marco{display:block;border-radius:10px;border:1px solid var(--linea);overflow:hidden;background:var(--perla);transition:border-color .18s,transform .18s,box-shadow .18s}
+.put-mini{display:block;width:100%;height:auto;aspect-ratio:1}
+.put-ficha b{font-weight:500;font-size:12px;line-height:1.25;color:var(--tinta2);overflow-wrap:anywhere}
+@media (hover:hover){.put-ficha:hover .put-marco{transform:translateY(-2px);border-color:var(--oro)}}
+.put-ficha:focus-visible .put-marco{outline:2px solid var(--oro);outline-offset:2px}
+.put-ficha[aria-pressed=true] .put-marco{border:2px solid var(--oro-vivo);box-shadow:0 6px 16px -10px rgba(23,21,15,.55)}
+.put-ficha[aria-pressed=true] b{color:var(--tinta);font-weight:600}
+
+.put-grupo{display:flex;flex-direction:column;gap:12px;background:var(--perla);border-radius:10px;padding:14px;min-width:0}
+.put-grupo .grid2{gap:6px 16px}
+.put-par{min-width:0}
+.put-par select{padding:8px 10px;font-size:14px;min-height:40px}
+
+/* Pastillas (estilos de marca y posición) */
+.put-chips{display:flex;flex-wrap:wrap;gap:6px}
+.put-chips[hidden]{display:none}
+.put-chips button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:7px;min-height:34px;border:1px solid var(--linea);background:var(--papel);border-radius:999px;padding:6px 12px 6px 8px;font-size:13px;line-height:1.2;color:var(--tinta);transition:background-color .18s,border-color .18s,color .18s}
+.put-chips button[data-campo]{padding-left:12px}
+.put-chips button:hover{border-color:var(--oro)}
+.put-chips button[aria-pressed=true]{background:var(--tinta);border-color:var(--tinta);color:var(--papel)}
+.put-chips button:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.put-trio{display:inline-flex;flex:none}
+.put-trio i{width:14px;height:14px;border-radius:50%;background:var(--c);box-shadow:0 0 0 1.5px var(--papel),inset 0 0 0 1px rgba(0,0,0,.14);margin-left:-4px}
+.put-trio i:first-child{margin-left:0}
+
+/* Colores: el selector libre y las muestras de la marca */
+.put-colores{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.put-color{position:relative;width:28px;height:28px;border-radius:50%;flex:none;cursor:pointer;background:conic-gradient(from 90deg,#E8B7A6,#E9D9A5,#B9D1B4,#AFC6D8,#C7B4D8,#E8B7A6);box-shadow:inset 0 0 0 2px var(--papel),0 0 0 1px var(--linea)}
+.put-color input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0;border:0}
+.put-color:focus-within{outline:2px solid var(--oro);outline-offset:2px}
+.put-muestra{all:unset;box-sizing:border-box;cursor:pointer;width:26px;height:26px;border-radius:50%;flex:none;background:var(--c);box-shadow:inset 0 0 0 1px rgba(0,0,0,.14);transition:transform .15s,box-shadow .15s}
+@media (hover:hover){.put-muestra:hover{transform:scale(1.1)}}
+.put-muestra[aria-pressed=true]{box-shadow:0 0 0 2px var(--papel),0 0 0 3.5px var(--oro-vivo)}
+.put-muestra:focus-visible{outline:2px solid var(--oro);outline-offset:3px}
+
+.put-rangos input[type=range]{min-height:28px}
+.put-interruptores{display:flex;flex-direction:column;gap:4px}
+.put-check{flex-direction:row;align-items:center;gap:10px;font-size:14px;color:var(--tinta);min-height:32px;cursor:pointer}
+.put-check input{width:20px;height:20px;margin:0;accent-color:var(--oro-vivo);flex:none;cursor:pointer}
+.put-grabado .put-ayuda{display:inline}
+.put-texto{display:flex;align-items:center;gap:8px}
+.put-texto input{flex:1 1 auto;min-height:40px;font-family:var(--serif);font-style:italic}
+.put-texto output{font-size:12px;color:var(--tinta2);font-variant-numeric:tabular-nums;min-width:38px;text-align:right}
+.put-grupo .btn svg{width:15px;height:15px}
+.put-grupo > div > .btn{min-height:34px}
+
+.put-stl{border:1px solid var(--linea);background:var(--papel)}
+.put-fila{display:flex;align-items:flex-end;gap:10px 12px;flex-wrap:wrap}
+.put-fila .put-par{flex:1 1 180px}
+.put-fila .btn{min-height:40px;padding:8px 16px 8px 13px}
+
+/* Panel angosto (celular): tres tarjetas por fila y los controles en una columna */
+@container (max-width:420px){
+  .put-galeria{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 8px}
+  .put-ficha b{font-size:11.5px}
+  .put-grupo{padding:12px}
+  .put-grupo .grid2{grid-template-columns:minmax(0,1fr)}
+  .put-chips button{font-size:12.5px}
+  .put-fila .btn{flex:1 1 100%}
+}
+@container (min-width:620px){.put-galeria{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))}}
+
+@media (prefers-color-scheme: dark){
+  .put-ficha[aria-pressed=true] .put-marco{box-shadow:0 6px 16px -10px rgba(0,0,0,.9)}
+  .put-grupo{background:#16140F}
+  .put-stl{background:#1D1B17;border-color:#3E3A31}
+  .put-chips button{background:#26231C;border-color:#4A4438}
+  .put-chips button[aria-pressed=true]{background:var(--tinta);border-color:var(--tinta);color:#17150F}
+  .put-trio i{box-shadow:0 0 0 1.5px #26231C,inset 0 0 0 1px rgba(255,255,255,.18)}
+  .put-color{box-shadow:inset 0 0 0 2px #16140F,0 0 0 1px #4A4438}
+  .put-muestra{box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
+  .put-muestra[aria-pressed=true]{box-shadow:0 0 0 2px #16140F,0 0 0 3.5px var(--oro-vivo)}
+}
+@media (prefers-reduced-motion: reduce){.put-marco,.put-muestra{transition:none}}

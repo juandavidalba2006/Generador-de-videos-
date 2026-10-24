@@ -408,9 +408,28 @@ export function escalarTiempo(proyecto, nuevaDuracion) {
   const antes = proyecto.duracion || 8;
   const d = limitar(esNum(+nuevaDuracion) ? +nuevaDuracion : antes, DURACION_MIN, DURACION_MAX);
   const k = d / antes, esc = t => r4(limitar(t * k, 0, d));
+  // las costuras se mueven con su corte (como en escalarPlan de replica.js): el keyframe del corte va al corte nuevo y el de
+  // un cuadro antes, un cuadro antes del nuevo. Si se escalaran, al encoger a la mitad quedarían a menos de medio cuadro y al
+  // abrir el archivo (o deshacer) se juntarían en uno: el plano perdería su movimiento.
+  const viejos = (Array.isArray(proyecto.cortes) ? proyecto.cortes : []).filter(c => esObj(c) && esNum(c.t)).map(c => c.t).sort((x, y) => x - y);
+  const nuevos = viejos.map(t => r4(limitar(t * k, BORDE_CORTE, d - BORDE_CORTE)));
+  const costuras = new Set();
+  const mover = t => {
+    for (let j = 0; j < viejos.length; j++) {
+      if (Math.abs(t - viejos[j]) < 1e-3) return nuevos[j];
+      if (Math.abs(t - (viejos[j] - CUADRO)) < 1e-3) return r4(Math.max(0, nuevos[j] - CUADRO));
+      // un keyframe de en medio del plano no pasa por encima del final del plano (al encoger, el final se corre a la derecha)
+      if (t < viejos[j] - CUADRO) return Math.min(esc(t), r4(Math.max(0, nuevos[j] - CUADRO)));
+    }
+    return esc(t);
+  };
   for (const claves of Object.values(proyecto.pistas || {})) {
     if (!Array.isArray(claves)) continue;
-    for (const c of claves) c.t = esc(c.t);
+    for (const c of claves) {
+      const t = mover(c.t);
+      if (viejos.some(v => Math.abs(c.t - v) < 1e-3 || Math.abs(c.t - (v - CUADRO)) < 1e-3)) costuras.add(c);
+      c.t = t;
+    }
     ordenar(claves);
   }
   for (const capa of proyecto.textos || []) {
@@ -430,8 +449,28 @@ export function escalarTiempo(proyecto, nuevaDuracion) {
     }
     proyecto.cortes = quedan;
   }
+  // al encoger, dos keyframes de un mismo lado de un corte pueden quedar a menos de medio cuadro: se juntan ya (como al
+  // abrir el archivo), así lo que se ve es lo mismo que lo que se guarda. Gana el de la costura; si no, el último.
+  for (const claves of Object.values(proyecto.pistas || {})) {
+    if (!Array.isArray(claves) || claves.length < 2) continue;
+    const quedan = [];
+    for (const c of claves) {
+      const u = quedan[quedan.length - 1];
+      if (u && esNum(u.t) && esNum(c.t) && c.t - u.t < TOLERANCIA && !hayCorteEntre(proyecto.cortes, u.t, c.t)) {
+        if (costuras.has(u) && !costuras.has(c)) continue;
+        quedan[quedan.length - 1] = c;
+      } else quedan.push(c);
+    }
+    if (quedan.length < claves.length) claves.splice(0, claves.length, ...quedan);
+  }
   proyecto.duracion = d;
   return proyecto;
+}
+
+// ¿Hay un corte c con a < c ≤ b? (entonces los keyframes en a y en b son de planos distintos y no se juntan)
+function hayCorteEntre(cortes, a, b) {
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  return Array.isArray(cortes) && cortes.some(c => { const t = esNum(c) ? c : c?.t; return esNum(t) && t > lo + HOLGURA / 2 && t <= hi + HOLGURA / 2; });
 }
 
 // ---------- Guardar y abrir ----------
@@ -442,13 +481,14 @@ export function serializar(proyecto) {
   return JSON.stringify(proyecto, reemplazo);
 }
 
-function limpiarClaves(lista, id, duracion) {
+function limpiarClaves(lista, id, duracion, cortes) {
   if (!Array.isArray(lista)) return [];
   const P = PISTAS[id], claves = [];
   for (const c of lista) {
     if (!esObj(c) || !esNum(c.t) || !esNum(c.v)) continue;
     const clave = { t: r4(limitar(c.t, 0, duracion)), v: r4(limitar(c.v, P.min, P.max)), curva: esCurva(c.curva) ? c.curva : 'suave' };
-    const igual = claves.find(o => Math.abs(o.t - clave.t) < TOLERANCIA);
+    // dos keyframes a los dos lados de un corte son el final de un plano y el comienzo del otro: nunca se juntan
+    const igual = claves.find(o => Math.abs(o.t - clave.t) < TOLERANCIA && !hayCorteEntre(cortes, o.t, clave.t));
     if (igual) Object.assign(igual, clave); else claves.push(clave);   // si hay dos en el mismo instante gana el último
   }
   return ordenar(claves);
@@ -466,8 +506,8 @@ export function deserializar(json) {
   p.duracion = esNum(d.duracion) ? limitar(d.duracion, DURACION_MIN, DURACION_MAX) : 8;
   p.bucle = typeof d.bucle === 'boolean' ? d.bucle : true;
   const fuente = esObj(d.pistas) ? d.pistas : MOVIMIENTOS.giro.crear(p.duracion);
-  p.pistas = Object.fromEntries(Object.keys(PISTAS).map(id => [id, limpiarClaves(fuente[id], id, p.duracion)]));
   p.cortes = normalizarCortes(d.cortes, p.duracion);   // (los archivos de antes no tienen cortes)
+  p.pistas = Object.fromEntries(Object.keys(PISTAS).map(id => [id, limpiarClaves(fuente[id], id, p.duracion, p.cortes)]));
   p.textos = Array.isArray(d.textos) ? d.textos.filter(esObj) : [];
   const a = esObj(d.audio) ? d.audio : {};
   p.audio = {

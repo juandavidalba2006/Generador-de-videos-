@@ -226,6 +226,28 @@ export function detectarCortes(cuadros, { planoMin = PLANO_MIN } = {}) {
     }
   }
 
+  // 1b) Destellos (o fundidos) que el muestreo no alcanza: si el flash cae entre dos cuadros mirados, el que sigue muestra el
+  // plano nuevo apenas lavado (~20 % de blanco) y el corte parece un movimiento rápido (dos pares seguidos que cambian
+  // mucho). Un cuadro más claro (u oscuro) que sus dos vecinos, sin más contraste, entre dos cuadros de planos distintos, es
+  // la cola de la transición. El instante exacto lo busca refinarCorte con los cuadros seguidos del video.
+  const saltoEntre = (a, c) => Math.max(1.7 * difHistograma(a, c), 0.62 * residuoAlineado(a, c).residuo);
+  for (let i = 1; i + 1 < n; i++) {
+    if (marcados.has(i - 1) || marcados.has(i) || marcados.has(i + 1)) continue;
+    const r = R[i], A = R[i - 1], C = R[i + 1], claro = Math.max(A.media, C.media), oscuro = Math.min(A.media, C.media);
+    const sinContraste = r.desv <= Math.max(A.desv, C.desv) + 1;
+    const lavado = r.media - claro > Math.max(8, 0.1 * (255 - claro)) && r.blancos >= Math.max(A.blancos, C.blancos) - 0.005;
+    const apagado = oscuro - r.media > Math.max(10, 0.15 * oscuro) && r.negros >= Math.max(A.negros, C.negros) - 0.005;
+    if (!sinContraste || !(lavado || apagado)) continue;
+    // los dos pares cambian (el de antes y el de después del cuadro lavado) y los dos lados son planos distintos
+    if (Math.min(s[i - 1], s[i]) < 0.25) continue;
+    const vecinos = [];
+    for (let q = i - 5; q <= i + 4; q++) if ((q < i - 1 || q > i) && q >= 0 && q + 1 < n && !marcados.has(q) && !marcados.has(q + 1)) vecinos.push(s[q]);
+    const fondo = vecinos.length ? percentil(vecinos, 0.7) : 0, salto = saltoEntre(cuadros[i - 1], cuadros[i + 1]);
+    if (salto < Math.max(0.3, 2 * fondo + 0.1)) continue;
+    marcados.add(i);
+    candidatos.push({ k: i, t: cuadros[i].t, transicion: lavado ? 'flash' : 'negro', confianza: limitar(0.45 + salto - fondo, 0.4, 0.9), zona: [cuadros[i - 1].t, cuadros[i + 1].t], ini: i, fin: i });
+  }
+
   // 2) Barridos: uno o dos cuadros borrosos (mucho menos nítidos que los de los dos lados) entre dos planos distintos. El
   // cambio queda repartido en dos pares de cuadros, así que se compara el cuadro de antes con el de después
   const nitidez = k => R[k].gx + R[k].gy;
@@ -1237,13 +1259,25 @@ export async function abrirVideo(fuente) {
   return { video, url, cerrar: () => { URL.revokeObjectURL(url); video.removeAttribute('src'); try { video.load(); } catch (e) { /* nada */ } } };
 }
 
-// Lleva el video al instante t y espera a que el cuadro esté listo para dibujarse
+// Lleva el video al instante t y espera a que el cuadro esté listo para dibujarse. 'seeked' solo no basta: a veces llega
+// antes de que el cuadro nuevo quede presentado y drawImage dibuja el anterior (y los cortes cambiaban de una lectura a
+// otra). Por eso también se espera requestVideoFrameCallback, pedido antes de buscar (avisa cuando el cuadro nuevo ya está);
+// si no llega (el mismo cuadro de antes, o un navegador sin esa función), se sigue tras una espera corta.
 export async function irA(video, t) {
   const destino = limitar(t, 0, Math.max(0, (video.duration || 0) - 1e-3));
   if (Math.abs(video.currentTime - destino) < 1e-4 && video.readyState >= 2 && !video.seeking) return;
   const listo = esperarEvento(video, 'seeked', 'error', 10000);
+  let id = null, avisar = null;
+  const presentado = typeof video.requestVideoFrameCallback === 'function'
+    ? new Promise(r => { avisar = r; id = video.requestVideoFrameCallback(() => { id = null; r(); }); })
+    : null;
   video.currentTime = destino;
-  await listo;
+  try {
+    await listo;
+    if (presentado) await Promise.race([presentado, new Promise(r => setTimeout(r, 150))]);
+  } finally {
+    if (id !== null) { try { video.cancelVideoFrameCallback?.(id); } catch (e) { /* nada */ } avisar?.(); }
+  }
 }
 
 // Lee el video a fps cuadros por segundo: { duracion (lo analizado), duracionVideo, recortado, ancho, alto, cuadros, video }.
