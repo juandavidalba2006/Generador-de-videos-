@@ -755,7 +755,8 @@ const COSTO_ESCENA = { 'pedestal-arena': 6, travertino: 5, 'marmol-blanco': 5, '
 // se detiene mientras tanto (unos segundos; la primera vez, lo que tarde en compilar el sombreador) y cualquier cambio,
 // «Crear video», la foto o la vista hiperrealista la sueltan enseguida
 const claveSondeo = () => JSON.stringify([estado.escena, estudio.versionModelo, estado.formato]);
-function programarSondeo() { clearTimeout(esperaSondeo); esperaSondeo = setTimeout(sondearPT, 700); }
+// (se espera un poco: si solo se pasa por Exportar, o se cambia la calidad enseguida, no se mide)
+function programarSondeo() { clearTimeout(esperaSondeo); esperaSondeo = setTimeout(sondearPT, 2500); }
 function sondearPT() {
   const k = claveSondeo();
   if (medidasPT.has(k) || sondeo || estado.ocupado || estado.exportando || !estudio.tieneModelo || +$('calidad').value === 0 || estado.pestana !== 'exportar' || document.hidden) return;
@@ -771,7 +772,7 @@ function sondearPT() {
       if (err.name !== 'AbortError') { console.warn(err); medidasPT.set(k, null); }   // (sin medida: el aviso de siempre)
     } finally {
       sondeo = null; estado.ocupado = false; ajustarPrevia();
-      if (sonaba && !yo.cancelado) reproducir(true);
+      if (sonaba) reproducir(true);   // (si fue para crear el video o la foto, trabajo() la vuelve a pausar)
       avisoCalidad();
     }
   })();
@@ -781,7 +782,10 @@ const aprox = s => (s < 50 ? 'menos de 1 min' : s < 3600 ? `≈ ${Math.round(s /
 
 function avisoCalidad() {
   const m = +$('calidad').value, f = FORMATOS[estado.formato], fps = +$('fps').value, n = Math.round((proyecto.duracion || 8) * fps);
-  if (m === 0) { $('avisoCal').textContent = `Render rápido: ${n} cuadros en pocos segundos. Ideal para revisar el movimiento y el sonido antes del video final.`; return; }
+  if (m === 0) {
+    clearTimeout(esperaSondeo); if (sondeo) sondeo.cancelado = true;   // (el render rápido no necesita la medición)
+    $('avisoCal').textContent = `Render rápido: ${n} cuadros en pocos segundos. Ideal para revisar el movimiento y el sonido antes del video final.`; return;
+  }
   const k = claveSondeo(), med = medidasPT.get(k), base = estado.escena.base || estado.escena.id, veces = COSTO_ESCENA[base];
   let cuanto;
   if (med) {
