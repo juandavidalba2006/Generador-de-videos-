@@ -500,7 +500,8 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
 // de donde venga la luz, y la joya queda en un vidrio iluminado. lado: −1 si la luz viene de la izquierda, 1 si de la derecha.
 const LIBRE = 1.3;   // radio alrededor de la joya que ningún paral ni hoja tapa
 // proyTope(x, z): lo mismo para un punto de la cara de arriba de la superficie; R: radio de esa cara (en radios)
-function gobo(tipo, proy, lado = -1, proyTope = null, R = 1.5) {
+// suavidad: la de la luz (la persiana agranda sus lamas con ella, ver abajo)
+function gobo(tipo, proy, lado = -1, proyTope = null, R = 1.5, suavidad = 0) {
   const X = (x, y = 1.5) => proy(x, y).x, Y = (x, y) => proy(x, y).y;
   // un paral nunca pasa sobre la joya: se corre hasta dejarla libre
   const fuera = (v, ancho) => (Math.abs(v) - ancho >= LIBRE ? v : Math.sign(v || lado) * (LIBRE + ancho));
@@ -526,15 +527,17 @@ function gobo(tipo, proy, lado = -1, proyTope = null, R = 1.5) {
     return { pared: true, huecos };
   }
   if (tipo === 'persiana') {
-    // persiana: franjas en diagonal sobre el fondo (unas tres en el cuadro); la joya queda en el centro de una franja de luz
-    const periodo = 0.62 * Math.abs(Y(0, 1) - Y(0, 0)), lama = 0.45 * periodo;
+    // persiana: franjas en diagonal sobre el fondo (unas tres en el cuadro); la joya queda en el centro de una franja de luz.
+    // Con luz más suave las lamas se ven más anchas (como una persiana más lejos de la pared): la penumbra crece con la
+    // suavidad y en franjas angostas las borraría del todo (ver penumbraGobo)
+    const periodo = 0.62 * Math.abs(Y(0, 1) - Y(0, 0)) * (1 + 0.8 * limitar(suavidad, 0, 1)), lama = 0.45 * periodo;
     const x0 = Math.min(X(-6), X(6), -3), x1 = Math.max(X(-6), X(6), 3), y0 = Math.min(Y(0, -4), -3.5), y1 = Math.max(Y(0, 7), 3.5);
     const huecos = [];
     for (let k = Math.floor(y0 / periodo) - 1; k * periodo < y1; k++) {
       const c = k * periodo;   // centro de un hueco (k = 0: el de la joya)
       huecos.push(rect(x0, c - (periodo - lama) / 2, x1, c + (periodo - lama) / 2));
     }
-    return { pared: true, huecos };
+    return { pared: true, huecos, periodo };
   }
   if (tipo === 'arco') {
     // ventana con arco y un paral al centro: la cima del arco cae en el fondo a ~1,5 radios de alto, la curva cruza el
@@ -556,9 +559,19 @@ function gobo(tipo, proy, lado = -1, proyTope = null, R = 1.5) {
 }
 // Penumbra del patrón en el plano de la joya (en radios) según la suavidad
 const penumbra = s => 0.1 + 2.4 * Math.pow(s, 1.5);
+// La de un gobo dado: en la persiana (franjas de ~0,5 r) la penumbra se frena suave antes de la mitad del período; más
+// ancha, la luz de una rendija tapa la sombra de la lama vecina y desde suavidad 0,28 no quedaba ninguna franja. Las
+// ventanas tienen vidrios grandes: ahí la penumbra es la de siempre
+function penumbraGobo(g, s) {
+  const p = penumbra(s);
+  if (!g?.periodo) return p;
+  const tope = 0.45 * g.periodo;
+  return p / Math.pow(1 + (p / tope) ** 4, 0.25);
+}
 
 // Cookie del motor rápido: el patrón visto desde la luz, difuminado con la misma penumbra que el trazado de rayos
-function dibujarCookie(g, suavidad, N = 2048) {
+// (pen: el ancho de la penumbra en el plano de la joya, en radios)
+function dibujarCookie(g, pen, N = 2048) {
   const c = lienzo(N), x = ctx2d(c), k = N / (2 * MEDIO_COOKIE), pasar = (s) => {
     const pts = s.extractPoints(24);
     const camino = (lista) => lista.forEach((p, i) => (i ? x.lineTo : x.moveTo).call(x, N / 2 + p.x * k, N / 2 - p.y * k));
@@ -569,7 +582,7 @@ function dibujarCookie(g, suavidad, N = 2048) {
   x.fillStyle = g.pared ? '#fff' : '#000';
   x.beginPath(); for (const s of g.pared ? g.huecos : g.siluetas) pasar(s); x.fill('nonzero');
   // desenfoque de caja en tres pasadas (≈ gaussiano), hecho a mano: ctx.filter no existe en Safari
-  const sigma = penumbra(suavidad) * k / 2.6;
+  const sigma = pen * k / 2.6;
   if (sigma > 0.4) desenfocar(x, N, sigma);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.NoColorSpace; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
@@ -804,7 +817,8 @@ export class Escenario3D {
     const ex = new THREE.Vector3(0, 1, 0).cross(L).normalize(), ey = L.clone().cross(ex), B = this.limites.fondo / u, q = new THREE.Vector3();
     const proy = (x, y) => { q.set(x, y, -B); return { x: q.dot(ex), y: q.dot(ey) }; };
     const T = this.limites.tope / u, proyTope = (x, z) => { q.set(x, T, z); return { x: q.dot(ex), y: q.dot(ey) }; };
-    const g = gobo(l.gobo, proy, L.x < 0 ? -1 : 1, proyTope, Math.max(this.limites.radioSup / u, 1));
+    const g = gobo(l.gobo, proy, L.x < 0 ? -1 : 1, proyTope, Math.max(this.limites.radioSup / u, 1), l.suavidad);
+    const penG = penumbraGobo(g, l.suavidad);
     const color = colorLuz(l.calidez), E = 2.6 * l.intensidad;   // irradiancia en la joya (la escala la da la exposición)
     const foco = l.gobo === 'foco', sinGobo = l.gobo === 'ninguno';
     // D: distancia del disco de la luz (en el trazador) = vértice del foco del motor rápido; así el patrón y el cono coinciden
@@ -820,7 +834,7 @@ export class Escenario3D {
     // la sombra de la joya: más suave cuanto más difusa la luz (el trazador la hace con el tamaño de la luz)
     sl.shadow.radius = 1.5 + (sinGobo ? 7 : 4) * l.suavidad;
     // (las sombras nítidas —persiana, ventana— necesitan el doble de resolución; las suaves no y así se dibujan más rápido)
-    if (g) sl.map = dibujarCookie(g, l.suavidad, penumbra(l.suavidad) < 0.3 ? 2048 : 1024);
+    if (g) sl.map = dibujarCookie(g, penG, penG < 0.3 ? 2048 : 1024);
     const tgt = new THREE.Object3D(); sl.target = tgt;
     for (const o of [sl, tgt]) { o.userData.parte = 'luz'; this.grupo.add(o); }
     // --- trazado de rayos ---
@@ -834,7 +848,7 @@ export class Escenario3D {
     } else {
       // foco físico con radio (penumbra de verdad en la joya y en la ventana)
       // radio: el borde del patrón queda con la penumbra pedida en el plano de la joya (semejanza de triángulos)
-      const radio = foco ? (0.15 + 1.6 * l.suavidad) * u : penumbra(l.suavidad) * u * (D - Do) / (2 * Do);
+      const radio = foco ? (0.15 + 1.6 * l.suavidad) * u : penG * u * (D - Do) / (2 * Do);
       lp = new PhysicalSpotLight(color, E * D * D, 0, angulo, pen, 2);
       lp.radius = radio;
       // el trazador pone el disco delante de la posición de la luz (a radio / tan(ángulo)): se corre para que el disco quede en D
@@ -972,4 +986,4 @@ export class LimpiadorPT {
 }
 
 // (para las pruebas)
-export const _interno = { TIPOS, gobo, penumbra, pedestal, patron };
+export const _interno = { TIPOS, gobo, penumbra, penumbraGobo, pedestal, patron };

@@ -99,7 +99,7 @@ export function normalizarElemento(cfg, i = 0) {
     tamano: num(c.tamano, 'tamano'),
     coreografia,
     inicio: num(c.inicio, 'inicio'),
-    duracion: num(c.duracion, 'duracion', DURACION[coreografia]),
+    duracion: num(c.duracion, 'duracion', forma === 'cinta' ? 2.5 : DURACION[coreografia]),   // (la cinta: lo que tarda en dibujarse)
     semilla: Math.round(num(c.semilla, 'semilla')),
     // cinta
     recorrido: clave(RECORRIDOS_CINTA, c.recorrido, 'corazon'),
@@ -426,9 +426,23 @@ export function remuestrear(pts, n) {
 function tangentes(P) {
   return P.map((p, i) => V().subVectors(P[Math.min(P.length - 1, i + 1)], P[Math.max(0, i - 1)]).normalize());
 }
-// Transporte paralelo: el ancho de la cinta (N) arranca en n0 y gira lo mínimo para seguir la curva (sin vueltas ni saltos)
-export function marcosParalelos(P, n0) {
+// Transporte paralelo: el ancho de la cinta (N) arranca en n0 y gira lo mínimo para seguir la curva (sin vueltas ni saltos).
+// plano: en los recorridos planos (corazón, onda, lazo) el ancho queda en su plano: para una curva plana es lo mismo que el
+// transporte paralelo, y en el rizo (que sale un poco del plano) no acumula la torsión que dejaría la cinta de canto después
+export function marcosParalelos(P, n0, plano = null) {
   const T = tangentes(P), N = [], B = [], qq = Q();
+  if (plano) {
+    let prev = null;
+    for (let i = 0; i < P.length; i++) {
+      let n = V().crossVectors(plano, T[i]);
+      if (n.lengthSq() < 1e-8) n = prev ? prev.clone() : n0.clone();
+      n.addScaledVector(T[i], -n.dot(T[i])).normalize();
+      if (prev && n.dot(prev) < 0) n.negate();
+      if (!prev && n.dot(n0) < 0) n.negate();
+      N.push(n); B.push(V().crossVectors(T[i], n).normalize()); prev = n;
+    }
+    return { T, N, B };
+  }
   let n = n0.clone().addScaledVector(T[0], -n0.dot(T[0]));
   if (n.lengthSq() < 1e-10) n = Math.abs(T[0].y) < 0.9 ? V(0, 1, 0).cross(T[0]) : V(1, 0, 0).cross(T[0]);
   n.normalize();
@@ -1012,15 +1026,18 @@ function recorridoLocal(tipo, wl) {
     const ctrl = [[0.3, -1, 0], [0.16, -0.62, 0], [0.04, -0.36, 0], [-0.14, -0.08, 0], [-0.17, 0.12, 0], [-0.09, 0.28, 0], [0, 0.31, 0], [0.09, 0.28, 0.1], [0.17, 0.12, 0.4], [0.14, -0.08, 0.8], [-0.04, -0.36, 1], [-0.16, -0.62, 1], [-0.3, -1, 1]].map(([x, y, z]) => V(x, y, z * dz));
     return { ctrl, enhebre: [V(-0.05, 0.305, 0), V(0.05, 0.305, 0)], nominal: V(0, 0.31, 0), escala: 3.4 / 1.31, abajo: false };
   }
-  // corazón: sube por la derecha, pasa por arriba del lóbulo, baja al centro, da una vuelta y media de rizo hacia la cámara
-  // (como la cinta del reel) y sigue por el lóbulo izquierdo hasta abajo
-  const rc = Math.max(0.045, 1.1 * wl), paso = Math.max(1.6 * wl, 0.06), vueltas = 1.5, medio = vueltas * paso / 2, ye = 0.79;
-  const der = [[0.07, 0], [0.17, 0.13], [0.31, 0.31], [0.44, 0.5], [0.52, 0.67], [0.53, 0.83], [0.46, 0.95], [0.34, 1.0], [0.22, 0.97], [0.12 + medio * 0.5, 0.88], [medio, ye]];
+  // corazón: sube por la derecha, pasa por arriba del lóbulo y baja al centro; ahí da un rizo (una vuelta en el plano del
+  // corazón, como la cinta del reel: cruza sobre sí misma un poco adelante) y sigue por el lóbulo izquierdo hasta abajo
+  const rc = Math.max(0.04, 1.05 * wl), dz = Math.max(0.9 * wl, 0.03), C = [0, 0.75];
+  const ent = [C[0] - 0.866 * rc, C[1] + 0.5 * rc], sal = [C[0] + 0.866 * rc, C[1] + 0.5 * rc];
+  const der = [[0.07, 0], [0.17, 0.13], [0.31, 0.31], [0.44, 0.5], [0.52, 0.67], [0.53, 0.83], [0.46, 0.95], [0.34, 1.0], [0.22, 0.97], [0.12, 0.9], [0.05, 0.84]];
   const ctrl = der.map(([x, y]) => V(x, y, 0));
-  for (let k = 1; k <= 18 * vueltas; k++) { const psi = 2 * Math.PI * k / 18; ctrl.push(V(medio - paso * psi / (2 * Math.PI), ye - rc * Math.sin(psi), rc - rc * Math.cos(psi))); }
-  const izq = der.slice(0, -1).reverse().map(([x, y]) => [-x, y]);
-  izq.forEach(([x, y], j) => ctrl.push(V(x, y, 2 * rc * (1 - suave((j + 1) / izq.length)))));
-  return { ctrl, enhebre: [V(0.52, 0.67, 0), V(0.3, 1.0, 0)], nominal: V(0.47, 0.94, 0), escala: 5.5, abajo: true, rc };
+  ctrl.push(V(ent[0], ent[1], 0));
+  // la vuelta: de 240° a 480° de rumbo, en sentido antihorario (el centro queda a la izquierda de la marcha)
+  for (let k = 1; k <= 14; k++) { const th = (240 + 240 * k / 14) * Math.PI / 180; ctrl.push(V(C[0] + rc * Math.cos(th - Math.PI / 2), C[1] + rc * Math.sin(th - Math.PI / 2), dz * suave(k / 14))); }
+  const izq = der.slice().reverse().map(([x, y]) => [-x, y]);
+  izq.forEach(([x, y], j) => ctrl.push(V(x, y, dz * (1 - suave((j + 1) / (izq.length * 0.45))))));
+  return { ctrl, enhebre: [V(0.52, 0.67, 0), V(0.3, 1.0, 0)], nominal: V(0.5, 0.86, 0), escala: 5.5, abajo: true, rc };
 }
 function planCinta(g, J, ctx) {
   const R = J.R, avisos = [];
@@ -1059,7 +1076,8 @@ function planCinta(g, J, ctx) {
       const Rm = new THREE.Matrix4().makeBasis(f1, f2, f3).multiply(new THREE.Matrix4().makeBasis(e1, e2, e3).transpose());
       const arriba = V(0, 1, 0).applyMatrix4(Rm);
       // la joya en el lóbulo, con el corazón derecho; con moño, que los extremos caigan cerca de él
-      let puntaje = arriba.y - 0.4 * Math.abs(i - iN) / crudo.length;
+      const curv = T[Math.max(0, i - 6)].angleTo(T[Math.min(T.length - 1, i + 6)]) / 12;   // radianes por muestra
+      let puntaje = arriba.y - 0.4 * Math.abs(i - iN) / crudo.length - 25 * curv;
       if (loc.abajo && ancla) {
         const base = crudo[0].clone().add(crudo[crudo.length - 1]).multiplyScalar(0.5); base.x *= espejo;
         const rel = base.sub(V(crudo[i].x * espejo, crudo[i].y, crudo[i].z)).applyMatrix4(Rm);
@@ -1074,7 +1092,7 @@ function planCinta(g, J, ctx) {
     if (mejor.loc.abajo) {
       const base = mapear(C[0].clone().add(C[C.length - 1]).multiplyScalar(0.5));
       if (ancla && base.lengthSq() > 0) k = limitar(V().subVectors(ancla, Ph).dot(base) / base.lengthSq(), 0.4 * k, 2.2 * k);
-      else if (base.y < 0) k = Math.min(k, Math.max(0.35 * k, (Ph.y - J.suelo - 0.6 * w - holgura) / -base.y));
+      else if (base.y < 0) k = limitar((Ph.y - J.suelo - 0.6 * w - holgura) / -base.y, 0.35 * k, 1.6 * k);
     }
     mejor.mapear = mapear;
   }
@@ -1083,7 +1101,16 @@ function planCinta(g, J, ctx) {
   const largoTotal = P.reduce((s, p, i) => (i ? s + p.distanceTo(P[i - 1]) : 0), 0), dS = largoTotal / (P.length - 1);
   const tangH = V().subVectors(P[Math.min(P.length - 1, ih + 1)], P[Math.max(0, ih - 1)]).normalize(), aS = a.clone().multiplyScalar(Math.sign(tangH.dot(a)) || 1);
   // tramo recto por el agujero: por construcción el cilindro del agujero no toca la joya
-  let tramo = ag ? ag.medio + w + holgura : 0;
+  let tramo = 0;
+  if (ag) {
+    let s0 = Infinity, s1 = -Infinity; const v = V(), lim = (ag.radio + 1.2 * w) ** 2;
+    for (let i = 0; i < tri.length; i += 3) {
+      v.set(tri[i] - ag.centro.x, tri[i + 1] - ag.centro.y, tri[i + 2] - ag.centro.z);
+      const sa = v.dot(ag.eje); if (v.lengthSq() - sa * sa > lim) continue;
+      s0 = Math.min(s0, sa); s1 = Math.max(s1, sa);
+    }
+    tramo = (Number.isFinite(s0) ? Math.max(-s0, s1) : ag.medio) + 0.5 * w + holgura;
+  }
   const recto = () => {
     if (!ag) return P;
     const l2 = tramo + 2.5 * w;
@@ -1103,7 +1130,8 @@ function planCinta(g, J, ctx) {
   const N = 420, { puntos } = remuestrear(Q2, N);
   // índice del agujero en el remuestreo
   const iH = puntos.reduce((b, p, i) => (p.distanceTo(Ph) < puntos[b].distanceTo(Ph) ? i : b), 0);
-  const marcos = marcosParalelos(puntos, nE.clone().cross(tangentes(puntos)[0]));
+  const plano = g.recorrido === 'espiral' ? null : nE.clone();
+  const marcos = marcosParalelos(puntos, nE.clone().cross(tangentes(puntos)[0]), plano);
   // revisar contra los triángulos de la joya (los cantos y el medio de la cinta); si algo roza, otro intento con más tramo recto
   const rej = tri ? rejillaDe(tri, R) : null;
   let juego = Infinity;
@@ -1111,7 +1139,7 @@ function planCinta(g, J, ctx) {
     const lado = esquinasCinta(puntos, marcos.N, marcos.B, w, e);
     for (const c of lado) for (let m = 0; m < 4; m++) for (let s = 0; s < 3; s++) juego = Math.min(juego, distanciaJoya(rej, c[m].clone().lerp(c[(m + 1) % 4], s / 3), 4 * holgura));
   }
-  return { tipo: 'cinta', g, puntos, marcos, ancho: w, espesor: e, ag, iH, tramo, juego, holgura, avisos, abajo: loc.abajo, ancla: !!ancla };
+  return { tipo: 'cinta', g, puntos, marcos, plano, ancho: w, espesor: e, ag, iH, tramo, juego, holgura, avisos, abajo: loc.abajo, ancla: !!ancla };
 }
 // La cinta en el instante t: el recorrido con el aleteo suave (cero en el agujero, en el rizo y en los extremos atados) y
 // hasta dónde está dibujada (tope, en muestras: crece desde el primer extremo)
@@ -1132,7 +1160,7 @@ function cintaEn(c, t) {
 // Lo dibujado de la cinta: los puntos hasta la punta (interpolada) y sus marcos; completo: el resto se junta en la punta
 // (mismo número de vértices cada cuadro: el trazador solo reajusta el BVH)
 function cintaCortada(c, t, completo) {
-  const { P, tope } = cintaEn(c, t), n = P.length, fr = marcosParalelos(P, c.marcos.N[0]);
+  const { P, tope } = cintaEn(c, t), n = P.length, fr = marcosParalelos(P, c.marcos.N[0], c.plano);
   const i0 = Math.min(n - 2, Math.floor(tope)), f = tope - i0;
   const lerp = (L, normal) => { const v = L[i0].clone().lerp(L[i0 + 1], f); return normal ? v.normalize() : v; };
   const punta = { p: lerp(P), N: lerp(fr.N, 1), B: lerp(fr.B, 1), T: lerp(fr.T, 1) };
@@ -1227,8 +1255,15 @@ function planCadena(g, J, ctx) {
     if (!base && tri) { let m = -Infinity, k = 0; for (let i = 1; i < tri.length; i += 3) if (tri[i] > m) { m = tri[i]; k = i - 1; } base = V(tri[k], tri[k + 1], tri[k + 2]); }
     if (!base) base = V(J.centro.x, J.yMax, J.centro.z);
     iz = iz || base.clone().add(V(-3.2 * R, 7 * R, 0)); de = de || base.clone().add(V(3.2 * R, 7 * R, 0));
-  } else {
-    iz = iz || V(-2.4 * R, J.yMax + 1.4 * R, 0.4 * R); de = de || V(2.4 * R, J.yMax + 1.4 * R, 0.4 * R);
+  }
+  // obstáculo: el elemento sobre el que se apoya (su primera instancia, donde esté en cada instante)
+  const sobre = g.sobre && ctx.planes ? ctx.planes.find(p => p.g.id === g.sobre && p.instancias?.length) : null;
+  if (g.colgar !== 'joya') {
+    if (sobre) {
+      // por delante y por encima del elemento: la cadena le abraza el frente (como la de r8 con la esfera de cristal)
+      const c0 = V(), q0 = Q(); sobre.instancias[0].en(sobre.g.inicio + sobre.g.duracion, c0, q0); const rt = sobre.instancias[0].rb;
+      iz = iz || c0.clone().add(V(-1.7 * rt, 1.5 * rt, 0.55 * rt)); de = de || c0.clone().add(V(1.7 * rt, 1.5 * rt, 0.55 * rt));
+    } else { iz = iz || V(-2.4 * R, J.yMax + 1.4 * R, J.rJ + 0.6 * R); de = de || V(2.4 * R, J.yMax + 1.4 * R, J.rJ + 0.6 * R); }
   }
   // argolla sobre el punto más alto: el dije queda colgado (nada de la argolla baja de ese punto: no toca la joya)
   const tramos = [];
@@ -1244,18 +1279,19 @@ function planCadena(g, J, ctx) {
       tramos.push({ desde: inicio, hasta: Pq, radial });
     }
   } else tramos.push({ desde: iz, hasta: de });
-  // obstáculo: el elemento sobre el que se apoya (su primera instancia, donde esté en cada instante)
-  const sobre = g.sobre && ctx.planes ? ctx.planes.find(p => p.g.id === g.sobre && p.instancias?.length) : null;
   if (g.sobre && !sobre) avisos.push('La cadena no encontró el elemento sobre el que se apoya.');
   const juego = Wo / 2 + 0.08 * d;
   const forma = (t, vaiven = true) => tramos.map((tr, k) => {
     const n = Math.max(24, Math.ceil(tr.desde.distanceTo(tr.hasta) / (1.4 * paso)));
     let P = catenaria(tr.desde, tr.hasta, g.holgura, n), toco = false;
+    const obst = [];
     if (sobre) {
       const ins = sobre.instancias[0], pp = V(), qq = Q(); ins.en(t, pp, qq);
-      const o = { p: pp, q: qq, qi: qq.clone().invert(), rb: ins.rb, sdf: x => sdfElemento(sobre.g.forma, sobre.F.d, ins.rb, x) };
-      ({ P, toco } = relajar(P, [o], juego, J.suelo));
+      obst.push({ p: pp, q: qq, qi: qq.clone().invert(), rb: ins.rb, sdf: x => sdfElemento(sobre.g.forma, sobre.F.d, ins.rb, x) });
     }
+    // suelta: la joya es un obstáculo (el cilindro que la envuelve en cualquier giro)
+    if (g.colgar !== 'joya') obst.push({ p: J.centro.clone().setX(0).setZ(0), q: Q(), qi: Q(), rb: J.R, sdf: x => sdfElemento('cilindro', { r: J.rJ + J.gap, h: J.yMax - J.yMin + 2 * J.gap }, 0, x) });
+    if (obst.length) ({ P, toco } = relajar(P, obst, juego, J.suelo));
     if (vaiven && g.vaiven > 0) {
       // la panza de la catenaria gira un poco alrededor de la cuerda (de lado a lado), lejos de donde se apoya
       const eje = V().subVectors(tr.hasta, tr.desde).normalize(), th = g.vaiven * 0.22 * Math.sin(2 * Math.PI * 0.32 * t + 1.7 * k);
@@ -1497,14 +1533,17 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, 
       m.color.copy(metalHex != null ? new THREE.Color(metalHex) : colorMetal(colorHex)); break;
     case 'cristal':
       // vidrio de verdad: refracta (la esfera invierte lo que hay detrás), canto brillante; el color es un tinte suave
-      Object.assign(m, { transmission: 1, ior: 1.5, thickness: 2 * tamano, roughness: 0, metalness: 0, specularIntensity: 1, envMapIntensity: 1.3 });
+      // (thickness solo lo usa el motor rápido, que refracta en pantalla: con el diámetro entero la muestra cae fuera de la
+      // imagen y la esfera se ve negra; ~0,6 del radio da el vidrio macizo creíble. El trazador usa la geometría de verdad)
+      Object.assign(m, { transmission: 1, ior: 1.5, thickness: 0.6 * tamano, roughness: 0, metalness: 0, specularIntensity: 1, envMapIntensity: 1.3 });
       m.color.set(0xffffff).lerp(color, tinte);
       m.attenuationColor.copy(color).lerp(new THREE.Color(0xffffff), 1 - tinte); m.attenuationDistance = (tinte > 0.5 ? 1.2 : 6) * tamano;
       break;
     case 'saten':
-      Object.assign(m, { roughness: 0.34, sheen: 1, sheenRoughness: 0.3, specularIntensity: 0.38, side: THREE.FrontSide });
+      Object.assign(m, { roughness: 0.26, sheen: 0.9, sheenRoughness: 0.28, specularIntensity: 0.75, side: THREE.FrontSide });
+      m.color.multiplyScalar(0.84);
       m.sheenColor.copy(color).lerp(new THREE.Color(0xffffff), 0.4);
-      if (tx) { m.normalMap = tx.normalMap; m.normalScale.set(0.22, 0.22); }
+      if (tx) { m.normalMap = tx.normalMap; m.normalScale.set(0.32, 0.32); }
       break;
   }
   return m;
