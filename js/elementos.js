@@ -650,7 +650,11 @@ function piezasDe(forma, d, stlGeo) {
     p.geo.computeBoundingSphere();
     p.solido = p.banda ? cintaSolida(p.banda.P, p.banda.N, p.banda.B, p.banda.ancho, p.banda.espesor, true, []) : solidoDe(p.geo);
   }
-  const res = { piezas, info: infoForma(forma, d, piezas) };
+  const unicos = new Map();
+  for (const p of piezas) for (let i = 0; i < p.solido.length; i += 3) unicos.set(`${p.solido[i]},${p.solido[i + 1]},${p.solido[i + 2]}`, i);
+  const vertices = new Float32Array(unicos.size * 3); let o = 0;
+  for (const k of unicos.keys()) { const [x, y, z] = k.split(',').map(Number); vertices[o++] = x; vertices[o++] = y; vertices[o++] = z; }
+  const res = { piezas, vertices, info: infoForma(forma, d, piezas) };
   if (CACHE_GEO.size > 80) CACHE_GEO.clear();
   CACHE_GEO.set(k, res);
   return res;
@@ -686,16 +690,18 @@ function infoForma(forma, d, piezas) {
   return { rb, rRueda: rEje, modo: MODO_RODAR[forma] || 'deslizar', bola: MODO_RODAR[forma] === 'bola' };
 }
 // Lo más bajo de la forma girada por q (respecto de su centro): con esto se apoya exacta en el piso
-function bajoDe(piezas, q) {
-  let m = Infinity; const v = V();
-  for (const p of piezas) for (let i = 0; i < p.solido.length; i += 3) { v.set(p.solido[i], p.solido[i + 1], p.solido[i + 2]).applyQuaternion(q); if (v.y < m) m = v.y; }
+// (solo la fila y de la rotación: es la altura de cada vértice girado)
+function bajoDe(F, q) {
+  const x = q.x, y = q.y, z = q.z, w = q.w, a = 2 * (x * y + w * z), b = 1 - 2 * (x * x + z * z), c = 2 * (y * z - w * x), P = F.vertices;
+  let m = Infinity;
+  for (let i = 0; i < P.length; i += 3) { const h = a * P[i] + b * P[i + 1] + c * P[i + 2]; if (h < m) m = h; }
   return -m;
 }
 // Postura de reposo en el piso (semilla: el giro alrededor de la vertical; las bolas, cualquier orientación)
 function reposo(forma, F, r) {
   if (F.info.bola) return qAzar(r);
   const yaw = qEje(EJE_Y, r() * 2 * Math.PI);
-  if (forma === 'gema') return yaw.multiply(qEje(V(1, 0, 0), Math.PI));   // la gema suelta descansa sobre la mesa
+  if (forma === 'gema') return yaw.multiply(qEje(V(1, 0, 0), Math.PI / 2 - Math.atan(1 / 0.86)));   // la gema suelta se recuesta sobre el pabellón y el filetín
   if (forma === 'cubo') return qEje(EJE_Y, Math.floor(r() * 4) * Math.PI / 2 + (r() - 0.5) * 0.5);
   return yaw;
 }
@@ -755,7 +761,7 @@ function colocar(n, F, J, ocupados, r, { h, lado0 = 1, preferir = 'lados', empuj
         const psi = 2 * Math.PI * (m + 0.5 * r()) / M, cx = Math.cos(psi), sz = Math.sin(psi);
         let pen = (rho - J.rJ) / R + 0.25 * r();
         if (preferir === 'frente') pen += 0.8 * Math.max(0, -sz) + 0.3 * Math.abs(cx);
-        else pen += 0.7 * Math.max(0, -lado * cx) + 0.9 * Math.max(0, sz) * Math.exp(-((cx / 0.45) ** 2)) + 0.5 * Math.max(0, -sz);
+        else pen += 0.7 * Math.max(0, -lado * cx) + 1.6 * Math.max(0, sz) * Math.exp(-((cx / 0.75) ** 2)) + 0.5 * Math.max(0, -sz);
         if (pen >= ms) continue;
         const p = V(rho * cx, J.suelo + h, rho * sz);
         if (res.some(o => o.distanceTo(p) < 2 * rb + J.gap)) continue;
@@ -777,7 +783,7 @@ function planGrupo(g, J, ctx, empuje = 0) {
   const plan = { g, F, instancias: [], marco: 'escenario' };
   const rb = F.info.rb, R = J.R, n = g.cantidad, t0g = g.inicio, T = g.duracion;
   const reposos = Array.from({ length: n }, () => reposo(g.forma, F, r));
-  const altos = reposos.map(q => bajoDe(F.piezas, q));
+  const altos = reposos.map(q => bajoDe(F, q));
   const inst = (o) => plan.instancias.push({ rb, marco: 'escenario', ...o });
   switch (g.coreografia) {
     case 'rodar': case 'entrar': {
@@ -806,8 +812,8 @@ function planGrupo(g, J, ctx, empuje = 0) {
             if (modo === 'volteo') {
               const Th = D / ad.avance * Math.PI / 2, th = Th * friccion(u), nq = Math.min(Math.floor(th / (Math.PI / 2)), Math.round(D / ad.avance) - 1), a = th - nq * Math.PI / 2;
               const c = nq * ad.avance + ad.a + ad.rc * a - ad.a * Math.cos(a) + ad.a * Math.sin(a);
-              p.set(xF + s * D - s * c, J.suelo + ad.rc + ad.a * (Math.cos(a) + Math.sin(a)), z);
-              qEje(eje, th, q).multiply(q0); return 1;
+              qEje(eje, th, q).multiply(q0);
+              p.set(xF + s * D - s * c, J.suelo + bajoDe(F, q), z); return 1;
             }
             if (modo === 'deslizar') {
               const e = salida3(u);
@@ -815,10 +821,10 @@ function planGrupo(g, J, ctx, empuje = 0) {
               qEje(EJE_Y, s * (g.coreografia === 'entrar' ? Math.PI / 2 : 0.3) * (1 - e), q).multiply(q0); return 1;
             }
             const dist = D * friccion(u);
-            p.set(xF + s * D - s * dist, J.suelo + rr, z);
-            qEje(eje, dist / rr, q).multiply(q0); return 1;
+            qEje(eje, dist / rr, q).multiply(q0);
+            p.set(xF + s * D - s * dist, J.suelo + bajoDe(F, q), z); return 1;
           },
-          bajo(t) { if (modo !== 'volteo') return modo === 'bola' ? d.r : modo === 'rueda' ? F.info.rRueda : altos[i]; const P = V(), Qq = Q(); this.en(t, P, Qq); return P.y - J.suelo; },
+          bajo(t) { if (modo === 'deslizar') return altos[i]; const P = V(), Qq = Q(); this.en(t, P, Qq); return P.y - J.suelo; },
         });
       }
       break;
@@ -861,7 +867,7 @@ function planGrupo(g, J, ctx, empuje = 0) {
             p.set(P0.x, P0.y + alturaRebote(b, tau), P0.z);
             q.copy(qr);
             if (g.coreografia === 'caer-en-circulo' && tau < b.t1) q.copy(qq.copy(qt).slerp(qr, suave(tau / b.t1)));
-            q.premultiply(qEje(EJE_Y, giro0 * 0.5 * (1 - Math.exp(-tau / 0.5)), qq));
+            q.premultiply(qEje(EJE_Y, giro0 * 0.5 * salida3(tau / Tb), qq));
             return 1;
           },
           bajo: () => altos[i],
@@ -916,14 +922,14 @@ const M_ = g => g * Math.PI / 180;
 // Vuelo (r6): entra desde un lado, da una o dos vueltas alrededor de la joya (o de un punto) inclinándose en las curvas y
 // sale por el otro lado. Varios objetos vuelan en fila por el mismo camino. Estela: destellos que nacen detrás y se apagan.
 function planVolar(g, F, J, ctx, r, plan, empuje) {
-  const R = J.R, rb = F.info.rb, s = r() < 0.5 ? 1 : -1, dirG = r() < 0.5 ? 1 : -1, n = g.cantidad, T = g.duracion, t0 = g.inicio;
+  const intento = ctx.intento || 0, R = J.R, rb = F.info.rb, s = (r() < 0.5 ? 1 : -1) * (intento % 2 ? -1 : 1), dirG = r() < 0.5 ? 1 : -1, n = g.cantidad, T = g.duracion, t0 = g.inicio;
   const C = aV(ctx.centroVuelo) || J.centro.clone(), vueltas = T > 6 ? 2 : 1;
   let rho = J.rJ + rb + 3 * J.gap + 0.35 * R + empuje, camino = null;
   for (let intento = 0; intento < 8; intento++) {
-    const ctrl = [V(-s * 8 * R, 1.4 * R, 1.6 * R), V(-s * 4 * R, 1.0 * R, 1.8 * R)];
+    const alza = 0.5 * R * Math.floor((intento + 1) / 2), ctrl = [V(-s * 8 * R, 1.4 * R + alza, 1.6 * R), V(-s * 4 * R, 1.0 * R + alza, 1.8 * R)];
     const f0 = Math.atan2(1.6, -s * 1.8);
     for (let j = 0; j <= 10 * vueltas; j++) { const f = f0 + dirG * 2 * Math.PI * j / 10; ctrl.push(V(rho * Math.cos(f), 0.25 * R + 0.35 * R * Math.sin(2 * f), 0.9 * rho * Math.sin(f))); }
-    ctrl.push(V(s * 4 * R, 1.3 * R, 1.3 * R), V(s * 8 * R, 1.8 * R, 0.9 * R));
+    ctrl.push(V(s * 4 * R, 1.3 * R + alza, 1.3 * R), V(s * 8 * R, 1.8 * R + alza, 0.9 * R));
     const { puntos, largo } = remuestrear(curvaB(ctrl.map(p => p.add(C)), 1600), 700);
     const ok = puntos.every(p => (Math.hypot(p.x, p.z) >= J.rJ + rb + 2 * J.gap || p.y - rb > J.yMax + J.gap || p.y + rb < J.yMin - J.gap) && p.y - rb > J.suelo + J.gap);
     camino = { puntos, largo };
@@ -943,13 +949,22 @@ function planVolar(g, F, J, ctx, r, plan, empuje) {
     p.copy(P[i]).lerp(P[i + 1], u);
     return basis(_t1.copy(Tg[i]).lerp(Tg[i + 1], u).normalize(), _t2.copy(arriba[i]).lerp(arriba[i + 1], u).normalize(), q);
   };
-  const sep = 3 * rb + 0.3 * R, v = L / T;
+  // separación de la fila: la menor que deja a cada par a más de 2·rb en todo el camino (el bucle pasa cerca de sí mismo)
+  const posEn = sg => (sg <= 0 ? P[0].clone().addScaledVector(Tg[0], sg) : sg >= L ? P[P.length - 1].clone().addScaledVector(Tg[P.length - 1], sg - L) : P[Math.min(P.length - 1, Math.round(sg / ds))].clone());
+  let sep = 3 * rb + 0.3 * R;
+  const minimo = 2 * rb + 1.5 * J.gap + ds;
+  for (let k = 0; k < 40 && n > 1; k++, sep *= 1.12) {
+    let bien = true;
+    for (let j = 1; j < n && bien; j++) for (let sg = -j * sep; sg <= L + 2 * R && bien; sg += ds) if (posEn(sg).distanceTo(posEn(sg - j * sep)) < minimo) bien = false;
+    if (bien) break;
+  }
+  const v = L / T;
   plan.vuelo = { P, L, en, v, sep };
   for (let i = 0; i < n; i++) {
     const qr = qEje(EJE_Y, Math.PI / 2 * (r() < 0.5 ? 1 : 0)), sg = t => v * (t - t0) - i * sep;
     plan.instancias.push({
       rb, marco: 'escenario', aire: true, ini: t0, finT: t0 + T + i * sep / v, fin: P[P.length - 1].clone(), vuelo: { sg, i },
-      en(t, p, q) { en(sg(t), p, q); q.multiply(qr); return 1; },
+      en(t, p, q) { const x = sg(t); en(Math.min(x, L + 6 * R), p, q); q.multiply(qr); return x > L + 6 * R ? 0 : 1; },
       bajo: () => rb,
     });
   }
@@ -1288,6 +1303,7 @@ function eslabones(c, formas) {
 // lista: grupos (se normalizan); op: { joya: { caja, mmPorUnidad, objeto?, triangulos? }, suelo, version, metal, ancla
 // (moño de la caja de regalo: { ancla|punto, direccion }), anclasCadena ({ izquierda, derecha }), centroVuelo }
 export function planearElementos(lista, op = {}) {
+  if (!esObj(op)) op = {};
   const grupos = normalizarElementos(lista), J = describirJoya(op), avisos = [], planes = [];
   const ocupados = [];   // lo que queda quieto en el piso (para acomodar los grupos siguientes)
   for (const [indice, g] of grupos.entries()) {
@@ -1295,7 +1311,7 @@ export function planearElementos(lista, op = {}) {
     if (g.forma === 'cadena') continue;   // después: puede apoyarse en otro elemento
     let plan = null;
     for (let intento = 0; intento < 7; intento++) {
-      plan = planGrupo(g, J, { ...op, ocupados, indice }, intento * 0.7 * J.R);
+      plan = planGrupo(g, J, { ...op, ocupados, indice, intento }, intento * 0.7 * J.R);
       if (plan.falta || !planes.length) break;
       if (!chocan(plan, planes, J)) break;
       if (intento === 6) avisos.push(`«${FORMAS_ELEMENTO[g.forma].nombre}» queda muy junto a otro elemento: sepáralos o cambia la coreografía.`);
@@ -1344,6 +1360,7 @@ export function posesEn(plan, t) {
 // ---------- STL: los elementos como quedan en el instante t (mm) ----------
 // solo: id de un grupo (p. ej. solo la cadena). Cada pieza es un sólido cerrado (las piezas que se tocan no comparten vértices)
 export function exportarSTLElementos(lista, op = {}) {
+  if (!esObj(op)) op = {};
   const plan = planearElementos(lista, op), t = typeof op.t === 'number' && Number.isFinite(op.t) ? op.t : plan.tFin, mm = plan.J.mm, sal = [];
   const p = V(), q = Q(), m = new THREE.Matrix4(), v = V(), uno = V(1, 1, 1);
   const poner = (tri, mat) => { for (let i = 0; i < tri.length; i += 3) { v.set(tri[i], tri[i + 1], tri[i + 2]).applyMatrix4(mat).multiplyScalar(mm); sal.push(v.x, v.y, v.z); } };
@@ -1453,7 +1470,7 @@ function colorMetal(hex) {
   const c = new THREE.Color(hex), hsl = {}; c.getHSL(hsl);
   return c.setHSL(hsl.h, Math.min(1, hsl.s * 1.05), Math.max(hsl.l, 0.62));
 }
-export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null } = {}) {
+export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, tinte = 0.18 } = {}) {
   const color = new THREE.Color(colorHex), m = new THREE.MeshPhysicalMaterial({ color, roughness: 0.5, metalness: 0 });
   const tx = texturas(tipo);
   switch (tipo) {
@@ -1465,7 +1482,8 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null }
     case 'brillante': Object.assign(m, { roughness: 0.08, clearcoat: 0.8, clearcoatRoughness: 0.03 }); break;
     case 'nacar':
       // nácar: brillo suave que se desliza, un velo rosado en el borde y la iridiscencia de las capas
-      Object.assign(m, { roughness: 0.2, clearcoat: 0.55, clearcoatRoughness: 0.14, sheen: 0.6, sheenRoughness: 0.42, iridescence: 0.5, iridescenceIOR: 1.33, specularIntensity: 0.7 });
+      Object.assign(m, { roughness: 0.17, clearcoat: 0.85, clearcoatRoughness: 0.1, sheen: 0.75, sheenRoughness: 0.38, iridescence: 0.6, iridescenceIOR: 1.33, specularIntensity: 0.9 });
+      m.color.multiplyScalar(0.86);
       m.iridescenceThicknessRange = [220, 560];
       m.sheenColor.set(0xFFE4EA).lerp(color, 0.3);
       if (tx) { m.normalMap = tx.normalMap; m.normalScale.set(0.06, 0.06); }
@@ -1476,8 +1494,8 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null }
     case 'cristal':
       // vidrio de verdad: refracta (la esfera invierte lo que hay detrás), canto brillante; el color es un tinte suave
       Object.assign(m, { transmission: 1, ior: 1.5, thickness: 2 * tamano, roughness: 0, metalness: 0, specularIntensity: 1, envMapIntensity: 1.3 });
-      m.color.set(0xffffff).lerp(color, 0.18);
-      m.attenuationColor.copy(color).lerp(new THREE.Color(0xffffff), 0.35); m.attenuationDistance = 6 * tamano;
+      m.color.set(0xffffff).lerp(color, tinte);
+      m.attenuationColor.copy(color).lerp(new THREE.Color(0xffffff), 1 - tinte); m.attenuationDistance = (tinte > 0.5 ? 1.2 : 6) * tamano;
       break;
     case 'saten':
       Object.assign(m, { roughness: 0.34, sheen: 1, sheenRoughness: 0.3, specularIntensity: 0.38, side: THREE.FrontSide });
@@ -1511,7 +1529,7 @@ export class Elementos {
       const g = pl.g;
       if (pl.camino?.tipo === 'cinta') { this.armarCinta(pl); continue; }
       if (pl.camino?.tipo === 'cadena') { this.armarCadena(pl); continue; }
-      const mats = { a: materialElemento(g.material, g.color, { tamano: pl.instancias[0]?.rb || J.R }), b: materialElemento(g.forma === 'regalo' ? 'saten' : g.material, g.color2) };
+      const mats = { a: materialElemento(g.material, g.color, { tamano: pl.instancias[0]?.rb || J.R, tinte: g.forma === 'gema' || g.forma === 'cuenta' ? 0.85 : 0.18 }), b: materialElemento(g.forma === 'regalo' ? 'saten' : g.material, g.color2) };
       if (g.forma === 'gema' && g.material === 'cristal') mats.a.flatShading = true;
       for (const ins of pl.instancias) {
         const hacer = () => { const o = new THREE.Group(); for (const pz of pl.F.piezas) { const m = new THREE.Mesh(pz.geo, mats[pz.mat]); m.castShadow = m.receiveShadow = true; o.add(m); } return o; };

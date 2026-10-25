@@ -52,7 +52,7 @@
 .put-rangos input[type=range]{min-height:28px}
 .put-interruptores{display:flex;flex-direction:column;gap:4px}
 .put-check{flex-direction:row;align-items:center;gap:10px;font-size:14px;color:var(--tinta);min-height:32px;cursor:pointer}
-.put-check input{width:20px;height:20px;margin:0;accent-color:var(--oro-vivo);flex:none;cursor:pointer}
+.put-check input{width:24px;height:24px;margin:0;accent-color:var(--oro-vivo);flex:none;cursor:pointer}
 .put-grabado .put-ayuda{display:inline}
 .put-texto{display:flex;align-items:center;gap:8px}
 .put-texto input{flex:1 1 auto;min-height:40px;font-family:var(--serif);font-style:italic}
@@ -84,7 +84,7 @@
   .put-chips button[aria-pressed=true]{background:var(--tinta);border-color:var(--tinta);color:#17150F}
   .put-trio i{box-shadow:0 0 0 1.5px #26231C,inset 0 0 0 1px rgba(255,255,255,.18)}
   .put-color{box-shadow:inset 0 0 0 2px #16140F,0 0 0 1px #4A4438}
-  .put-muestra{box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
+  .put-muestra{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.34)}
   .put-muestra[aria-pressed=true]{box-shadow:0 0 0 2px #16140F,0 0 0 3.5px var(--oro-vivo)}
 }
 @media (prefers-reduced-motion: reduce){.put-marco,.put-muestra{transition:none}}

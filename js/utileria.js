@@ -764,8 +764,8 @@ function azar(semilla) {
 function cajasDePila(n) {
   const R = azar(n.semilla * 7919 + 11), entre = (a, b) => a + (b - a) * R(), lista = [];
   for (const lado of [-1, 1]) {
-    const k = 2 + (R() < 0.55 ? 1 : 0);
-    const tams = [[entre(2.1, 2.6), entre(1.5, 1.9)], [entre(1.6, 2), entre(1, 1.35)], [entre(1.25, 1.55), entre(0.6, 0.95)]];
+    const k = 3 + (R() < 0.5 ? 1 : 0);
+    const tams = [[entre(1.6, 2), entre(1.4, 1.9)], [entre(1.35, 1.65), entre(1.1, 1.5)], [entre(1.15, 1.4), entre(0.9, 1.3)], [entre(0.95, 1.15), entre(0.6, 0.9)]];
     for (let i = 0; i < k; i++) lista.push({ grupo: lado < 0 ? 'izquierda' : 'derecha', lado, piso: i, w: tams[i][0], h: tams[i][1], d: tams[i][0] * entre(0.85, 1.05), giro: entre(-4, 4) * PI / 180, corre: entre(0, 0.08), tapa: R() < 0.65, cinta: R() < 0.4, tono: Math.floor(R() * 3) });
   }
   lista.push({ grupo: 'atras', w: 0, h: 0, d: entre(1.2, 1.5), giro: entre(-2, 2) * PI / 180, tapa: true, cinta: R() < 0.5, tono: 1 });
@@ -773,9 +773,9 @@ function cajasDePila(n) {
   return lista;
 }
 function planPila(n, J, opc) {
-  const s = Math.max(J.sx, J.sy, J.sz) * n.tamano, piso = Number.isFinite(opc.suelo) ? opc.suelo * J.k : J.min[1] - 1.1 * s;
+  const s = Math.max(J.sx, J.sy, J.sz) * n.tamano, piso = Number.isFinite(opc.suelo) ? opc.suelo * J.k : J.min[1] - 1.6 * s;
   const lista = cajasDePila(n), cajas = [], piezas = [], anclas = {};
-  const borde = J.sx / 2 + 1.05 * s, tope = J.max[1] + 1.5 * s, alturas = { izquierda: piso, derecha: piso };
+  const borde = J.sx / 2 + 1.1 * s, tope = J.max[1] + 3 * s, alturas = { izquierda: piso, derecha: piso };
   for (const c of lista) {
     let W = c.w * s, D = c.d * s, H = c.h * s, x, z, y;
     if (c.grupo === 'izquierda' || c.grupo === 'derecha') {
@@ -824,9 +824,16 @@ function planificar(n, J, opc = {}) {
   if (n.posicion === 'al-lado') {
     sigue = false;
     const gira = new THREE.Matrix4().makeRotationY(n.angulo * PI / 180), libre = suelo !== null ? J.min[1] - suelo : 0;
-    if (suelo !== null && p.alto + 0.25 * Math.max(J.sx, J.sy, J.sz) <= libre) {
-      // la joya flota encima: la caja va justo debajo (como el moño del que sale la cinta en r5)
+    const margen = 0.25 * Math.max(J.sx, J.sy, J.sz);
+    if (suelo !== null && altoMaximo(p, 0) + margen <= libre) {
+      // la joya flota encima: la caja va justo debajo (como el moño del que sale la cinta en r5). Si al abrirse la tapa
+      // llegaría a la joya, la apertura se queda en el punto más alto posible (la línea de tiempo puede animarla)
       m = new THREE.Matrix4().makeTranslation(J.c[0], suelo, J.c[2]).multiply(gira);
+      if (p.abre && altoMaximo(p, 1) + margen > libre) {
+        let a = 0, b = 1;
+        for (let i = 0; i < 18; i++) { const c = (a + b) / 2; if (altoMaximo(p, c) + margen <= libre) a = c; else b = c; }
+        const pose0 = p.pose; p.aperturaMax = a; p.pose = u => pose0(Math.min(u, a));
+      }
     } else {
       const R = Math.hypot(p.W, p.D) / 2;
       m = new THREE.Matrix4().makeTranslation(J.c[0] + J.sx / 2 + R + 0.12 * Math.max(p.W, 20), suelo ?? J.min[1], J.c[2] - 0.3 * p.D).multiply(gira);
@@ -843,6 +850,16 @@ function planificar(n, J, opc = {}) {
   return { ...p, cajas: [{ matriz: m, W: p.W, D: p.D, H: p.H }], sigueJoya: sigue, base, asientoJoya, cajasSTL: [new THREE.Matrix4()], anclaMono: p.ancla || null };
 }
 
+// Lo más alto que llega la caja (en su marco) con cualquier apertura
+function altoMaximo(p, hasta = 1) {
+  let h = 0;
+  const us = p.abre ? [0, 0.25, 0.5, 0.75, 1].map(u => u * hasta) : [0], id = new THREE.Matrix4();
+  for (const pz of p.piezas) for (const geo of pz.geos.values()) {
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    for (const u of pz.movil ? us : [0]) h = Math.max(h, geo.boundingBox.clone().applyMatrix4(pz.movil && p.pose ? p.pose(u) : id).max.y);
+  }
+  return h;
+}
 // Matriz de una pieza en el marco de la joya (mm) con la caja abierta u
 function matrizPieza(plan, pz, u) {
   const m = plan.cajas[pz.caja].matriz.clone();
@@ -1030,7 +1047,8 @@ const aclarar = (hex, k) => new THREE.Color(hex).lerp(new THREE.Color(0xffffff),
 function propiedades(tipo, hex) {
   const c = new THREE.Color(hex);
   switch (tipo) {
-    case 'terciopelo': return { color: c.clone().multiplyScalar(0.82), roughness: 1, sheen: 1, sheenRoughness: 0.36, sheenColor: aclarar(hex, 0.28), specularIntensity: 0.06, normalScale: 0.5 };
+    // terciopelo: más oscuro de frente y con brillo en los bordes (así se lee la forma del cojín y la ranura)
+    case 'terciopelo': return { color: c.clone().multiplyScalar(0.7), roughness: 1, sheen: 1, sheenRoughness: 0.32, sheenColor: aclarar(hex, 0.4), specularIntensity: 0.05, normalScale: 0.5 };
     case 'laca': return { color: c, roughness: 1, clearcoat: 1, clearcoatRoughness: 0.035, specularIntensity: 0.5, normalScale: 0.3 };
     case 'papel': return { color: c, roughness: 1, specularIntensity: 0.35, sheen: 0.12, sheenRoughness: 0.6, sheenColor: aclarar(hex, 0.5), normalScale: 0.6 };
     case 'saten': return { color: c, roughness: 1, sheen: 0.75, sheenRoughness: 0.24, sheenColor: aclarar(hex, 0.35), specularIntensity: 0.65, normalScale: 0.35 };
@@ -1088,7 +1106,10 @@ function dibujarMarca(ctx, W, H, dibujo, logo, grabado) {
   }
   if (dibujo === 'linea') {
     // estuche de collar (ancho): escarabajo a la izquierda y la marca a la derecha
-    const h = 0.34 * H, t = 0.17 * H;
+    // (todo el conjunto cabe en el 60 % del ancho: se mide con un tamaño de prueba y se escala)
+    ctx.font = `500 100px ${SERIF}`;
+    const k = Math.min(0.17 * H, 100 * 0.6 * W / (medir(ctx, 'ATELIER & CO', 16) + 30 + (2 * LOGO_W / LOGO_H + 0.7) * 100));
+    const h = 2 * k, t = k;
     ctx.font = `500 ${t}px ${SERIF}`;
     const wm = medir(ctx, 'ATELIER & CO', 0.16 * t) + 0.3 * t, wl = h * LOGO_W / LOGO_H, gap = 0.35 * h, x0 = W / 2 - (wl + gap + wm) / 2;
     if (logo) { escarabajo(x0 + wl / 2, H / 2, h); marca(x0 + wl + gap + wm / 2, H / 2 + 0.36 * t, t); }
@@ -1227,7 +1248,8 @@ export class Utileria {
       M.exterior3 = crearMaterial(n.material, '#' + new THREE.Color(n.color).offsetHSL(0, 0, 0.04).getHexString());
       M.forro = crearMaterial('saten', n.interior);
       M.interior = crearMaterial('terciopelo', n.interior);
-      M.cinta = crearMaterial('saten', n.cinta); M.cinta.metalness = 0.18; M.cinta.roughness = 0.9;
+      // cinta de satén con un toque metálico: brillos largos en los dobleces (un color plano se ve de papel)
+      M.cinta = crearMaterial('saten', n.cinta); M.cinta.color.multiplyScalar(0.86); M.cinta.metalness = 0.45; M.cinta.roughness = HAY_DOM ? 1.05 : 0.32; M.cinta.sheen = 0.55;
       M.oro = new THREE.MeshPhysicalMaterial({ color: 0xF1C46B, metalness: 1, roughness: 0.2 });
     }
     if (foil || colores || !M.foils) {
@@ -1240,6 +1262,13 @@ export class Utileria {
         const grabado = f.dibujo === 'sello' ? '' : n.grabado, logo = n.logo;
         M.foils[k] = HAY_DOM && (logo || grabado) && hay ? materialFoil(f, tipoBase, hex, logo, grabado) : M[f.base];
       }
+    }
+    // la marca va en Bodoni Moda: si la fuente todavía no llegó, se redibuja el dorado cuando llegue
+    if (HAY_DOM && document.fonts && !this.esperaFuente && Object.keys(M.foils).length && !document.fonts.check(`500 40px ${SERIF}`)) {
+      this.esperaFuente = true;
+      document.fonts.load(`500 40px ${SERIF}`).then(() => {
+        if (this.plan && document.fonts.check(`500 40px 'Bodoni Moda'`)) { this.materiales(this.cfg, false, true); this.alCambiarPT?.(); }
+      }).catch(() => {});
     }
     for (const malla of this.mallas || []) {
       const t = malla.userData.tramo;

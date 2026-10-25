@@ -1,0 +1,96 @@
+/* Panel de Elementos: formas para agregar (con su dibujito), una tarjeta por grupo y «Descargar STL». Mismo lenguaje que el
+   panel de escenas (estilos-escena.css): pastillas, muestras de color redondas, tarjetas sobre perla, controles de 24 px o más */
+.pel{display:flex;flex-direction:column;gap:16px;min-width:0;max-width:100%;container-type:inline-size}
+.pel .pel-vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.pel h3{font-family:var(--serif);font-weight:500;font-size:18px;line-height:1.2;margin:0}
+.pel-bloque{display:flex;flex-direction:column;gap:12px;min-width:0}
+.pel-cab{display:flex;flex-direction:column;gap:3px}
+.pel-ayuda{font-size:12.5px;line-height:1.4;color:var(--tinta2);margin:0;font-weight:400}
+.pel-et{font-size:13px;color:var(--tinta2);font-weight:500;padding:0}
+.pel-campos{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:12px}
+.pel-campos:disabled{opacity:.5}
+.pel-campos:disabled button,.pel-campos:disabled input,.pel-campos:disabled select{cursor:not-allowed}
+.pel-oculto{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+/* Formas para agregar: el dibujito arriba y el nombre debajo */
+.pel-formas{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px}
+.pel-forma{all:unset;box-sizing:border-box;position:relative;cursor:pointer;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px 7px;border:1px solid var(--linea);border-radius:10px;background:var(--papel);text-align:center;transition:border-color .18s,transform .18s}
+.pel-forma canvas{width:40px;height:40px;display:block}
+.pel-forma span{font-size:11.5px;line-height:1.2;color:var(--tinta);overflow-wrap:anywhere}
+@media (hover:hover){.pel-forma:hover{border-color:var(--oro);transform:translateY(-1px)}}
+.pel-forma:focus-visible,.pel-forma:focus-within{outline:2px solid var(--oro);outline-offset:2px}
+.pel-subir{border-style:dashed}
+.pel-estado{font-size:12.5px;color:var(--esm);margin:0;min-height:1em}
+.pel-estado:empty{display:none}
+.pel-estado.error{color:var(--gra)}
+.pel-vacio{font-size:13px;color:var(--tinta2);margin:0;padding:12px 14px;background:var(--perla);border-radius:10px}
+
+/* Tarjeta de cada grupo */
+.pel-lista{display:flex;flex-direction:column;gap:12px}
+.pel-grupo{background:var(--perla);border-radius:10px;padding:12px 14px 14px}
+.pel-tit{display:flex;align-items:center;gap:10px;min-width:0}
+.pel-tit canvas{width:44px;height:44px;flex:none;border-radius:8px;background:var(--papel)}
+.pel-tit > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.pel-tit b{font-family:var(--serif);font-weight:500;font-size:16px;line-height:1.2;color:var(--tinta)}
+.pel-redondo{all:unset;box-sizing:border-box;cursor:pointer;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--linea);background:var(--papel);flex:none;color:var(--tinta);transition:border-color .18s,color .18s}
+.pel-redondo svg,.pel-pie .btn svg,.pel-stl .btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.pel-redondo:hover{border-color:var(--oro)}
+.pel-redondo[data-accion=quitar]:hover{color:var(--gra);border-color:#DDBDC2}
+.pel-redondo:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.pel-campo{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px}
+.pel-sel,.pel-num,.pel-rango{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--tinta2);font-weight:500;min-width:0}
+.pel-sel select{padding:7px 9px;font-size:14px;min-height:36px}
+.pel-num{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:6px}
+.pel-num span{grid-column:1/3}
+.pel-num input{padding:7px 9px;font-size:14px;min-height:36px;font-variant-numeric:tabular-nums}
+.pel-num i{font-style:normal;font-size:13px;color:var(--tinta2)}
+.pel-rango{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px}
+.pel-rango span{grid-column:1/3}
+.pel-rango input{width:100%;height:24px;padding:0;border:0;background:transparent;accent-color:var(--oro-vivo)}
+.pel-rango output{font-variant-numeric:tabular-nums;color:var(--tinta);font-size:12.5px;min-width:46px;text-align:right}
+.pel-check{font-size:13.5px;min-height:24px}
+.pel-check input{width:18px;height:18px}
+.pel-stl{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--tinta)}
+.pel-stl b{color:var(--gra);font-weight:600}
+.pel-stl .btn{padding:6px 12px 6px 9px;gap:6px;min-height:32px}
+
+/* Pastillas (recorrido de la cinta) y muestras de color */
+.pel-chips{display:flex;flex-wrap:wrap;gap:6px}
+.pel-chips button{all:unset;box-sizing:border-box;cursor:pointer;min-height:30px;display:inline-flex;align-items:center;border:1px solid var(--linea);background:var(--papel);border-radius:999px;padding:5px 12px;font-size:13px;line-height:1.2;color:var(--tinta);transition:background-color .18s,border-color .18s,color .18s}
+.pel-chips button:hover{border-color:var(--oro)}
+.pel-chips button[aria-pressed=true]{background:var(--tinta);border-color:var(--tinta);color:var(--papel)}
+.pel-chips button:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.pel-colores{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.pel-muestra{all:unset;box-sizing:border-box;cursor:pointer;width:26px;height:26px;border-radius:50%;flex:none;background:var(--c);box-shadow:inset 0 0 0 1px rgba(0,0,0,.14);transition:transform .15s,box-shadow .15s}
+@media (hover:hover){.pel-muestra:hover{transform:scale(1.1)}}
+.pel-muestra[aria-pressed=true]{box-shadow:0 0 0 2px var(--perla),0 0 0 3.5px var(--oro-vivo)}
+.pel-muestra:focus-visible{outline:2px solid var(--oro);outline-offset:3px}
+.pel-color{position:relative;width:28px;height:28px;border-radius:50%;flex:none;cursor:pointer;background:conic-gradient(from 90deg,#E8B7A6,#E9D9A5,#B9D1B4,#AFC6D8,#C7B4D8,#E8B7A6);box-shadow:inset 0 0 0 2px var(--perla),0 0 0 1px var(--linea)}
+.pel-color input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0;border:0}
+.pel-color:focus-within{outline:2px solid var(--oro);outline-offset:2px}
+
+.pel-pie{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;border-top:1px solid var(--linea);padding-top:14px}
+.pel-pie .btn{flex:none;padding:6px 14px 6px 10px;gap:6px;min-height:34px}
+.pel-pie .pel-ayuda{flex:1 1 180px}
+
+/* Panel angosto (celular) */
+@container (max-width:420px){
+  .pel-formas{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+  .pel-forma{padding:7px 2px 6px}
+  .pel-grid{grid-template-columns:minmax(0,1fr)}
+  .pel-grupo{padding:12px}
+}
+
+@media (prefers-color-scheme: dark){
+  .pel-grupo,.pel-vacio{background:#16140F}
+  .pel-forma,.pel-tit canvas,.pel-redondo,.pel-chips button{background:#26231C;border-color:#4A4438}
+  .pel-chips button[aria-pressed=true]{background:var(--tinta);border-color:var(--tinta);color:#17150F}
+  .pel-muestra{box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
+  .pel-muestra[aria-pressed=true]{box-shadow:0 0 0 2px #16140F,0 0 0 3.5px var(--oro-vivo)}
+  .pel-color{box-shadow:inset 0 0 0 2px #16140F,0 0 0 1px #4A4438}
+  .pel-estado{color:#7FC4A4}
+  .pel-estado.error{color:#E88B96}
+  .pel-stl b{color:#E88B96}
+}
+@media (prefers-reduced-motion: reduce){.pel-forma,.pel-muestra{transition:none}}
