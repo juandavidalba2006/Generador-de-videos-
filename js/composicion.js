@@ -45,7 +45,8 @@ export class Compositor {
     xa.clearRect(0, 0, gw, gh); xa.drawImage(render3D, 0, 0, gw, gh);
     xb.clearRect(0, 0, gw, gh); xb.drawImage(a, 0, 0);
     const d = xb.getImageData(0, 0, gw, gh).data, L = new Float32Array(gw * gh);
-    for (let i = 0; i < L.length; i++) L[i] = 0.2126 * LINEAL[d[4 * i]] + 0.7152 * LINEAL[d[4 * i + 1]] + 0.0722 * LINEAL[d[4 * i + 2]];
+    // (un píxel transparente no dice nada de lo que hay detrás: no cuenta)
+    for (let i = 0; i < L.length; i++) L[i] = d[4 * i + 3] < 200 ? -1 : 0.2126 * LINEAL[d[4 * i]] + 0.7152 * LINEAL[d[4 * i + 1]] + 0.0722 * LINEAL[d[4 * i + 2]];
     if (this.tonos.size > 64) this.tonos.clear();   // (capas sin id fijo: no se acumulan)
     const kx = gw / W, ky = gh / H;
     return {
@@ -55,7 +56,9 @@ export class Compositor {
         const y0 = Math.max(0, Math.floor(caja.y * ky)), y1 = Math.min(gh - 1, Math.ceil((caja.y + caja.h) * ky) - 1);
         if (x1 < x0 || y1 < y0) return null;   // la caja quedó fuera del cuadro
         const v = [];
-        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) v.push(L[y * gw + x]);
+        let n = 0;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++, n++) if (L[y * gw + x] >= 0) v.push(L[y * gw + x]);
+        if (v.length < n / 2) return null;   // casi todo transparente: manda el tono de la escena
         v.sort((p, q) => p - q);
         return { bajo: v[Math.floor((v.length - 1) * 0.1)], alto: v[Math.ceil((v.length - 1) * 0.9)] };
       },

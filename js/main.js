@@ -45,6 +45,9 @@ const rep = new Reproductor();
 // exportando: se está creando el video o la foto (la escena queda congelada hasta que termine)
 // escena: la escena 3D del proyecto (normalizada); el estudio la muestra (durante un video, la nueva espera a que termine)
 const estado = { escena: { id: 'ninguna' }, fondo: 'perla', formato: 'reel', t: 0, reproduciendo: true, sucio: true, ocupado: false, exportando: false, cancelar: false, realista: false, pestana: 'modelo', sonido: false, silencioManual: false, medidas: null };
+// medición del trazado de rayos en este equipo (ver sondearPT): medidas por escena, joya y formato, y la que está en curso
+const medidasPT = new Map();
+let sondeo = null, esperaSondeo = 0;
 // miniatura de la vista previa en el menú lateral (ver «Vista previa en miniatura» más abajo)
 const mini = { ver: false, fuera: false, sucio: true, alto: 0, ctx: $('miniLienzo').getContext('2d') };
 
@@ -472,6 +475,7 @@ function abrirPestana(id, { desplazar = false, enfocar = false } = {}) {
     else if (id === 'materiales') panelTexturas.render();
     else if (id === 'escena') panelEscena.render();
     else if (id === 'replicar') panelReplicar();
+    else if (id === 'exportar') avisoCalidad();   // (ahí se mide cuánto tarda el trazado de rayos en este equipo)
     guardarLocal(CLAVE_PESTANA, id);
     estado.sucio = true;   // el marco de la capa elegida solo se ve en la pestaña de textos
   }
@@ -593,7 +597,7 @@ if (typeof IntersectionObserver !== 'undefined') new IntersectionObserver(([e]) 
 addEventListener('resize', () => verMini(true));
 
 // cualquier cambio vuelve a dibujar la vista previa y detiene el cuadro hiperrealista (pero no anula un «Cancelar» en curso)
-function cambio() { estado.sucio = true; if (estado.realista) estado.cancelar = true; }
+function cambio() { estado.sucio = true; if (estado.realista) estado.cancelar = true; if (sondeo) sondeo.cancelado = true; }
 
 // Franja libre de textos para encuadrar la joya (no depende del tiempo: la cámara no salta cuando entra un texto)
 let zonaGuardada = { k: '', z: null };
@@ -694,6 +698,7 @@ document.addEventListener('keydown', e => {
 
 // Cuadro hiperrealista en la vista previa (se va aclarando a medida que suma muestras)
 $('realista').addEventListener('click', async () => {
+  await pararSondeo();
   if (estado.ocupado || !estudio.tieneModelo) return;
   reproducir(false); estado.ocupado = true; estado.realista = true; estado.cancelar = false;
   $('realista').disabled = true; nota('Calculando la luz real del cuadro…', 'trabajando');
@@ -741,11 +746,52 @@ async function componerRealista(comp, pr, muestras, { sombra, t, img, masc, alAv
 }
 
 // ---------- Exportar ----------
+// Cuántas veces más tarda el trazado de rayos con cada escena que con el fondo liso (costo.mjs: anillo de ejemplo, 270×480,
+// 8 muestras; con escena cada píxel del cuadro rebota en el yeso, sin escena casi todos salen al fondo). Es solo para el
+// aviso; el tiempo de verdad sale de medir este equipo (sondearPT)
+const COSTO_ESCENA = { 'pedestal-arena': 6, travertino: 5, 'marmol-blanco': 5, 'marmol-negro': 4, escalones: 6, arco: 8, terciopelo: 4, espejo: 5, playa: 5, rosa: 6 };
+// Tiempo del video con trazado de rayos medido en este equipo: un cuadro chico (1/16 del video) con la escena, la joya y el
+// formato de ahora; cada combinación se mide una vez, al abrir Exportar con una calidad de trazado de rayos. La vista previa
+// se detiene mientras tanto (unos segundos; la primera vez, lo que tarde en compilar el sombreador) y cualquier cambio,
+// «Crear video», la foto o la vista hiperrealista la sueltan enseguida
+const claveSondeo = () => JSON.stringify([estado.escena, estudio.versionModelo, estado.formato]);
+function programarSondeo() { clearTimeout(esperaSondeo); esperaSondeo = setTimeout(sondearPT, 700); }
+function sondearPT() {
+  const k = claveSondeo();
+  if (medidasPT.has(k) || sondeo || estado.ocupado || estado.exportando || !estudio.tieneModelo || +$('calidad').value === 0 || estado.pestana !== 'exportar' || document.hidden) return;
+  const f = FORMATOS[estado.formato], w = Math.round(f.w / 8) * 2, h = Math.round(f.h / 8) * 2;   // un cuarto de cada lado
+  const yo = sondeo = { cancelado: false }, sonaba = estado.reproduciendo;
+  if (sonaba) reproducir(false);
+  estado.ocupado = true;
+  yo.promesa = (async () => {
+    try {
+      estudio.tamano(w, h); poner(proyecto, estado.t);
+      medidasPT.set(k, await estudio.medirPT({ cancelado: () => yo.cancelado }));
+    } catch (err) {
+      if (err.name !== 'AbortError') { console.warn(err); medidasPT.set(k, null); }   // (sin medida: el aviso de siempre)
+    } finally {
+      sondeo = null; estado.ocupado = false; ajustarPrevia();
+      if (sonaba && !yo.cancelado) reproducir(true);
+      avisoCalidad();
+    }
+  })();
+}
+async function pararSondeo() { clearTimeout(esperaSondeo); if (sondeo) { sondeo.cancelado = true; await sondeo.promesa; } }
+const aprox = s => (s < 50 ? 'menos de 1 min' : s < 3600 ? `≈ ${Math.round(s / 60)} min` : `≈ ${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`);
+
 function avisoCalidad() {
   const m = +$('calidad').value, f = FORMATOS[estado.formato], fps = +$('fps').value, n = Math.round((proyecto.duracion || 8) * fps);
-  $('avisoCal').textContent = m === 0
-    ? `Render rápido: ${n} cuadros en pocos segundos. Ideal para revisar el movimiento y el sonido antes del video final.`
-    : `Trazado de rayos: luz, reflejos y refracción de las piedras calculados como en una fotografía real. Son ${n} cuadros de ${f.w}×${f.h}; según la tarjeta de video puede tardar de varios minutos a más de una hora${estado.escena.id !== 'ninguna' ? ' (con una escena 3D, unas 6 veces más que con el fondo liso: el pedestal, el fondo y la luz de la ventana también se calculan con luz real)' : ''}. Deja esta pestaña abierta y visible.`;
+  if (m === 0) { $('avisoCal').textContent = `Render rápido: ${n} cuadros en pocos segundos. Ideal para revisar el movimiento y el sonido antes del video final.`; return; }
+  const k = claveSondeo(), med = medidasPT.get(k), base = estado.escena.base || estado.escena.id, veces = COSTO_ESCENA[base];
+  let cuanto;
+  if (med) {
+    const seg = n * f.w * f.h / 1e6 * (m * med.muestra + med.fijo) / 1000;
+    cuanto = `Son ${n} cuadros de ${f.w}×${f.h}: en este equipo, <strong>${aprox(seg)}</strong> (${seg / n < 3600 ? 'unos ' : ''}${reloj(seg / n)} por cuadro).`;
+  } else {
+    if (!medidasPT.has(k) && estudio.tieneModelo) programarSondeo();
+    cuanto = `Son ${n} cuadros de ${f.w}×${f.h}; ${!medidasPT.has(k) && estudio.tieneModelo && estado.pestana === 'exportar' ? 'midiendo cuánto tarda en este equipo…' : 'según la tarjeta de video puede tardar de varios minutos a más de una hora.'}`;
+  }
+  $('avisoCal').innerHTML = `Trazado de rayos: luz, reflejos y refracción de las piedras calculados como en una fotografía real. ${cuanto}${base !== 'ninguna' ? ` Con esta escena 3D cada cuadro cuesta ${veces ? `unas ${veces} veces` : 'varias veces'} lo que con el fondo liso: el pedestal, el fondo y la luz de la ventana también se calculan con luz real.` : ''} Deja esta pestaña abierta y visible.`;
 }
 const slug = s => (s || 'joya').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'joya';
 const reloj = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h} h ${m} min` : m ? `${m} min ${String(x).padStart(2, '0')} s` : `${x} s`; };
@@ -770,6 +816,8 @@ function bloquearEscena(si) {
 
 let bloqueo = null, ajustesPendientes = null;
 async function trabajo(fn) {
+  await pararSondeo();   // (la medición del tiempo, si estaba en curso, se suelta enseguida)
+  if (estado.exportando) return;
   estado.ocupado = true; estado.exportando = true; estado.cancelar = false; reproducir(false);
   for (const id of ['crear', 'foto', 'realista']) $(id).disabled = true;
   bloquearEscena(true);

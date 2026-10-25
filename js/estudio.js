@@ -184,6 +184,7 @@ export class Estudio {
     this.costosPT = [];   // ms de cada actualización del BVH por el giro del escenario (para medir)
     this.limpiezaPT = true;   // con escena, el grano del yeso se limpia al final de cada cuadro realista (ver LimpiadorPT)
     this.gananciaSalaPT = 1.5;   // brillo de la sala en el trazador (ver poseEscena)
+    this.rebotesEscenaPT = 5;   // rebotes del trazador con escena (ver prepararPT)
   }
 
   // ---------- Escena 3D ----------
@@ -477,10 +478,11 @@ export class Estudio {
     // con escena, la luz del foco que rebota en el fondo y vuelve a dar en el oro deja puntitos naranja sueltos en el
     // fondo: ahí se suavizan más los rebotes brillantes (es un uniforme: no recompila el sombreador)
     this.pt.filterGlossyFactor = this.escenaActiva ? 0.8 : 0.35;
-    // con escena casi todos los píxeles rebotan en el yeso hasta que la ruleta rusa los corta: con 8 rebotes la imagen
-    // cambia menos de un 1 % (los diamantes tienen aparte sus rebotes por dentro) y cada cuadro cuesta un 25–40 % menos.
+    // con escena casi todos los píxeles rebotan en el yeso hasta que la ruleta rusa los corta: con 5 rebotes la imagen
+    // no cambia a la vista (los diamantes tienen aparte sus rebotes por dentro). Ahorra poco (la ruleta ya corta casi
+    // todos los caminos antes): lo que cuesta la escena es que cada píxel del cuadro rebota al menos tres veces.
     // Sin escena los rayos salen enseguida y los 14 de siempre no cuestan nada (son para el oro y los diamantes)
-    this.pt.bounces = this.escenaActiva ? 8 : 14;
+    this.pt.bounces = this.escenaActiva ? this.rebotesEscenaPT : 14;
     c.copy(k, false);
     for (const p of ['focusDistance', 'bokehSize', 'apertureBlades', 'apertureRotation', 'anamorphicRatio']) c[p] = k[p];
     if (giro) {
@@ -515,6 +517,21 @@ export class Estudio {
     r.setRenderTarget(L.mascara); r.setClearColor(0x000000, 0); r.clear(); r.render(e, this.camara);
     e.overrideMaterial = prev; e.environment = env; e.background = fondo; esc.grupo.visible = esc.contacto.visible = true;
     r.setClearColor(color, alfa); r.setRenderTarget(antes);
+  }
+
+  // Cuánto tarda el trazado de rayos en este equipo, con la escena y la cámara de ahora, al tamaño actual (uno chico):
+  // un cuadro de 1 muestra para compilar el sombreador y armar el BVH (no cuenta), y luego 1 y 3 muestras. Devuelve, en
+  // ms por megapíxel, lo que cuesta cada muestra y lo fijo de cada cuadro (la guía de la limpieza, las esperas)
+  async medirPT({ cancelado } = {}) {
+    const mp = this.ancho * this.alto / 1e6;
+    await this.renderRealista(1, { cancelado });
+    let t0 = performance.now();
+    await this.renderRealista(1, { cancelado });
+    const t1 = performance.now() - t0;
+    t0 = performance.now();
+    await this.renderRealista(3, { cancelado });
+    const t3 = performance.now() - t0, muestra = Math.max(t3 / 6, (t3 - t1) / 2);
+    return { muestra: muestra / mp, fijo: Math.max(0, t1 - muestra) / mp };
   }
 
   async renderRealista(muestras, { alAvanzar, cancelado } = {}) {
