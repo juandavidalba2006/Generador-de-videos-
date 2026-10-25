@@ -4,17 +4,19 @@
 // por alAplicar(plan, opciones) y main.js guarda para deshacer, pone la escena y los materiales y aplica el resto
 // (aplicarReplica de replica.js).
 //
-//   new PanelReplicar(contenedor, { analizar, descargarReel, pedirIA, hayIA, alAplicar, duracionProyecto })
+//   new PanelReplicar(contenedor, { analizar, descargarReel, pedirIA, hayIA, alAplicar, duracionProyecto, colores })
 //     analizar(fuente, { alAvanzar(paso, p), cancelado }) → análisis            (por defecto analizarVideo de analizador.js)
 //     descargarReel(url, { alAvanzar(p, info), cancelado }) → Blob              (por defecto el de reel.js)
 //     pedirIA(analisis, { cancelado }) → lo que vio la IA, o lanza (e.sinIA)    (por defecto pedirAnalisisIA de analisis-ia.js)
 //     hayIA() → Promise<boolean>   (opcional: para decir de entrada si la IA está; por defecto iaDisponible)
 //     alAplicar(plan, opciones)    opciones: { movimientos, cortes, escena, materiales, textos, sonidos, musica, duracion }
 //     duracionProyecto() → s       (opcional: para decir a qué duración se ajusta si no se usa la del video)
+//     colores: 'marca' | 'video'   (opcional, por defecto 'marca': los colores de la escena pasan a los de Atelier & Co)
 //   render(), reiniciar(), analizarArchivo(archivo), analizarEnlace(texto), cancelar(), bloquear(si)
 //   estado: 'inicio' | 'descargando' | 'analizando' | 'resultado' | 'error'; plan, analisis, ia: lo último que se analizó
-import { construirReplica, NOMBRE_TRANSICION } from './replica.js';
-import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS } from './escenas.js';
+import { construirReplica, recolorearEscena, describirPuesta, nombreDeEscena, NOMBRE_TRANSICION } from './replica.js';
+import { ESCENAS, FORMAS_SUPERFICIE, MATERIALES_ESCENA, GOBOS } from './escenas.js';
+import { COLORES_MARCA, FORMAS_FONDO_V4, ESQUEMAS_LUZ, idMarca } from './escena-marca.js';
 import { ENCUADRES } from './analisis-ia.js';
 import { dibujarMiniatura } from './panel-escena.js';
 
@@ -50,7 +52,7 @@ const PASOS = [
 // Lo que se puede aplicar (las casillas del resultado)
 const PARTES = [
   ['movimientos', 'Movimientos y cortes', 'Los keyframes de la cámara en cada plano y los cortes con su transición.'],
-  ['escena', 'Escena', 'La superficie, el fondo y la luz parecidos a los del video.'],
+  ['escena', 'Escena', 'La superficie, el fondo, la luz y lo que acompaña a la joya, como en el video.'],
   ['materiales', 'Metal y piedra', 'El metal y la piedra que vio la IA.'],
   ['textos', 'Textos', 'Los textos que aparecen en el video (revísalos: son los de otra marca).'],
   ['sonidos', 'Sonidos en los cortes', 'Un whoosh o un golpe justo en cada corte, al estilo viral.'],
@@ -71,6 +73,7 @@ export class PanelReplicar {
       alAplicar: o.alAplicar || null,
       duracionProyecto: o.duracionProyecto || null,
     };
+    this.colores = o.colores === 'video' ? 'video' : 'marca';   // «Colores: de mi marca (recomendado) | del video»
     this.estado = 'inicio';
     this.trabajo = 0;            // cada análisis tiene su número: cancelar sube el número y lo que llegue tarde se ignora
     this.plan = null; this.analisis = null; this.ia = null; this.notaIA = null;
@@ -83,6 +86,7 @@ export class PanelReplicar {
     contenedor.addEventListener('change', e => this.alCambiar(e));
     contenedor.addEventListener('submit', e => { e.preventDefault(); this.analizarEnlace(this.$('.rpl-enlace input')?.value || ''); });
     contenedor.addEventListener('input', e => { if (e.target.matches('.rpl-enlace input')) this.enlace = e.target.value; });
+    contenedor.addEventListener('keydown', e => this.alTecla(e));
     // soltar el video sobre la zona (o sobre cualquier parte del panel, mientras se espera un video)
     contenedor.addEventListener('dragover', e => { if (this.esperaVideo() && hayArchivos(e)) { e.preventDefault(); this.$('.rpl-soltar')?.classList.add('encima'); } });
     contenedor.addEventListener('dragleave', e => { if (!contenedor.contains(e.relatedTarget)) this.$('.rpl-soltar')?.classList.remove('encima'); });
@@ -160,7 +164,7 @@ export class PanelReplicar {
       }
       if (cancelado()) return;
       this.marcarPaso('ia', ia ? 'hecho' : 'omitido', 1);
-      const plan = construirReplica(analisis, ia);
+      const plan = construirReplica(analisis, ia, { colores: this.colores });
       Object.assign(this, { analisis, ia, notaIA, plan, marcas: marcasIniciales(plan) });
       this.ir('resultado');
     } catch (e) {
@@ -203,10 +207,44 @@ export class PanelReplicar {
     else if (a === 'aplicar') this.aplicar();
     else if (a === 'reintentar') { const f = this.fuente; if (f?.archivo) this.procesar({ archivo: f.archivo }); else if (f?.enlace) this.procesar({ enlace: f.enlace }); else this.ir('inicio'); }
     else if (a === 'volver') { this.error = null; this.ir(this.plan ? 'resultado' : 'inicio'); }
+    else if (a === 'color') this.ponerColor(b.dataset.rol, b.dataset.hex);
+  }
+  // las muestras de cada parte son un grupo de radio: con las flechas se pasa de una a otra (y se escoge)
+  alTecla(e) {
+    const b = e.target.closest?.('.rpl-paleta [data-accion=color]');
+    if (!b || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const todos = [...b.closest('.rpl-paleta').querySelectorAll('[data-accion=color]')], i = todos.indexOf(b);
+    const j = e.key === 'Home' ? 0 : e.key === 'End' ? todos.length - 1 : (i + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1) + todos.length) % todos.length;
+    e.preventDefault();
+    this.ponerColor(todos[j].dataset.rol, todos[j].dataset.hex);
+  }
+  // Colores de la marca o del video: se vuelve a armar el plan (las casillas marcadas se conservan)
+  ponerModoColor(modo) {
+    if (!this.analisis || (modo !== 'marca' && modo !== 'video')) return;
+    this.colores = modo;
+    this.plan = construirReplica(this.analisis, this.ia, { colores: modo });
+    this.aplicado = false;
+    this.render();
+    this.$(`[name=rpl-colores-${this.idUnico()}][value=${modo}]`)?.focus();
+  }
+  // Una parte (fondo, superficie, caja o cinta) con otro color, antes de aplicar
+  ponerColor(rol, hex) {
+    const p = this.plan, m = p?.colores?.muestras?.find(x => x.rol === rol), h = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex) ? hex.toUpperCase() : null;
+    if (!m || !h || !p.escena) return;
+    p.escena = recolorearEscena(p.escena, { [rol]: h });
+    m.hex = h; m.marca = idMarca(h);
+    // en el satén la tela es fondo y piso a la vez
+    const sup = p.colores.muestras.find(x => x.rol === 'superficie');
+    if (rol === 'fondo' && sup && p.escena.fondo.forma === 'tela') { sup.hex = h; sup.marca = m.marca; }
+    this.aplicado = false;
+    this.render();
+    (this.$(`.rpl-paleta[data-rol=${rol}] [data-hex="${h}"]`) || this.$(`.rpl-paleta[data-rol=${rol}] input[type=color]`))?.focus();
   }
   alCambiar(e) {
     const t = e.target;
     if (t.matches('.rpl-soltar input[type=file]')) { const f = t.files?.[0]; t.value = ''; if (f) this.analizarArchivo(f); return; }
+    if (t.matches('.rpl-modo-color input[type=radio]')) { this.ponerModoColor(t.value); return; }
+    if (t.matches('.rpl-paleta input[type=color]')) { this.ponerColor(t.dataset.rol, t.value); return; }
     if (t.matches('[data-parte]') && this.marcas) {
       this.marcas[t.dataset.parte] = t.checked;
       this.aplicado = false;
@@ -328,10 +366,13 @@ export class PanelReplicar {
         </li>`;
     }).join('');
     const e = p.escena;
-    const base = e ? ESCENAS[e.base || e.id] : null;
-    const nombreEscena = !e ? 'Sin escena' : e.id === 'ninguna' ? ESCENAS.ninguna.nombre : e.id === 'personalizada' || e.base ? `Parecida a «${base?.nombre || 'personalizada'}»` : base?.nombre || 'Escena';
+    const nombreBase = nombreDeEscena(e);
+    const nombreEscena = !e ? 'Sin escena' : e.id === 'ninguna' ? ESCENAS.ninguna.nombre : e.id === 'personalizada' || e.base || e.preset ? `Parecida a «${nombreBase || 'personalizada'}»` : nombreBase || 'Escena';
+    const tela = e?.fondo?.forma === 'tela';
+    const luz = e?.luz ? (e.luz.esquema && e.luz.esquema !== 'ventana' ? `luz: ${ESQUEMAS_LUZ[e.luz.esquema].replace(/\s*\(.*\)$/, '').toLowerCase()}` : `luz: ${(GOBOS[e.luz.gobo] || '').toLowerCase()} desde la ${e.luz.angulo < 0 ? 'izquierda' : 'derecha'}`) : '';
     const detalleEscena = !e || e.id === 'ninguna' ? 'Fondo claro y parejo: el degradado de la marca, sin pedestal.'
-      : [`${FORMAS_SUPERFICIE[e.superficie.forma] || ''} de ${(MATERIALES_ESCENA[e.superficie.material] || '').toLowerCase()}`, FORMAS_FONDO[e.fondo.forma], `luz: ${(GOBOS[e.luz.gobo] || '').toLowerCase()} desde la ${e.luz.angulo < 0 ? 'izquierda' : 'derecha'}`].filter(Boolean).join(' · ');
+      : [tela ? '' : `${FORMAS_SUPERFICIE[e.superficie.forma] || ''} de ${(MATERIALES_ESCENA[e.superficie.material] || '').toLowerCase()}`, FORMAS_FONDO_V4[e.fondo.forma], luz].filter(Boolean).join(' · ');
+    const puesta = describirPuesta(e).filter(x => !/^(Tela de satén|Clave|Alta clave|Contraluz)/.test(x));
     const muestras = e && e.id !== 'ninguna' ? `<span class="rpl-muestras"><i style="--c:${esc(e.fondo.color)}" title="Fondo ${esc(e.fondo.color)}"></i><i style="--c:${esc(e.superficie.color)}" title="Superficie ${esc(e.superficie.color)}"></i></span>` : '';
     const j = p.joya;
     const joya = j ? `<div class="rpl-tarjeta rpl-joya">${svg('joya', 'rpl-ic')}<div><h4>${esc(j.nombreTipo)}</h4><p>${esc([j.metal, j.piedra].filter(Boolean).join(' · ') || 'Metal y piedra sin reconocer')}</p>${j.descripcion ? `<p class="rpl-ayuda">${esc(j.descripcion)}</p>` : ''}</div></div>`
@@ -357,9 +398,10 @@ export class PanelReplicar {
         <ol class="rpl-tira">${planos}</ol>
       </section>
       <section class="rpl-bloque rpl-dos">
-        <div class="rpl-tarjeta rpl-escena"><canvas width="96" height="120" aria-hidden="true"></canvas><div><h4>${esc(nombreEscena)}</h4><p class="rpl-ayuda">${esc(detalleEscena)}</p>${muestras}</div></div>
+        <div class="rpl-tarjeta rpl-escena"><canvas width="96" height="120" aria-hidden="true"></canvas><div><h4>${esc(nombreEscena)}</h4><p class="rpl-ayuda">${esc(detalleEscena)}</p>${muestras}${puesta.length ? `<ul class="rpl-puesta">${puesta.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div></div>
         ${joya}
       </section>
+      ${this.htmlColores()}
       <fieldset class="rpl-bloque rpl-partes">
         <legend>Qué aplicar al proyecto</legend>
         ${casillas}
@@ -369,6 +411,34 @@ export class PanelReplicar {
         <button type="button" class="btn sec" data-accion="otro">${svg('otra')}Analizar otro</button>
       </div>
       <p class="rpl-hecho" role="status"${this.aplicado ? '' : ' hidden'}>Listo: se aplicó al proyecto. Si no te gusta, usa Deshacer.</p>`;
+  }
+  // «Colores: de mi marca (recomendado) | del video» y las muestras de cada parte de la escena
+  htmlColores() {
+    const p = this.plan, lista = p?.colores?.muestras || [];
+    if (!p?.escena || p.escena.id === 'ninguna' || !lista.length) return '';
+    const id = this.idUnico(), modo = p.colores.modo;
+    const opcion = (v, t) => `<label><input type="radio" name="rpl-colores-${id}" value="${v}"${modo === v ? ' checked' : ''}><span>${t}</span></label>`;
+    const fila = m => {
+      const nombre = m.nombre.toLowerCase();
+      const botones = Object.entries(COLORES_MARCA).map(([k, c]) => {
+        const si = m.hex === c.hex;
+        return `<button type="button" class="rpl-muestra" role="radio" aria-checked="${si}" tabindex="${si ? 0 : -1}" data-accion="color" data-rol="${m.rol}" data-hex="${c.hex}" style="--c:${c.hex}" title="${c.nombre}" aria-label="${c.nombre}"></button>`;
+      }).join('');
+      const libre = !m.marca;
+      return `<div class="rpl-color">
+          <span class="rpl-color-nombre"><b>${esc(m.nombre)}</b>${m.original ? `<span class="rpl-ayuda">en el video <i class="rpl-punto" style="--c:${esc(m.original)}" title="${esc(m.original)}"></i></span>` : ''}</span>
+          <span class="rpl-paleta" role="radiogroup" aria-label="Color: ${esc(nombre)}" data-rol="${m.rol}">${botones}<label class="rpl-muestra rpl-libre${libre ? ' activa' : ''}" title="Otro color" style="--c:${esc(m.hex)}"><input type="color" value="${esc(m.hex.toLowerCase())}" data-rol="${m.rol}" aria-label="Otro color para ${esc(nombre)}"></label></span>
+        </div>`;
+    };
+    return `
+      <section class="rpl-bloque rpl-colores">
+        <div class="rpl-colores-cab">
+          <h4 id="rpl-col-t-${id}">Colores</h4>
+          <div class="rpl-modo-color" role="radiogroup" aria-labelledby="rpl-col-t-${id}">${opcion('marca', 'De mi marca <em>(recomendado)</em>')}${opcion('video', 'Del video')}</div>
+        </div>
+        <p class="rpl-ayuda">${modo === 'marca' ? 'Cada parte toma el color de tu marca que hace su mismo papel (oscuro, claro o dorado). Cámbialo aquí antes de aplicar.' : 'Los colores tal como se ven en el reel (pueden ser los de otra marca). Puedes cambiarlos aquí.'}</p>
+        <div class="rpl-colores-lista">${lista.map(fila).join('')}</div>
+      </section>`;
   }
   avisoAplicar(texto, mal = false) {
     const n = this.$('.rpl-hecho'); if (!n) return;

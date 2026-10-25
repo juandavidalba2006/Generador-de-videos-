@@ -15,6 +15,8 @@ export const SUGERENCIAS = [
   'Vista desde arriba que baja hasta quedar de frente',
   'Pon la joya en un pedestal de mármol',
   'Haz 3 cortes con flash',
+  'Fondo de satén esmeralda con luz de clave baja',
+  'Caja de regalo con cinta dorada que se abre en el segundo 2',
 ];
 const MAX_HISTORIAL = 12;        // mensajes que se mandan a la IA
 const MAX_GUARDADOS = 40;        // burbujas que se recuerdan en la sesión

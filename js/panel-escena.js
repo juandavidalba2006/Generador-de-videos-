@@ -2,7 +2,10 @@
 // «Personalizar» (forma, material y color de la superficie y del fondo, la luz con su ventana y el relleno).
 // No sabe de three.js: arma la configuración (validada con normalizarEscena) y la entrega por alCambiar(cfg);
 // main.js se la pasa al estudio (estudio.ponerEscena). poner(cfg) la cambia desde afuera (chat, deshacer, abrir) sin avisar.
-import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RANGOS, normalizarEscena, escenaDe } from './escenas.js';
+// v4: la tela de satén, el degradado y los destellos del fondo, el esquema de luz y «La joya» (flotando y en par). Los
+// controles nuevos usan data-ruta («fondo.ondas», «flotar.activo»…). Al cambiar de escena lista se conservan el estuche,
+// los elementos y el par (son lo que hay en la escena, no su aspecto).
+import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RANGOS, RANGOS_JOYA, ESQUEMAS_LUZ, normalizarEscena, escenaDe } from './escenas.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const limitar = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -30,6 +33,11 @@ const ICONO = {
   persiana: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
   foco: '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2.2"/>',
   reiniciar: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v5h5"/>',
+  tela: '<path d="M4 4c2 3 1 6 3 9s4 5 4 7"/><path d="M10 4c1.5 2.5 2 5 4 7.5S19 16 20 20"/><path d="M4 20h16"/>',
+  'clave-baja': '<rect x="4" y="4" width="16" height="16" rx="2" opacity=".35"/><path d="M12 6v5"/><circle cx="12" cy="15" r="2.5"/>',
+  'alta-clave': '<circle cx="12" cy="12" r="4"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
+  contraluz: '<circle cx="12" cy="12" r="7.5"/><path d="M12 4.5a7.5 7.5 0 0 1 0 15z" fill="currentColor" stroke="none"/>',
+  luzVentana: '<rect x="5" y="4" width="14" height="16" rx="1"/><path d="M12 4v16M5 12h14"/>',
 };
 const svg = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONO[k] || ''}</svg>`;
 
@@ -44,11 +52,13 @@ export function dibujarMiniatura(lienzo, cfg) {
   x.save(); x.scale(W / 120, H / 150);
   if (!cfg || cfg.id === 'ninguna') { miniaturaLisa(x); x.restore(); return; }
   const f = cfg.fondo, s = cfg.superficie, l = cfg.luz, oscuro = rgb(f.color).reduce((a, v) => a + v, 0) < 240;
-  // fondo: degradado suave y, según la forma, el piso con la esquina, la curva o el nicho
-  const g = x.createLinearGradient(0, 0, 0, 150);
-  g.addColorStop(0, tono(f.color, -0.06)); g.addColorStop(0.62, tono(f.color, 0.06)); g.addColorStop(1, tono(f.color, -0.04));
+  // fondo: degradado suave (más oscuro arriba con el degradado del fondo) y, según la forma, el piso con la esquina, la curva,
+  // el nicho o los pliegues de la tela
+  const g = x.createLinearGradient(0, 0, 0, 150), deg = f.degradado || 0;
+  g.addColorStop(0, tono(f.color, -0.06 - 0.55 * deg)); g.addColorStop(0.62, tono(f.color, 0.06)); g.addColorStop(1, tono(f.color, -0.04));
   x.fillStyle = g; x.fillRect(0, 0, 120, 150);
-  if (f.forma === 'pared') { x.fillStyle = tono(f.color, 0.1); x.fillRect(0, 104, 120, 46); x.fillStyle = tono(f.color, -0.12); x.fillRect(0, 103.5, 120, 1); }
+  if (f.forma === 'tela') telaMiniatura(x, f.color, l, oscuro);
+  else if (f.forma === 'pared') { x.fillStyle = tono(f.color, 0.1); x.fillRect(0, 104, 120, 46); x.fillStyle = tono(f.color, -0.12); x.fillRect(0, 103.5, 120, 1); }
   else if (f.forma === 'arco') {
     x.fillStyle = tono(f.color, -0.13); x.beginPath(); x.moveTo(30, 112); x.lineTo(30, 50); x.arc(60, 50, 30, Math.PI, 0); x.lineTo(90, 112); x.fill();
     x.fillStyle = tono(f.color, 0.1); x.fillRect(0, 112, 120, 38);
@@ -56,16 +66,35 @@ export function dibujarMiniatura(lienzo, cfg) {
     const p = x.createLinearGradient(0, 80, 0, 150); p.addColorStop(0, 'rgba(255,255,255,0)'); p.addColorStop(1, 'rgba(255,255,255,.16)');
     x.fillStyle = p; x.fillRect(0, 80, 120, 70);
   }
-  // la luz: la ventana, la persiana, el arco o el foco, insinuados en el fondo
-  luzMiniatura(x, l, oscuro);
+  // la luz: la ventana, la persiana, el arco o el foco, insinuados en el fondo (la tela ya trae sus brillos)
+  if (f.forma !== 'tela') luzMiniatura(x, l, oscuro);
   // la superficie
   const tope = superficieMiniatura(x, s, f);
-  // un anillo de oro parado encima, con su sombrita
-  const lado = l.angulo < 0 ? 1 : -1;
-  x.fillStyle = 'rgba(20,14,6,.28)'; x.beginPath(); x.ellipse(60 + lado * 7, tope + 0.5, 13, 2.2, 0, 0, Math.PI * 2); x.fill();
-  const oro = x.createLinearGradient(48, 0, 72, 0); oro.addColorStop(0, '#9C6F14'); oro.addColorStop(0.4, '#F5D27A'); oro.addColorStop(1, '#B0801F');
-  x.strokeStyle = oro; x.lineWidth = 3; x.beginPath(); x.ellipse(60, tope - 10.5, 9, 10, 0, 0, Math.PI * 2); x.stroke();
-  x.fillStyle = '#F4F7FA'; x.beginPath(); x.moveTo(56.5, tope - 21); x.lineTo(63.5, tope - 21); x.lineTo(60, tope - 25.5); x.fill();
+  // el anillo (o el par) de oro, parado encima con su sombrita, o flotando sobre un charco de luz
+  const lado = l.angulo < 0 ? 1 : -1, flota = !!cfg.flotar?.activo, sube = flota ? 18 : 0;
+  const xs = cfg.par?.activo ? [48, 72] : [60];
+  if (flota) { const c = x.createRadialGradient(60, tope + 1, 0, 60, tope + 1, 26); c.addColorStop(0, 'rgba(255,214,150,.45)'); c.addColorStop(1, 'rgba(255,214,150,0)'); x.save(); x.translate(60, tope + 1); x.scale(1, 0.25); x.translate(-60, -tope - 1); x.fillStyle = c; x.fillRect(20, tope - 40, 80, 80); x.restore(); }
+  for (const cx of xs) {
+    x.fillStyle = `rgba(20,14,6,${flota ? 0.14 : 0.28})`; x.beginPath(); x.ellipse(cx + lado * 7, tope + 0.5, flota ? 9 : 13, flota ? 1.6 : 2.2, 0, 0, Math.PI * 2); x.fill();
+    const oro = x.createLinearGradient(cx - 12, 0, cx + 12, 0); oro.addColorStop(0, '#9C6F14'); oro.addColorStop(0.4, '#F5D27A'); oro.addColorStop(1, '#B0801F');
+    const r = xs.length > 1 ? 7.5 : 9, y = tope - r - 1.5 - sube;
+    x.strokeStyle = oro; x.lineWidth = 3; x.beginPath(); x.ellipse(cx, y, r, r * 1.1, 0, 0, Math.PI * 2); x.stroke();
+    x.fillStyle = '#F4F7FA'; x.beginPath(); x.moveTo(cx - 3.5, y - r * 1.1); x.lineTo(cx + 3.5, y - r * 1.1); x.lineTo(cx, y - r * 1.1 - 4.5); x.fill();
+  }
+  x.restore();
+}
+// La tela de satén: pliegues en diagonal con brillos largos (más marcados en una tela oscura) y el charco de luz abajo
+function telaMiniatura(x, c, l, oscuro) {
+  x.save();
+  const izq = l.angulo < 0;
+  for (let i = 0; i < 6; i++) {
+    const y0 = -10 + i * 30, a = (izq ? 1 : -1) * 0.5;
+    const g = x.createLinearGradient(0, y0, 40, y0 + 40);
+    const brillo = (i % 2 ? 0.18 : 0.3) * (oscuro ? 1 : 0.6);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, `rgba(255,250,240,${brillo.toFixed(3)})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.beginPath(); x.moveTo(-10, y0); x.bezierCurveTo(30, y0 + 25 * a + 10, 70, y0 - 20, 130, y0 + 14 + 20 * a); x.lineTo(130, y0 + 30 + 20 * a); x.bezierCurveTo(70, y0 - 2, 30, y0 + 25 * a + 26, -10, y0 + 18); x.fill();
+    x.fillStyle = `rgba(0,0,0,${oscuro ? 0.22 : 0.08})`; x.beginPath(); x.moveTo(-10, y0 + 18); x.bezierCurveTo(30, y0 + 25 * a + 26, 70, y0 - 2, 130, y0 + 30 + 20 * a); x.lineTo(130, y0 + 36 + 20 * a); x.bezierCurveTo(70, y0 + 6, 30, y0 + 25 * a + 32, -10, y0 + 24); x.fill();
+  }
   x.restore();
 }
 function miniaturaLisa(x) {
@@ -146,6 +175,16 @@ function superficieMiniatura(x, s, f) {
   return 150 - alto;
 }
 
+const AYUDA_ESQUEMA = {
+  ventana: 'Luz de ventana y una sala clara (la de siempre).',
+  'clave-baja': 'Fondo oscuro, luz dorada angosta, filos brillantes en el oro y un charco de luz bajo la joya.',
+  'alta-clave': 'Clara y suave, casi sin sombras: luminosa.',
+  contraluz: 'El fondo encendido y la luz desde atrás: siluetas con borde de luz.',
+};
+// Lo que se conserva al cambiar de escena lista (es lo que hay en la escena, no su aspecto)
+const CONTENIDO = ['par', 'utileria', 'elementos'];
+const conContenido = (n, de) => { for (const k of CONTENIDO) if (de && de[k] !== undefined) n[k] = copia(de[k]); return normalizarEscena(n); };
+
 // ---------- El panel ----------
 export class PanelEscena {
   constructor(contenedor, { estudio = null, alCambiar = null } = {}) {
@@ -169,6 +208,7 @@ export class PanelEscena {
   bloquear(si) { for (const f of this.cont.querySelectorAll('fieldset')) f.disabled = !!si; }
 
   html() {
+    const rangoR = (ruta, txt, min, max, paso) => `<label class="rango"><span>${txt}</span><input type="range" data-ruta="${ruta}" min="${min}" max="${max}" step="${paso}"><output data-salida="${ruta}"></output></label>`;
     const rango = (grupo, campo, txt, min, max, paso) => `<label class="rango"><span>${txt}</span><input type="range" data-grupo="${grupo}" data-campo="${campo}" min="${min}" max="${max}" step="${paso}"><output data-salida="${grupo}-${campo}"></output></label>`;
     const fichas = (grupo, campo, lista) => `<div class="pes-chips" role="group">${Object.entries(lista).map(([k, n]) => `<button type="button" data-grupo="${grupo}" data-campo="${campo}" data-v="${k}" aria-pressed="false">${svg(k)}<span>${esc(n)}</span></button>`).join('')}</div>`;
     const colores = grupo => `<div class="pes-colores">
@@ -187,6 +227,21 @@ export class PanelEscena {
         </fieldset>
         <div class="pes-liso" data-ranura="liso" hidden><p class="pes-ayuda">Sin superficie: la joya flota sobre el degradado de la marca, con su sombra suave.</p></div>
       </section>
+      <section class="pes-bloque pes-joya" data-bloque-joya>
+        <fieldset class="pes-campos">
+          <legend class="vh">La joya en la escena</legend>
+          <div class="pes-grupo">
+            <h4>La joya en la escena</h4>
+            <div class="pes-interruptores">
+              <label class="pes-interruptor"><input type="checkbox" role="switch" data-ruta="flotar.activo"><i aria-hidden="true"></i><span>Flotando<small>sin apoyo, con un vaivén suave</small></span></label>
+              <label class="pes-interruptor"><input type="checkbox" role="switch" data-ruta="par.activo"><i aria-hidden="true"></i><span>En par<small>dos piezas en espejo, como aretes</small></span></label>
+            </div>
+            <div class="grid2" data-si="flotar">${rangoR('flotar.altura', 'Altura sobre el piso', RANGOS_JOYA.altura.min, RANGOS_JOYA.altura.max, 0.01)}${rangoR('flotar.bob', 'Vaivén', 0, 1, 0.01)}</div>
+            <div data-si="par">${rangoR('par.separacion', 'Separación del par', RANGOS_JOYA.separacion.min, RANGOS_JOYA.separacion.max, 0.01)}</div>
+            <p class="pes-ayuda" data-nota-joya hidden></p>
+          </div>
+        </fieldset>
+      </section>
       <details class="pes-bloque pes-personalizar" data-personalizar>
         <summary><span>Personalizar</span><span class="pes-ayuda" data-resumen></span></summary>
         <fieldset class="pes-campos">
@@ -202,10 +257,13 @@ export class PanelEscena {
             ${fichas('fondo', 'forma', FORMAS_FONDO)}
             <div class="grid2 pes-par"><label>Material${materiales('fondo')}</label><div class="campo"><span class="et">Color</span>${colores('fondo')}</div></div>
             ${rango('fondo', 'distancia', 'Distancia del fondo', RANGOS.distancia.min, RANGOS.distancia.max, 0.05)}
+            <div class="grid2">${rangoR('fondo.degradado', 'Degradado (más oscuro arriba)', 0, 1, 0.01)}${rangoR('fondo.destellos', 'Destellos en el aire', 0, 1, 0.01)}</div>
+            <div data-si="tela">${rangoR('fondo.ondas', 'Movimiento de la tela', 0, 1, 0.01)}</div>
           </div>
           <div class="pes-grupo">
             <h4>Luz</h4>
-            ${fichas('luz', 'gobo', GOBOS)}
+            <div class="campo"><span class="et">Esquema de luz</span><div class="pes-chips" role="group" aria-label="Esquema de luz">${Object.entries(ESQUEMAS_LUZ).map(([k, n]) => `<button type="button" data-ruta="luz.esquema" data-v="${k}" aria-pressed="false" title="${esc(AYUDA_ESQUEMA[k])}">${svg(k === 'ventana' ? 'luzVentana' : k)}<span>${esc(n)}</span></button>`).join('')}</div></div>
+            <div class="campo"><span class="et">Sombras de la luz</span>${fichas('luz', 'gobo', GOBOS)}</div>
             <div class="grid2">
               ${rango('luz', 'angulo', 'De dónde viene', -90, 90, 1)}${rango('luz', 'elevacion', 'Altura de la luz', RANGOS.elevacion.min, RANGOS.elevacion.max, 1)}
               ${rango('luz', 'suavidad', 'Suavidad de las sombras', 0, 1, 0.01)}${rango('luz', 'intensidad', 'Intensidad', RANGOS.intensidad.min, RANGOS.intensidad.max, 0.01)}
@@ -224,14 +282,18 @@ export class PanelEscena {
       const id = ficha.dataset.escena;
       // la tarjeta de la escena de ahora (ajustada) no la reinicia: para eso está «Volver a la escena lista»
       if (id === (this.cfg.base || this.cfg.id)) return;
-      this.cfg = escenaDe(id); this.render(); this.avisar(true);
+      this.cfg = id === 'ninguna' ? escenaDe(id) : conContenido(escenaDe(id), this.cfg); this.render(); this.avisar(true);
       return;
     }
-    if (e.target.closest('[data-accion=reiniciar]')) { this.cfg = escenaDe(this.cfg.base || this.cfg.id); this.render(); this.avisar(true); return; }
+    if (e.target.closest('[data-accion=reiniciar]')) { this.cfg = conContenido(escenaDe(this.cfg.base || this.cfg.id), this.cfg); this.render(); this.avisar(true); return; }
+    const r = e.target.closest('button[data-ruta][data-v]');
+    if (r) { this.cambiarRuta(r.dataset.ruta, r.dataset.v, true); return; }
     const b = e.target.closest('button[data-grupo][data-v]');
     if (b) this.cambiar(b.dataset.grupo, b.dataset.campo, b.dataset.v, true);
   }
   alMover(e, final) {
+    const q = e.target.closest('input[data-ruta]');
+    if (q) { this.cambiarRuta(q.dataset.ruta, q.type === 'checkbox' ? q.checked : +q.value, final || q.type === 'checkbox'); return; }
     const c = e.target.closest('input[data-grupo], select[data-grupo]');
     if (!c) return;
     const v = c.type === 'range' ? +c.value : c.value;
@@ -241,6 +303,14 @@ export class PanelEscena {
     if (this.cfg.id === 'ninguna') return;
     const n = copia(this.cfg);
     if (grupo === 'escena') n[campo] = v; else n[grupo][campo] = campo === 'color' ? String(v).toUpperCase() : v;
+    this.cfg = normalizarEscena(n);
+    this.render(); this.avisar(final);
+  }
+  // Los controles nuevos: ruta «grupo.campo» (fondo.ondas, luz.esquema, flotar.activo, par.separacion…)
+  cambiarRuta(ruta, v, final) {
+    if (this.cfg.id === 'ninguna') return;
+    const [g, k] = ruta.split('.'), n = copia(this.cfg);
+    n[g] = { ...(n[g] || {}), [k]: v };
     this.cfg = normalizarEscena(n);
     this.render(); this.avisar(final);
   }
@@ -266,7 +336,23 @@ export class PanelEscena {
     cont.querySelector('[data-ranura=liso]').hidden = !ninguna;
     const det = cont.querySelector('[data-personalizar]');
     det.hidden = ninguna;
+    cont.querySelector('[data-bloque-joya]').hidden = ninguna;
     if (ninguna) return;
+    // los controles nuevos (por ruta)
+    const deRuta = ruta => { const [g, k] = ruta.split('.'); return c[g]?.[k]; };
+    for (const b of cont.querySelectorAll('button[data-ruta][data-v]')) b.setAttribute('aria-pressed', String(String(deRuta(b.dataset.ruta)) === b.dataset.v));
+    for (const el of cont.querySelectorAll('input[data-ruta]')) {
+      const v = deRuta(el.dataset.ruta);
+      if (el.type === 'checkbox') el.checked = !!v;
+      else { if (+el.value !== v && document.activeElement !== el) el.value = v; const o = cont.querySelector(`[data-salida="${el.dataset.ruta}"]`); if (o) o.textContent = textoRuta(el.dataset.ruta, v); }
+    }
+    cont.querySelector('[data-si=flotar]').hidden = !c.flotar.activo;
+    cont.querySelector('[data-si=par]').hidden = !c.par.activo;
+    cont.querySelector('[data-si=tela]').hidden = c.fondo.forma !== 'tela';
+    // con la joya dentro de un estuche, flotar no aplica (la joya va en su asiento; la pista «Elevar» la saca)
+    const enEstuche = c.utileria && c.utileria.tipo !== 'ninguna' && c.utileria.posicion !== 'al-lado' && c.flotar.activo;
+    const nota = cont.querySelector('[data-nota-joya]'); nota.hidden = !enEstuche;
+    if (enEstuche) nota.textContent = 'La joya está dentro del estuche: queda en su asiento. Para que flote, pon el estuche «al lado» o súbela con la pista «Elevar».';
     const valor = (g, k) => (g === 'escena' ? c[k] : c[g][k]);
     for (const b of cont.querySelectorAll('button[data-grupo][data-v]')) {
       const g = b.dataset.grupo, k = b.dataset.campo;
@@ -284,12 +370,22 @@ export class PanelEscena {
       else if (el.value !== v) el.value = v;
     }
     const base = ESCENAS[idBase];
-    cont.querySelector('[data-resumen]').textContent = `${FORMAS_SUPERFICIE[c.superficie.forma]} · ${MATERIALES_ESCENA[c.superficie.material]} · ${GOBOS[c.luz.gobo]}`;
+    cont.querySelector('[data-resumen]').textContent = c.fondo.forma === 'tela'
+      ? `${FORMAS_FONDO.tela} · ${MATERIALES_ESCENA[c.fondo.material]} · ${ESQUEMAS_LUZ[c.luz.esquema]}`
+      : `${FORMAS_SUPERFICIE[c.superficie.forma]} · ${MATERIALES_ESCENA[c.superficie.material]} · ${GOBOS[c.luz.gobo]}${c.luz.esquema !== 'ventana' ? ' · ' + ESQUEMAS_LUZ[c.luz.esquema] : ''}`;
     cont.querySelector('[data-base]').textContent = c.id === 'personalizada' ? `Ajustada a partir de «${base.nombre}».` : `Es la escena «${base.nombre}» tal cual.`;
     cont.querySelector('[data-accion=reiniciar]').disabled = c.id !== 'personalizada';
   }
 }
 
+// Texto de los deslizadores nuevos
+function textoRuta(ruta, v) {
+  const n = (x, d = 0) => x.toLocaleString('es-CO', { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (ruta === 'flotar.altura') return `${n(v, 2)} altos`;
+  if (ruta === 'par.separacion') return `${n(v, 2)} anchos`;
+  if (ruta === 'fondo.ondas' || ruta === 'flotar.bob') return v < 0.05 ? 'Quieta' : v < 0.4 ? 'Suave' : v < 0.75 ? 'Media' : 'Mucha';
+  return v < 0.02 ? 'Nada' : `${n(v * 100)} %`;
+}
 // Texto de cada deslizador
 function texto(k, v) {
   const n = (x, d = 0) => x.toLocaleString('es-CO', { minimumFractionDigits: d, maximumFractionDigits: d });

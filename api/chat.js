@@ -2,9 +2,11 @@
 // el plan del video (keyframes de cámara, cortes, escena, textos, sonidos y música). Devuelve las mismas acciones que el intérprete
 // sin conexión (js/interprete.js), ya validadas. GET solo dice si hay IA (si está la clave ANTHROPIC_API_KEY).
 import Anthropic from '@anthropic-ai/sdk';
+import { tipoErrorIA, reintentarDe, esperaReintentoIA } from '../lib/errores-ia.js';
 import { PISTAS, CURVAS, TRANSICIONES, DURACION_MIN, DURACION_MAX } from '../js/proyecto.js';
 import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RANGOS } from '../js/escenas.js';
 import { normalizarAcciones, accionesVacias, EFECTOS_IDS, ESTILOS_MUSICA_IDS, ESTILOS_TEXTO_IDS, ANIMACIONES_IDS } from '../js/interprete.js';
+import { ESCENAS_SATEN, IDS_ESCENA, FORMAS_FONDO_V4, ESQUEMAS_LUZ, TIPOS_UTILERIA, POSICIONES_UTILERIA, ELEMENTOS_IA, COREOGRAFIAS_IDS, RECORRIDOS_CINTA_IDS } from '../js/escena-marca.js';
 
 export const MODELO = 'claude-opus-5-5';
 export const MAX_CUERPO = 64 * 1024;       // bytes
@@ -70,7 +72,7 @@ export const ESQUEMA = obj({
   }, 'Cortes del video: en un corte la cámara salta de un plano a otro.'),
   escena: obj({
     cambiar: { type: 'boolean', description: 'true solo si el pedido toca la escena (superficie, fondo o luz).' },
-    id: { type: 'string', enum: [...Object.keys(ESCENAS), 'actual'], description: 'Escena lista de la que se parte, «ninguna» = fondo liso de marca sin superficie, «actual» = la que ya tiene.' },
+    id: { type: 'string', enum: [...IDS_ESCENA, 'actual'], description: 'Escena lista de la que se parte, «ninguna» = fondo liso de marca sin superficie, «actual» = la que ya tiene.' },
     superficie: obj({
       cambiar: { type: 'boolean', description: 'true = este grupo reemplaza al de la escena con TODOS sus campos; false = se ignora.' },
       forma: opcion(FORMAS_SUPERFICIE), material: opcion(MATERIALES_ESCENA), color: { type: 'string', description: 'Color en hexadecimal (#RRGGBB) que tiñe el material.' },
@@ -78,8 +80,11 @@ export const ESQUEMA = obj({
     }),
     fondo: obj({
       cambiar: { type: 'boolean', description: 'true = este grupo reemplaza al de la escena con TODOS sus campos; false = se ignora.' },
-      forma: opcion(FORMAS_FONDO), material: opcion(MATERIALES_ESCENA), color: { type: 'string', description: 'Color en hexadecimal (#RRGGBB).' },
+      forma: opcion(FORMAS_FONDO_V4), material: opcion(MATERIALES_ESCENA), color: { type: 'string', description: 'Color en hexadecimal (#RRGGBB).' },
       distancia: num(`Qué tan lejos queda el fondo (${rangoEscena('distancia')}); más lejos = más desenfocado.`),
+      ondas: num('Solo en la tela: cuánto se mueven despacio los pliegues (0 a 1; 0 = quieta).'),
+      degradado: num('El fondo se oscurece hacia arriba (0 a 1).'),
+      destellos: num('Brillitos desenfocados que flotan en el aire (0 a 1).'),
     }),
     luz: obj({
       cambiar: { type: 'boolean', description: 'true = este grupo reemplaza al de la escena con TODOS sus campos; false = se ignora.' },
@@ -89,8 +94,35 @@ export const ESQUEMA = obj({
       suavidad: num(`0 = sombra dura de sol, 1 = muy difusa (${rangoEscena('suavidad')}).`),
       intensidad: num(`Fuerza de la luz (${rangoEscena('intensidad')}); normal 1.`),
       calidez: num(`-1 = fría, 0 = neutra, 1 = cálida de atardecer (${rangoEscena('calidez')}).`),
+      esquema: opcion(ESQUEMAS_LUZ, 'Cómo se ilumina toda la escena: ventana (la normal), clave-baja (fondo oscuro, luz dorada angosta y brillos fuertes en el metal), alta-clave (clara y suave), contraluz (fondo encendido, siluetas).'),
     }),
     ambiente: num(`Relleno del estudio (${rangoEscena('ambiente')}); -1 = no cambiarlo.`),
+    flotar: obj({
+      cambiar: { type: 'boolean', description: 'true = cambia si la joya flota; false = se ignora.' },
+      activo: { type: 'boolean', description: 'true = la joya flota en el aire; false = se apoya.' },
+      altura: num('Cuánto flota, en altos de la joya (0.2 a 1.5; 0.35 normal); 0 = no cambiarla.'),
+    }),
+    par: obj({
+      cambiar: { type: 'boolean', description: 'true = cambia si se ve el par; false = se ignora.' },
+      activo: { type: 'boolean', description: 'true = se ven las dos piezas del par (aretes) lado a lado.' },
+    }),
+    utileria: obj({
+      cambiar: { type: 'boolean', description: 'true = pone, cambia o quita el estuche o la caja; false = se ignora.' },
+      tipo: opcion(TIPOS_UTILERIA, '«ninguna» quita el estuche.'),
+      color: { type: 'string', description: 'Color del estuche o la caja (#RRGGBB) o "" para dejar el de ahora.' },
+      cinta: { type: 'string', description: 'Color de la cinta o el moño (#RRGGBB) o "".' },
+      posicion: { type: 'string', enum: POSICIONES_UTILERIA, description: 'asiento = la joya va adentro; al-lado = la caja al lado o debajo (con la joya flotando); escenario = una caja gigante hace de piso.' },
+    }),
+    elementos: obj({
+      cambiar: { type: 'boolean', description: 'true = agrega, reemplaza o quita elementos; false = se ignora.' },
+      modo: { type: 'string', enum: ['agregar', 'reemplazar', 'quitar'], description: 'agregar = se suman a los que hay (uno de la misma forma se reemplaza); quitar con lista vacía = quita todos.' },
+      lista: lista(obj({
+        tipo: opcion(ELEMENTOS_IA),
+        coreografia: { type: 'string', enum: COREOGRAFIAS_IDS, description: 'Cómo se mueven.' },
+        recorrido: { type: 'string', enum: [...RECORRIDOS_CINTA_IDS, 'ninguno'], description: 'Solo la cinta: la forma que dibuja.' },
+        cantidad: num('Cuántos (0 = los de siempre).'),
+      })),
+    }, 'Objetos que acompañan a la joya: esferas, perlas, cuentas, una esfera de cristal, una cinta de satén, una cadena.'),
   }, 'La escena donde está la joya.'),
 });
 
@@ -120,6 +152,10 @@ La joya está quieta en el centro, sobre una tornamesa invisible; la cámara gir
 - rodar (${rango('rodar')}): cámara ladeada (plano holandés). Para joyería, 8° a 15° ya se nota; un balanceo es ir y volver entre +9 y -9.
 - exposicion (${rango('exposicion')}): luz. Un destello es subir a 1.5 en 0.12 s y volver a 1.15 en 0.6 s.
 - desenfoque (${rango('desenfoque')}): desenfoque macro (profundidad de campo); solo se ve en el render realista.
+- apertura (${rango('apertura')}): la tapa del estuche o de la caja: 0 = cerrada, 1 = abierta. «Abre la caja en el segundo 2» = 0 en t = 0,
+  0 en t = 2 (curva suave) y 1 en t = 3.2. Solo tiene sentido con un estuche (escena.utileria); si no hay, ponlo también.
+- elevar (${rango('elevar')}): la joya sube sobre su asiento o el piso, en altos de la joya («que la joya salga del estuche»: de 0 a 0.3).
+- luz (${rango('luz')}): giro de la luz principal en grados; de -40 a 40 en todo el video hace que los brillos recorran la tela de satén.
 
 # Curvas (de un keyframe al siguiente; la decide el keyframe de la izquierda)
 lineal = velocidad constante (la única que hace un giro continuo en bucle sin que se note el empalme); suave = arranca y llega despacio;
@@ -204,6 +240,17 @@ ${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion
   #E4D6C1, yeso #E1D5C5, concreto #B9B5AE, terciopelo #1F4D3F, madera #C8A57E). La luz: ángulo negativo = desde la izquierda, positivo =
   desde la derecha; suavidad baja = sombras duras de sol; calidez alta = atardecer. Sobre un fondo oscuro los textos salen claros solos.
 - Para joyería: fondos cálidos y neutros (taupe, arena, perla), sombras suaves de ventana o persiana; mármol negro con foco para lo nocturno.
+- Satén (fondo forma «tela»: una tela con pliegues que hace de fondo y de piso): ${Object.entries(ESCENAS_SATEN).map(([k, e]) => `${k} = ${e.nombre.toLowerCase()}`).join('; ')}.
+  «fondo de satén esmeralda» = id saten-esmeralda (todos los grupos en false). Esquemas de luz (luz.esquema): ${lista2(ESQUEMAS_LUZ)};
+  «luz de clave baja» = id «actual» con el grupo luz en true (copia la luz de ahora y cambia esquema).
+- flotar, par, utileria y elementos son grupos como los de arriba (cambiar = false = no se tocan). «que flote» = flotar.activo true;
+  «aretes en par» = par.activo true. Estuches y cajas (utileria.tipo): ${lista2(TIPOS_UTILERIA)}. «ponla en un estuche negro» = el
+  estuche que va con la joya, color tinta #1E1B15; «caja de regalo con cinta dorada» = caja-regalo con cinta #B8871F. Colores de la
+  marca: tinta #1E1B15, bosque #17150F, esmeralda #1E5B4B, granate #8E2F3A, rosa #C9A3A8, perla #F1EFEA, papel #FCFBF8, oro #B8871F
+  (negro = tinta, dorado = oro, blanco = papel); nunca el azul turquesa de otra joyería.
+- Elementos (elementos.lista, modo agregar): ${lista2(ELEMENTOS_IA)}; coreografías: ${COREOGRAFIAS_IDS.join(', ')}; la cinta dibuja un
+  recorrido (${RECORRIDOS_CINTA_IDS.join(', ')}) y pasa por el anillo; la cadena cuelga de la joya. «perlas que caen en círculo» = perlas con
+  caer-en-circulo; «una cinta en corazón» = cinta con recorrido corazon; «esfera de cristal» = cristal; «cuelga una cadena» = cadena.
 
 # Cada mensaje
 Con cada pedido llega el estado actual del proyecto en JSON dentro de <proyecto>: duración, bucle, keyframes de cada pista, cortes, escena
@@ -251,28 +298,25 @@ function conContexto(historial, contexto) {
 
 // ---------- Errores de la IA → mensajes en español con su código HTTP ----------
 export function errorIA(e) {
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return { estado: 504, error: 'La IA tardó demasiado en responder. Intenta con un pedido más corto.' };
-  if (e instanceof Anthropic.APIConnectionError) return { estado: 502, error: 'No se pudo conectar con la IA. Revisa la conexión e inténtalo otra vez.' };
-  if (e instanceof Anthropic.AuthenticationError) return { estado: 502, error: 'La clave de la IA no es válida: revisa ANTHROPIC_API_KEY en Vercel.' };
-  if (e instanceof Anthropic.PermissionDeniedError) return { estado: 502, error: 'La clave de la IA no tiene permiso para usar este modelo.' };
-  if (e instanceof Anthropic.RateLimitError) {
-    const espera = Number(e.headers?.get?.('retry-after'));
+  // por tipo y no solo con instanceof: un error de otra copia del SDK (empaquetado o pruebas) también se reconoce (lib/errores-ia.js)
+  const tipo = tipoErrorIA(e);
+  if (tipo === 'tiempo') return { estado: 504, error: 'La IA tardó demasiado en responder. Intenta con un pedido más corto.' };
+  if (tipo === 'conexion') return { estado: 502, error: 'No se pudo conectar con la IA. Revisa la conexión e inténtalo otra vez.' };
+  if (tipo === 'clave') return { estado: 502, error: 'La clave de la IA no es válida: revisa ANTHROPIC_API_KEY en Vercel.' };
+  if (tipo === 'permiso') return { estado: 502, error: 'La clave de la IA no tiene permiso para usar este modelo.' };
+  if (tipo === 'limite') {
+    const espera = reintentarDe(e);
     return { estado: 429, error: 'Hay muchos pedidos en este momento. Espera unos segundos e inténtalo de nuevo.', ...(espera > 0 ? { reintentarEn: Math.ceil(espera) } : {}) };
   }
-  if (e instanceof Anthropic.BadRequestError) return { estado: 502, error: 'La IA no pudo procesar este pedido. Intenta decirlo de otra forma.' };
-  if (e instanceof Anthropic.InternalServerError) return { estado: 503, error: 'La IA está saturada en este momento. Inténtalo en un minuto.' };
-  if (e instanceof Anthropic.APIError) return { estado: 502, error: 'La IA respondió con un error. Inténtalo de nuevo.' };
+  if (tipo === 'pedido') return { estado: 502, error: 'La IA no pudo procesar este pedido. Intenta decirlo de otra forma.' };
+  if (tipo === 'saturada') return { estado: 503, error: 'La IA está saturada en este momento. Inténtalo en un minuto.' };
+  if (tipo) return { estado: 502, error: 'La IA respondió con un error. Inténtalo de nuevo.' };
   return { estado: 500, error: 'Error inesperado del asistente.' };
 }
 
 // Un solo reintento, y solo para una falla rápida y pasajera (IA saturada, límite de velocidad, conexión): devuelve cuánto
 // esperar (ms) o null. Un tiempo agotado no se reintenta: se cobraría dos veces y se pasaría del plazo de la función.
-function esperaReintento(e) {
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return null;
-  if (e instanceof Anthropic.RateLimitError) { const s = Number(e.headers?.get?.('retry-after')); return !Number.isFinite(s) || s < 0 ? 1000 : s <= 5 ? s * 1000 : null; }
-  if (e instanceof Anthropic.InternalServerError || e instanceof Anthropic.APIConnectionError) return 800;
-  return null;
-}
+const esperaReintento = esperaReintentoIA;
 const dormir = ms => new Promise(ok => setTimeout(ok, ms));
 
 // ---------- El núcleo: cuerpo del pedido + cliente de Anthropic → { estado, datos } (nunca lanza) ----------

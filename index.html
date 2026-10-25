@@ -17,6 +17,8 @@
 <link rel="stylesheet" href="estilos-texturas.css">
 <link rel="stylesheet" href="estilos-chat.css">
 <link rel="stylesheet" href="estilos-escena.css">
+<link rel="stylesheet" href="estilos-utileria.css">
+<link rel="stylesheet" href="estilos-elementos.css">
 <link rel="stylesheet" href="estilos-replicar.css">
 <script type="importmap">
 {
@@ -123,7 +125,7 @@
             </div>
             <ol class="pasos">
               <li><b>Materiales:</b> metal, piedra y bitmaps para darle realismo.</li>
-              <li><b>Escena:</b> el pedestal, el fondo y la luz de ventana donde se apoya la joya (o el fondo liso de la marca).</li>
+              <li><b>Escena:</b> el pedestal o la tela de satén, el fondo y la luz donde se apoya (o flota) la joya, sola o en par; un estuche o una caja de regalo que se abre (también en STL) y elementos que se mueven alrededor.</li>
               <li><b>Línea de tiempo:</b> escoge un movimiento base y ajústalo con keyframes y cortes, o pídeselo al <b>Asistente</b>.</li>
               <li><b>Textos y Sonido:</b> plantillas con gancho, efectos virales y música.</li>
               <li><b>Replicar:</b> pega el enlace de un reel que te guste (o súbelo) y copia sus movimientos, cortes y fondo.</li>
@@ -151,6 +153,12 @@
               <div class="campo"><span class="et">Fondo</span><div class="fondos" id="fondos"></div></div>
               <label class="rango"><span>Sombra bajo la pieza</span><input type="range" id="sombra" min="0" max="1.6" step="0.05" value="1"><output></output></label>
             </div>
+            <!-- el estuche o la caja y los elementos que se mueven alrededor de la joya (necesitan una escena 3D) -->
+            <div class="separador"></div>
+            <p class="pes-sin-escena" id="sinEscena3D" hidden>Los estuches, las cajas y los elementos van dentro de una escena 3D: elige una arriba (por ejemplo, una de satén) para agregarlos.</p>
+            <div id="panelUtileria"></div>
+            <div class="separador"></div>
+            <div id="panelElementos"></div>
           </div>
 
           <div class="hoja" id="h-textos" role="tabpanel" aria-labelledby="tab-textos" data-pestana="textos" hidden>

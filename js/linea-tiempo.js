@@ -9,8 +9,8 @@ import {
 import { escarabajo } from './marca.js';
 
 // nombres para la columna de los carriles (la del inspector lleva el nombre completo)
-const MEDIOS = { giro: 'Giro', inclinacion: 'Altura cámara', zoom: 'Zoom', altura: 'Pos. vertical', lateral: 'Pos. lateral', foco: 'Foco piedra', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque' };
-const CORTOS = { giro: 'Giro', inclinacion: 'Altura', zoom: 'Zoom', altura: 'Vertical', lateral: 'Lateral', foco: 'Foco', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque' };
+const MEDIOS = { giro: 'Giro', inclinacion: 'Altura cámara', zoom: 'Zoom', altura: 'Pos. vertical', lateral: 'Pos. lateral', foco: 'Foco piedra', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque', apertura: 'Apertura', elevar: 'Elevar joya', luz: 'Giro de luz' };
+const CORTOS = { giro: 'Giro', inclinacion: 'Altura', zoom: 'Zoom', altura: 'Vertical', lateral: 'Lateral', foco: 'Foco', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque', apertura: 'Apertura', elevar: 'Elevar', luz: 'Luz' };
 const DURACIONES = [6, 8, 10, 15, 20, 30];
 const MAX_HISTORIAL = 50;
 const IMAN = 6;        // px: a esta distancia del cabezal un rombo o un borde se pega a él
@@ -84,9 +84,14 @@ const editable = el => campoTexto(el) || el?.tagName === 'SELECT';
 let instancias = 0;
 
 export class LineaTiempo {
-  constructor(contenedor, { obtenerProyecto, alCambiar, alMoverCabezal, alSeleccionar, efectos, estilosMusica } = {}) {
+  // pistaVisible(id): si el carril de una pista se muestra (las de la escena —apertura, elevar, luz— solo cuando sirven:
+  // con un estuche, con la joya que flota, con una escena 3D). Una pista con keyframes se muestra siempre. Sin esto, todas
+  constructor(contenedor, { obtenerProyecto, alCambiar, alMoverCabezal, alSeleccionar, efectos, estilosMusica, pistaVisible, valorSinClaves } = {}) {
     this.cont = contenedor;
     this.obtenerProyecto = obtenerProyecto;
+    this.pistaVisible = typeof pistaVisible === 'function' ? pistaVisible : () => true;
+    // valor de una pista que todavía no tiene keyframes y lo toma de otro lado (la apertura del estuche, del panel)
+    this.valorSinClaves = typeof valorSinClaves === 'function' ? valorSinClaves : () => null;
     this.alCambiar = alCambiar || (() => {});
     this.alMoverCabezal = alMoverCabezal || (() => {});
     this.alSeleccionar = alSeleccionar || (() => {});
@@ -103,6 +108,14 @@ export class LineaTiempo {
   }
 
   get proyecto() { return this.obtenerProyecto(); }
+  // las pistas que se ven ahora (en el orden de PISTAS)
+  visibles() { const p = this.proyecto; return Object.keys(PISTAS).filter(k => (p.pistas?.[k]?.length || 0) > 0 || this.pistaVisible(k)); }
+  // lo que vale una pista en t (sin keyframes, lo que diga la app: así marcar un keyframe no cambia lo que se ve)
+  valor(k, t) {
+    const p = this.proyecto;
+    if (!(p.pistas?.[k]?.length)) { const v = this.valorSinClaves(k); if (Number.isFinite(v)) return v; }
+    return valorEn(p, k, t);
+  }
   get duracion() { return this.proyecto.duracion || 8; }
   get tiempo() { return this.t; }
 
@@ -215,6 +228,8 @@ export class LineaTiempo {
         : this.lienzo.querySelector(`.lt-bloque[data-id="${CSS.escape(enfocar)}"]`);
       el?.focus({ preventScroll: true });
     }
+    const vis = new Set(this.visibles());
+    for (const [k, c] of Object.entries(this.ctl)) { const el = c.r.closest('.lt-ctl'), oculto = !vis.has(k); if (el.hidden !== oculto) el.hidden = oculto; }
     this.renderHerramientas(p);
     this.renderSeleccion();
     this.ponerCabezal(this.t, { forzar: true });
@@ -290,12 +305,13 @@ export class LineaTiempo {
 
   htmlCamara() {
     const p = this.proyecto, d = this.duracion, sel = this._sel;
-    const animadas = Object.keys(PISTAS).filter(k => (p.pistas?.[k]?.length || 0) > 1).length;
+    const animadas = Object.keys(PISTAS).filter(k => (p.pistas?.[k]?.length || 0) > 1).length, vis = new Set(this.visibles());
     const tiempos = [...new Set(Object.values(p.pistas || {}).flatMap(c => (c || []).map(k => r4(k.t))))];
     const resumen = tiempos.map(t => `<i class="lt-punto" style="--p:${t / d}"></i>`).join('');
     let html = this.htmlGrupo('camara', 'Cámara', resumen, `<small title="${animadas} pista${animadas === 1 ? '' : 's'} con animación">${animadas ? `<i class="lt-mini-rombo" aria-hidden="true"></i>${animadas}` : 'quieta'}</small>`);
     if (this.plegados.has('camara')) return html;
     for (const [k, P] of Object.entries(PISTAS)) {
+      if (!vis.has(k)) continue;
       const claves = p.pistas?.[k] || [];
       html += `<div class="lt-et lt-et-pista" data-pista="${k}" title="${esc(P.nombre)}"><span class="lt-largo">${MEDIOS[k]}</span><span class="lt-corto">${CORTOS[k]}</span><output data-salida="${k}"></output></div>
         <div class="lt-carril lt-carril-pista${claves.length ? '' : ' vacio'}" data-carril="camara" data-pista="${k}">${this.htmlCurva(k)}${claves.map((c, i) => {
@@ -433,7 +449,7 @@ export class LineaTiempo {
     // valores del inspector y de las etiquetas en el cabezal
     const activo = document.activeElement;
     for (const [k, P] of Object.entries(PISTAS)) {
-      const v = valorEn(p, k, t), { r, n, b } = this.ctl[k];
+      const v = this.valor(k, t), { r, n, b } = this.ctl[k];
       if (this.gesto?.pista !== k) r.value = v;
       if (activo !== n) n.value = v.toFixed(decimales(P.paso));
       const hay = String(!!claveEn(p, k, t));
@@ -578,7 +594,7 @@ export class LineaTiempo {
         const t = this.imantar(this.tiempoEn(e.clientX));
         if (pista === '·cortes') { this.cortar(t); return; }   // doble toque en el carril de cortes: un corte ahí
         this.guardarHistorial();
-        const nueva = ponerClave(p, pista, t, valorEn(p, pista, t));
+        const nueva = ponerClave(p, pista, t, this.valor(pista, t));
         this.elegir({ tipo: 'clave', pista, clave: nueva });
         this.t = t; this.render(); this.alMoverCabezal(t); this.alCambiar('claves');
         return;
@@ -672,7 +688,7 @@ export class LineaTiempo {
     else if (acc === 'claveTodas') {
       this.guardarHistorial();
       const t = ajustarACuadro(this.t);
-      for (const k of Object.keys(PISTAS)) ponerClave(p, k, t, valorEn(p, k, this.t));
+      for (const k of this.visibles()) ponerClave(p, k, t, this.valor(k, this.t));
       this.t = t; this.render(); this.alMoverCabezal(t); this.alCambiar('claves');
     } else if (acc === 'borrarTodas') {
       if (!confirm('¿Borrar todos los keyframes de la cámara?\nLa cámara queda quieta en la vista inicial. Puedes deshacerlo.')) return;
@@ -719,7 +735,7 @@ export class LineaTiempo {
     if (c) { quitarClave(p, pista, c); if (this._sel?.clave === c) this._sel = null; }
     else {
       const t = ajustarACuadro(this.t);
-      this.elegir({ tipo: 'clave', pista, clave: ponerClave(p, pista, t, valorEn(p, pista, this.t)) });
+      this.elegir({ tipo: 'clave', pista, clave: ponerClave(p, pista, t, this.valor(pista, this.t)) });
       this.t = t;
     }
     this.alMoverCabezal(this.t);

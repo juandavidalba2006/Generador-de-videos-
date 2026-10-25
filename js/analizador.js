@@ -288,7 +288,14 @@ export function detectarCortes(cuadros, { planoMin = PLANO_MIN } = {}) {
     // mucho más que en los dos pares de al lado y la forma tampoco calza, es un corte.
     const p = pares[i], hA = i > 0 ? pares[i - 1].hist : 0, hD = i + 1 < pares.length ? pares[i + 1].hist : 0;
     const saltoColor = p.hist >= 0.15 && p.forma >= 0.35 && p.hist >= 3 * Math.max(hA, hD) + 0.02 && v >= 0.36;
-    if (v < umbral && !saltoColor) continue;
+    // Un plano quieto que corta a uno con mucho movimiento (una esfera que entra rodando y cambia los colores): el lado quieto
+    // dice cuánto cambia ese plano; si el salto es mucho mayor y la forma no calza nada (los pares de al lado sí se alinean,
+    // aunque cambien de color), es un corte
+    const lado = (a, b) => { const l = []; for (let j = a; j <= b; j++) if (j !== i && j >= 0 && j < pares.length && !marcados.has(j) && !marcados.has(j + 1)) l.push(s[j]); return l.length ? percentil(l, 0.7) : 0; };
+    const calmo = Math.min(lado(i - 4, i - 1), lado(i + 1, i + 4));
+    const fA = i > 0 ? pares[i - 1].forma : 0, fD = i + 1 < pares.length ? pares[i + 1].forma : 0;
+    const desdeQuieto = p.forma >= 0.8 && p.forma >= 2 * Math.max(fA, fD) && v >= Math.max(0.42, 2.2 * calmo + 0.12);
+    if (v < umbral && !saltoColor && !desdeQuieto) continue;
     if (v < 1.6 * cerca && v < 0.9 && !saltoColor) continue;   // no es un pico aislado: movimiento rápido
     candidatos.push({ k, t: cuadros[k].t, transicion: 'seco', confianza: limitar((v - umbral) / umbral + 0.5, 0.3, 1), zona: [cuadros[i].t, cuadros[k].t], ini: k, fin: k, puntaje: v });
   }

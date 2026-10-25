@@ -3,11 +3,13 @@
 // movimiento de cada plano, para recrearlo en el estudio 3D. Devuelve { ia (validado), modelo }. GET dice si hay IA.
 // Los fotogramas solo pasan por aquí hacia la IA: no se guardan.
 import Anthropic from '@anthropic-ai/sdk';
+import { tipoErrorIA, reintentarDe, esperaReintentoIA } from '../lib/errores-ia.js';
 import { origenPermitido, crearTope, ipDe, leerCuerpo, enviar, textoEspera, ErrorPedido } from '../lib/servidor.js';
 import { ESQUEMA_ANALISIS, normalizarAnalisisIA, limpiarDatosAnalisis, MAX_CUERPO_ANALISIS, MAX_FOTOGRAMAS } from '../js/analisis-ia.js';
 import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS } from '../js/escenas.js';
 import { PISTAS, TRANSICIONES } from '../js/proyecto.js';
 import { METALES, PIEDRAS } from '../js/catalogo.js';
+import { ESCENAS_SATEN, FORMAS_FONDO_V4, ESQUEMAS_LUZ, TIPOS_UTILERIA, ELEMENTOS_IA } from '../js/escena-marca.js';
 
 export const MODELO = 'claude-opus-5-5';
 export const MAX_CUERPO = MAX_CUERPO_ANALISIS;   // 4 MB (Vercel no recibe más de 4,5 MB)
@@ -50,14 +52,19 @@ que la cámara rodeándola: también es giro. Cada plano del video se recrea con
 
 # Escenas que podemos armar
 - Escenas listas (id = nombre: descripción):
-${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion.replace(/\.$/, '')}`).join('\n')}
+${Object.entries({ ...ESCENAS_SATEN, ...ESCENAS }).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion.replace(/\.$/, '')}`).join('\n')}
 - Superficies: ${lista2(FORMAS_SUPERFICIE)}.
-- Fondos: ${lista2(FORMAS_FONDO)}.
+- Fondos: ${lista2(FORMAS_FONDO_V4)}.
 - Materiales: ${lista2(MATERIALES_ESCENA)}.
 - Sombras de la luz (gobo): ${lista2(GOBOS)}.
 - luz.angulo: de dónde viene la luz principal vista desde la cámara: negativo = desde la izquierda, positivo = desde la derecha,
   0 = de frente, ±180 = contraluz. elevacion: altura de la luz (10 = rasante, 80 = desde arriba). suavidad: 0 = sombras duras y
   nítidas de sol, 1 = muy difusas. calidez: -1 = fría (azulada), 0 = neutra, 1 = cálida de atardecer.
+- Esquemas de luz (luz_esquema): ${lista2(ESQUEMAS_LUZ)}.
+- La joya puede flotar en el aire (flotando) y mostrarse en par (par: la pieza y su gemela, lado a lado).
+- Estuches y cajas que podemos poner (utileria.tipo): ${lista2(TIPOS_UTILERIA)}. La tapa se puede abrir durante el video.
+- Elementos que acompañan a la joya (elementos): ${lista2(ELEMENTOS_IA)}. Se mueven con una coreografía (rodar, rebotar,
+  fila-flotante, caer-en-circulo, orbitar, lluvia, entrar, volar o quieto) y la cinta dibuja un recorrido (corazon, onda, espiral, lazo).
 
 # Lo que trae <analisis_local>
 - duracion del video en segundos y, por plano: indice, inicio y fin (s), transicion con la que entra, tipo de movimiento medido
@@ -76,7 +83,18 @@ ${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion
    proyecta sombras con forma (ventana, persiana, arco, círculo de foco; si son hojas o plantas, elige la ventana) o es suave sin sombras, si son duras o difusas, si
    es cálida o fría. En escena.id va la escena lista más parecida, y en superficie, fondo y luz lo que de verdad se ve (los colores
    en #RRGGBB tal como se ven en la parte iluminada; los de <analisis_local> son una medida automática y pueden incluir sombras).
-   «ninguna» solo si el fondo es liso y no se ve ninguna superficie.
+   «ninguna» solo si el fondo es liso y no se ve ninguna superficie. Si el fondo y el piso son una tela de satén o seda con pliegues
+   suaves, fondo.forma = tela, superficie.forma = piso y escena.id la saten-* del tono más parecido (noche = azul o negro, esmeralda =
+   verde o verde azulado, granate = rojo o vino, perla = claro). Los colores son los del video tal cual: el estudio los lleva después a
+   los colores de la marca.
+   La puesta en escena: luz_esquema (clave-baja si la imagen es oscura y el metal brilla con reflejos fuertes; contraluz si el fondo
+   es claro y brillante y las cajas u objetos se ven oscuros, casi en silueta; alta-clave si todo es claro y suave; si no, ventana);
+   destellos si flotan puntitos de luz desenfocados; flotando si la joya no se apoya en nada; par si se ven dos piezas iguales lado a
+   lado. utileria: el estuche o la caja que se ve (su color y el de su cinta en #RRGGBB, "" si no hay) y dónde está la joya
+   (asiento = dentro o encima; al-lado = la caja está al lado o debajo de la joya que flota; escenario = la tapa de una caja gigante
+   es el piso); pila-cajas si hay torres de cajas cerradas. abre_estuche: si la tapa se abre en el video, desde y hasta qué segundo.
+   elementos: las esferas, perlas, cuentas, esferas de cristal, cintas o cadenas que acompañan a la joya y cómo se mueven
+   (una cinta que forma un corazón: cinta con recorrido corazon; una cadena que cuelga: cadena).
 3. Cada plano: un elemento en «planos» por cada plano de <analisis_local>, con su mismo «indice» (empieza en 0) y en el mismo
    orden. El análisis local mide bien el SENTIDO y el TIEMPO del movimiento (hacia dónde y cuánto se corre la imagen, si acerca o
    aleja) pero no sabe cuánto de la joya se ve ni desde qué altura: tú aportas el ENCUADRE (zoom e inclinación reales) y lo que el
@@ -123,28 +141,25 @@ export function armarContenido(datos) {
 
 // ---------- Errores de la IA → mensajes en español con su código HTTP ----------
 export function errorIA(e) {
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return { estado: 504, error: 'La IA tardó demasiado en mirar el video. Inténtalo de nuevo en un momento.' };
-  if (e instanceof Anthropic.APIConnectionError) return { estado: 502, error: 'No se pudo conectar con la IA. Revisa la conexión e inténtalo otra vez.' };
-  if (e instanceof Anthropic.AuthenticationError) return { estado: 502, error: 'La clave de la IA no es válida: revisa ANTHROPIC_API_KEY en Vercel.' };
-  if (e instanceof Anthropic.PermissionDeniedError) return { estado: 502, error: 'La clave de la IA no tiene permiso para usar este modelo.' };
-  if (e instanceof Anthropic.RateLimitError) {
-    const espera = Number(e.headers?.get?.('retry-after'));
+  // por tipo y no solo con instanceof: un error de otra copia del SDK (empaquetado o pruebas) también se reconoce (lib/errores-ia.js)
+  const tipo = tipoErrorIA(e);
+  if (tipo === 'tiempo') return { estado: 504, error: 'La IA tardó demasiado en mirar el video. Inténtalo de nuevo en un momento.' };
+  if (tipo === 'conexion') return { estado: 502, error: 'No se pudo conectar con la IA. Revisa la conexión e inténtalo otra vez.' };
+  if (tipo === 'clave') return { estado: 502, error: 'La clave de la IA no es válida: revisa ANTHROPIC_API_KEY en Vercel.' };
+  if (tipo === 'permiso') return { estado: 502, error: 'La clave de la IA no tiene permiso para usar este modelo.' };
+  if (tipo === 'limite') {
+    const espera = reintentarDe(e);
     return { estado: 429, error: 'Hay muchos pedidos a la IA en este momento. Espera unos segundos e inténtalo de nuevo.', ...(espera > 0 ? { reintentarEn: Math.ceil(espera) } : {}) };
   }
-  if (e instanceof Anthropic.BadRequestError) return { estado: 502, error: 'La IA no pudo procesar estos fotogramas. Prueba con otro video.' };
-  if (e instanceof Anthropic.InternalServerError) return { estado: 503, error: 'La IA está saturada en este momento. Inténtalo en un minuto.' };
-  if (e instanceof Anthropic.APIError) return { estado: 502, error: 'La IA respondió con un error. Inténtalo de nuevo.' };
+  if (tipo === 'pedido') return { estado: 502, error: 'La IA no pudo procesar estos fotogramas. Prueba con otro video.' };
+  if (tipo === 'saturada') return { estado: 503, error: 'La IA está saturada en este momento. Inténtalo en un minuto.' };
+  if (tipo) return { estado: 502, error: 'La IA respondió con un error. Inténtalo de nuevo.' };
   return { estado: 500, error: 'Error inesperado al analizar el video con la IA.' };
 }
 
 // Un solo reintento, y solo para una falla rápida y pasajera (IA saturada, límite de velocidad, conexión): devuelve cuánto
 // esperar (ms) o null. Un tiempo agotado no se reintenta: se cobraría dos veces y se pasaría del plazo de la función.
-function esperaReintento(e) {
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return null;
-  if (e instanceof Anthropic.RateLimitError) { const s = Number(e.headers?.get?.('retry-after')); return !Number.isFinite(s) || s < 0 ? 1000 : s <= 5 ? s * 1000 : null; }
-  if (e instanceof Anthropic.InternalServerError || e instanceof Anthropic.APIConnectionError) return 800;
-  return null;
-}
+const esperaReintento = esperaReintentoIA;
 const dormir = ms => new Promise(ok => setTimeout(ok, ms));
 
 // ---------- El núcleo: cuerpo del pedido + cliente de Anthropic → { estado, datos } (nunca lanza) ----------

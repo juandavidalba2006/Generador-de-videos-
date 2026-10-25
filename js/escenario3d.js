@@ -9,6 +9,10 @@
 // Los dos usan el mismo dibujo de la ventana en el plano de la joya: el patrón cae igual en la vista previa y en el video.
 // El acrílico refleja de verdad en el trazado de rayos; en el motor rápido lleva un espejo plano encima.
 // El escenario del motor rápido gira con la cámara; el del trazador queda quieto y gira la joya (tornamesa de estudio.js).
+// v4: la tela de satén (fondo 'tela': una sola tela que baja del fondo al piso con pliegues suaves, que se pueden mover
+// despacio con el tiempo), el degradado de cualquier fondo (colores por vértice: los entienden los dos motores), los
+// destellos del aire (puntos desenfocados; en el trazador se dibujan encima del cuadro, ver estudio.js) y los esquemas
+// de luz (clave baja, clave alta, contraluz): sus luces de apoyo van en un grupo que gira con la pista «luz».
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
@@ -95,6 +99,7 @@ const TIPOS = {
   arena:        { T: 1.8, N: 1024, rug: [0.88, 1],    relieve: 1.5 },
   madera:       { T: 7,   N: 1024, rug: [0.42, 0.62], relieve: 0.35, capa: 0.15 },
   acrilico:     { T: 10,  N: 256,  rug: [0.035, 0.05], relieve: 0, capa: 1, espejo: true },
+  saten:        { T: 2.4, N: 256,  rug: [0.3, 0.36],  relieve: 0, brillo: 1 },   // liso: los brillos los dan los pliegues
 };
 
 // Patrón de cada material, en gris (se guarda: cambiar el color solo vuelve a teñir).
@@ -184,6 +189,10 @@ function patron(tipo) {
       varia[i] = 0.95 - 0.16 * linea + 0.1 * (veta2[i] - 0.5) + 0.05 * (fino[i] - 0.5);
       rug[i] = 0.4 * fino[i] + 0.6 * linea;
     }
+  } else if (tipo === 'saten') {
+    // satén: casi liso; un tornasol muy suave en el color (la trama no se ve: casi siempre queda desenfocada)
+    const nube = fbm(N, 3, 3, 111), fino = fbm(N, 64, 2, 112, { estirar: [0.2, 4] });
+    for (let i = 0; i < n; i++) { alto[i] = 0.5; varia[i] = 1 + 0.03 * (nube[i] - 0.5) + 0.012 * (fino[i] - 0.5); rug[i] = 0.6 * fino[i] + 0.4 * nube[i]; }
   } else {
     // acrílico: liso, con una ondulación mínima para que el reflejo no se vea de computador
     const onda = fbm(N, 3, 2, 99);
@@ -237,7 +246,12 @@ function crearMaterial(tipo, color) {
     polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
   });
   if (def.capa) { m.clearcoat = def.capa; m.clearcoatRoughness = def.espejo ? 0.02 : 0.08; }
-  if (def.brillo) {   // terciopelo y lino: brillo aterciopelado en los bordes (sheen)
+  if (tipo === 'saten') {
+    // satén: brillo de tela (sheen) del color aclarado y un reflejo especular suave y largo en las crestas de los pliegues
+    // (poco brillo de tela: a ras, en el piso, lo lavaba; el brillo del satén es especular, largo, sobre las crestas)
+    m.sheen = 0.3; m.sheenRoughness = 0.5; m.sheenColor.set(color).lerp(new THREE.Color(0xffffff), 0.3);
+    m.specularIntensity = 1; m.specularColor.set(color).lerp(new THREE.Color(0xffffff), 0.5);
+  } else if (def.brillo) {   // terciopelo y lino: brillo aterciopelado en los bordes (sheen)
     m.sheen = def.brillo; m.sheenRoughness = tipo === 'terciopelo' ? 0.32 : 0.7;
     m.sheenColor.set(color).lerp(new THREE.Color(0xffffff), tipo === 'terciopelo' ? 0.18 : 0.5);
     // la tela casi no tiene reflejo especular (sin esto el terciopelo se ve gris, como plástico mate)
@@ -427,8 +441,10 @@ function muro(xs, base, Ht, u, escalaUV) {
 const soloBasicos = limpia;
 
 // Piso y fondo. B: distancia del fondo detrás de la joya; piso en y = 0 (se sube después)
-function fondo(f, B, u, escalaUV, alcanceZ) {
-  const W = ANCHO * u, F = FRENTE * u, Ht = ALTO_FONDO * u, xs = graduada(-W, W, u);
+// ext: el escenario se agranda cuando lo que se encuadra es mucho más grande que la joya (una pila de cajas, un par separado)
+function fondo(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
+  if (f.forma === 'tela') return fondoTela(f, B, u, escalaUV, alcanceZ, ext, liso);
+  const W = ANCHO * u * ext, F = FRENTE * u * ext, Ht = ALTO_FONDO * u * ext, xs = graduada(-W, W, u);
   const filasHasta = (z0, z1) => graduada(-F, F, u).map(z => -z).filter(z => z < z1 && z > z0).concat([z0, z1]).sort((a, b) => b - a);
   if (f.forma === 'pared') {
     // pared y piso con una esquina viva: el piso hasta la pared y la pared hacia arriba
@@ -491,6 +507,170 @@ function fondo(f, B, u, escalaUV, alcanceZ) {
   for (let h = y + 1.2 * u, paso = 1.2 * u; h < Ht; h += paso, paso = Math.min(paso * 1.3, 8 * u)) perfil.push({ z, y: h, ny: 0, nz: 1 });
   perfil.push({ z, y: Ht, ny: 0, nz: 1 });
   return { geo: barrido(perfil, xs, escalaUV), curva: Rc };
+}
+
+// ---------- Tela de satén: una sola tela que baja del fondo y hace de piso, con pliegues suaves ----------
+// Ruido de valor suave (interpolación quíntica: sin quiebres en la curvatura, el brillo del satén no muestra costuras)
+function hash2(i, j, k) { let h = Math.imul(i, 374761393) ^ Math.imul(j, 668265263) ^ Math.imul(k, 2147483647); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+const quint = t => t * t * t * (t * (6 * t - 15) + 10);
+function ruido2(x, y, k = 0) {
+  const i = Math.floor(x), j = Math.floor(y), fx = quint(x - i), fy = quint(y - j);
+  const a = hash2(i, j, k), b = hash2(i + 1, j, k), c = hash2(i, j + 1, k), d = hash2(i + 1, j + 1, k);
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+// Alto del pliegue (en radios) en el punto (x, s) de la tela (s: recorrido desde el frente del piso hacia arriba del fondo).
+// Pliegues alargados en diagonal que se tuercen despacio (el ruido estirado a lo largo del pliegue y deformado por otro);
+// fase: corrimiento lento con el tiempo (ondas)
+function pliegue(x, s, fase = 0) {
+  const wx = x + 2.2 * (ruido2(x / 9, s / 9, 3) - 0.5), ws = s + 2.2 * (ruido2(x / 9 + 17, s / 9, 4) - 0.5);
+  const th = 0.55 + 0.7 * (ruido2(x / 22, s / 22, 5) - 0.5), c = Math.cos(th), sn = Math.sin(th);
+  const a = wx * c + ws * sn, b = -wx * sn + ws * c;
+  // crestas: donde el ruido estirado pasa por la mitad (líneas largas a lo largo del pliegue), redondeadas; valles anchos
+  const r1 = ruido2(a / 4.6 + 0.35 * fase, b / 15 + fase, 1), c1 = 1 - Math.abs(2 * r1 - 1), h1 = c1 * c1 * (3 - 2 * c1);
+  const h2 = ruido2(a / 2.4 + 9 - 0.2 * fase, b / 8 + 4 + 0.6 * fase, 2);
+  return (h1 - 0.45) * 2.1 + (h2 - 0.5) * 0.5;
+}
+// Rejilla fina cerca de la joya (los pliegues necesitan detalle donde se ven) y gruesa lejos
+function pasosTela(a, b, u, fino, lejos) {
+  const v = [a];
+  for (let x = a; x < b;) { const d = Math.min(Math.abs(x), Math.abs(x + 1e-9)); const paso = d < lejos ? fino * u : Math.min(4 * u, fino * u * Math.pow(1.25, (d - lejos) / (fino * u * 4))); x = Math.min(b, x + paso); v.push(x); }
+  return v;
+}
+// liso: radio alrededor de la joya donde el piso queda plano (una joya apoyada no se hunde en un pliegue)
+function fondoTela(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
+  const W = ANCHO * u * ext, F = FRENTE * u * ext, Ht = ALTO_FONDO * u * ext;
+  // la curva es ancha (la tela cae del fondo al piso sin esquina): hasta 6 radios
+  const Rc = Math.max(1.2 * u, Math.min(6 * u, 0.9 * (B - alcanceZ)));
+  const n = 48, angulo = t => Math.PI / 2 * t * t * t * (t * (6 * t - 15) + 10);
+  let avance = 0; for (let i = 0; i < n; i++) avance += Math.cos(angulo((i + 0.5) / n)) / n;
+  const ds = Rc / avance / n;
+  // perfil (z, y, ny, nz) desde el frente del piso hasta arriba; cada punto con su recorrido s
+  const perfil = [];
+  for (const z of pasosTela(-F, B - Rc, u, 0.45, 14 * u).map(v => -v)) perfil.push({ z, y: 0, ny: 1, nz: 0 });
+  perfil.sort((p, q) => q.z - p.z);   // del frente (cerca de la cámara) hacia el fondo
+  let z = -B + Rc, y = 0;
+  for (let i = 0; i < n; i++) {
+    const a = angulo((i + 0.5) / n); z -= Math.cos(a) * ds; y += Math.sin(a) * ds;
+    if (i % 2 === 1 || i === n - 1) { const b = angulo((i + 1) / n); perfil.push({ z, y, ny: Math.cos(b), nz: Math.sin(b) }); }
+  }
+  for (const h of pasosTela(y, Ht, u, 0.45, 26 * u).slice(1)) perfil.push({ z, y: h, ny: 0, nz: 1 });
+  let sAc = 0;
+  perfil.forEach((p, i) => { if (i) sAc += Math.hypot(p.z - perfil[i - 1].z, p.y - perfil[i - 1].y); p.s = sAc; });
+  const xs = [...new Set([...pasosTela(0, W, u, 0.45, 16 * u).map(x => -x).reverse(), ...pasosTela(0, W, u, 0.45, 16 * u)])].sort((a, b) => a - b);
+  const geo = rejilla(xs.length, perfil.length, (i, j) => {
+    const p = perfil[j], x = xs[i];
+    return { p: [x, p.y, p.z], n: [0, p.ny, p.nz], uv: [x / escalaUV, p.s / escalaUV] };
+  });
+  // amplitud de cada vértice: el piso queda liso donde va la joya (o su pedestal) y los pliegues crecen hacia afuera; en el
+  // fondo los pliegues son más grandes; lejos (donde la rejilla es gruesa y casi nunca se ve) se apagan
+  const C = geo.attributes.position.count, amp = new Float32Array(C), sx = new Float32Array(C), ss = new Float32Array(C);
+  const plano = liso ?? Math.max(1.5 * u, alcanceZ + 0.6 * u), sCurva = perfil.find(p => p.ny < 0.999)?.s ?? 0;
+  for (let j = 0; j < perfil.length; j++) for (let i = 0; i < xs.length; i++) {
+    const k = j * xs.length + i, p = perfil[j], x = xs[i];
+    const enPiso = p.ny > 0.999, d = Math.hypot(x, p.z), cerca = enPiso ? suav(limitar((d - plano) / (3.2 * u), 0, 1)) : 1;
+    const subida = suav(limitar((p.s - sCurva) / (Rc * 1.2), 0, 1));   // del piso (pliegues bajos) al fondo (más altos)
+    const lejos = 1 - suav(limitar((Math.abs(x) - 17 * u) / (9 * u), 0, 1));
+    const arriba = 1 - suav(limitar((p.y - 25 * u) / (10 * u), 0, 1)), frente = 1 - suav(limitar((p.z - 14 * u) / (8 * u), 0, 1));
+    amp[k] = u * (0.62 + 0.75 * subida) * cerca * lejos * arriba * frente;
+    sx[k] = x / u; ss[k] = p.s / u;
+  }
+  const base = geo.attributes.position.array.slice(), nBase = geo.attributes.normal.array.slice();
+  return { geo, curva: Rc, tela: { base, nBase, amp, sx, ss, ampPiso: 0.62 * u } };
+}
+// Pone los pliegues en el instante t (fase lenta con ondas). Devuelve true si la tela cambió
+function plegarTela(geo, tela, fase) {
+  const P = geo.attributes.position, A = P.array, { base, nBase, amp, sx, ss } = tela;
+  for (let k = 0, n = amp.length; k < n; k++) {
+    const h = amp[k] ? amp[k] * pliegue(sx[k], ss[k], fase) : 0, i = 3 * k;
+    A[i] = base[i] + nBase[i] * h; A[i + 1] = base[i + 1] + nBase[i + 1] * h; A[i + 2] = base[i + 2] + nBase[i + 2] * h;
+  }
+  P.needsUpdate = true;
+  geo.computeVertexNormals();
+  geo.computeBoundingBox(); geo.computeBoundingSphere();
+}
+
+// ---------- Degradado: el fondo se oscurece hacia arriba (colores por vértice) ----------
+// y0: el piso (en el mundo del escenario); u: radio de la joya. El piso no cambia; desde ~1 radio sobre el piso el fondo
+// baja hasta un 12 % de su color con degradado 1. Cuatro componentes: así coincide con lo que el trazador agrega solo
+function colorearFondo(geo, degradado, y0, u) {
+  const P = geo.attributes.position, C = P.count;
+  let col = geo.attributes.color;
+  if (!degradado) { if (col) geo.deleteAttribute('color'); return; }
+  if (!col || col.count !== C || col.itemSize !== 4) { col = new THREE.BufferAttribute(new Float32Array(C * 4), 4); geo.setAttribute('color', col); }
+  for (let i = 0; i < C; i++) {
+    const h = (P.getY(i) - y0) / u, k = 1 - degradado * 0.88 * suav(limitar((h - 0.8) / 10, 0, 1));
+    col.setXYZW(i, k, k, k, 1);
+  }
+  col.needsUpdate = true;
+}
+
+// ---------- Destellos: brillitos desenfocados que flotan en el aire (r5, r7, r8) ----------
+// Puntos con un disco suave cuyo tamaño crece con la distancia al plano de foco (como un bokeh). La posición sale del tiempo
+// en el sombreador (deriva lenta hacia arriba y un vaivén): la vista previa y el video dan lo mismo y no cuesta nada por cuadro.
+// En el trazado de rayos no son geometría (no se calculan con luz real): estudio.js los dibuja encima del cuadro terminado.
+const SOMBREADOR_DESTELLOS = {
+  uniforms: { t: { value: 0 }, alto: { value: 960 }, foco: { value: 10 }, caja: { value: new THREE.Vector4() }, piso: { value: 0 }, intensidad: { value: 1 }, color: { value: new THREE.Color(1, 0.95, 0.84) } },
+  vertexShader: /* glsl */`
+    attribute vec4 datos;   // tamaño, fase, brillo, velocidad
+    uniform float t, alto, foco, piso;
+    uniform vec4 caja;      // medio ancho, alto, z de atrás, z de adelante
+    varying float vBrillo;
+    void main() {
+      vec3 p = position;
+      float vel = datos.w;
+      p.y = piso + mod( p.y - piso + vel * t, caja.y );
+      p.x += 0.35 * sin( 0.31 * t + datos.y ) * vel * 6.0;
+      p.z += 0.25 * cos( 0.23 * t + datos.y * 1.7 ) * vel * 6.0;
+      vec4 mv = modelViewMatrix * vec4( p, 1.0 );
+      float z = max( -mv.z, 1e-3 );
+      float coc = abs( z - foco ) / z;
+      gl_PointSize = alto * ( 0.0028 + 0.034 * coc ) * datos.x;
+      // titila despacio; el disco grande reparte la misma luz (se ve más tenue)
+      float tit = 0.72 + 0.28 * sin( 1.3 * t + datos.y * 5.0 );
+      float h = p.y - piso, borde = smoothstep( 0.0, 0.05 * caja.y, h ) * ( 1.0 - smoothstep( 0.85 * caja.y, caja.y, h ) );
+      vBrillo = datos.z * tit * borde / ( 1.0 + 9.0 * coc * coc );
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: /* glsl */`
+    uniform vec3 color;
+    uniform float intensidad;
+    varying float vBrillo;
+    void main() {
+      vec2 d = gl_PointCoord * 2.0 - 1.0;
+      float r = length( d );
+      if ( r > 1.0 ) discard;
+      float a = smoothstep( 1.0, 0.62, r ) * ( 0.82 + 0.18 * smoothstep( 0.35, 0.9, r ) );
+      gl_FragColor = vec4( color * vBrillo * intensidad * a, 1.0 );
+    }`,
+};
+export class Destellos {
+  constructor() {
+    this.material = new THREE.ShaderMaterial({ ...SOMBREADOR_DESTELLOS, uniforms: THREE.UniformsUtils.clone(SOMBREADOR_DESTELLOS.uniforms), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.puntos = null; this.clave = '';
+  }
+  // cantidad: 0..1 (destellos de la escena); u: radio de la joya; piso y fondo (B) del escenario. Devuelve los puntos (o null)
+  armar(cantidad, u, piso, B, semilla = 5) {
+    const N = Math.round(220 * limitar(cantidad, 0, 1)), k = `${N}|${u}|${piso}|${B}|${semilla}`;
+    if (k === this.clave) return this.puntos;
+    this.clave = k;
+    this.puntos?.geometry.dispose();
+    if (!N) { this.puntos?.removeFromParent(); this.puntos = null; return null; }
+    const R = azar(semilla * 977 + 13), pos = new Float32Array(N * 3), dat = new Float32Array(N * 4);
+    const ancho = 10 * u, alto = 15 * u, atras = -B + 0.5 * u, adelante = 3.2 * u;
+    for (let i = 0; i < N; i++) {
+      pos[3 * i] = (R() * 2 - 1) * ancho; pos[3 * i + 1] = piso + R() * alto; pos[3 * i + 2] = atras + (adelante - atras) * Math.pow(R(), 0.8);
+      dat[4 * i] = 0.55 + 0.9 * R(); dat[4 * i + 1] = R() * 6.283; dat[4 * i + 2] = 0.25 + 0.75 * R() * R(); dat[4 * i + 3] = u * (0.05 + 0.1 * R());
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('datos', new THREE.BufferAttribute(dat, 4));
+    if (!this.puntos) { this.puntos = new THREE.Points(g, this.material); this.puntos.frustumCulled = false; this.puntos.renderOrder = 5; this.puntos.name = 'destellos'; }
+    else this.puntos.geometry = g;
+    const U = this.material.uniforms; U.caja.value.set(ancho, alto, atras, adelante); U.piso.value = piso;
+    return this.puntos;
+  }
+  // t: segundos del video; alto: alto del cuadro en píxeles; foco: distancia de la cámara a lo nítido
+  poner(t, alto, foco, intensidad = 1) { const U = this.material.uniforms; U.t.value = t; U.alto.value = alto; U.foco.value = foco; U.intensidad.value = intensidad; }
+  vaciar() { this.puntos?.removeFromParent(); this.puntos?.geometry.dispose(); this.puntos = null; this.clave = ''; }
 }
 
 // ---------- Gobos: el dibujo de la ventana en el plano de la joya (en radios, mirando desde la luz) ----------
@@ -729,22 +909,28 @@ export class Escenario3D {
     this.contacto = new THREE.Group(); this.contacto.name = 'contacto';      // mancha bajo la joya: queda quieta, como la joya
     this.cfg = null; this.medidas = null; this.claves = {}; this.limites = null;
     this.mats = {}; this.desechos = [];
+    this.destellos = new Destellos(); this.tela = null; this.giroLuz = 0; this.t = 0;
   }
 
-  // cfg: escena normalizada (no 'ninguna'); m: { radio, base, huella, joya (grupo con las mallas en su lugar) }
+  // cfg: escena normalizada (no 'ninguna'); m: { radio, base (donde va la cara de arriba de la superficie: la base de la
+  // joya, o el piso bajo una joya que flota o bajo su estuche), huella, joya (grupo con las mallas en su lugar), flotando }
   armar(cfg, m) {
     cfg = normalizarEscena(cfg);
     if (cfg.id === 'ninguna') { this.vaciar(); return false; }
     const u = Math.max(1e-6, m.radio), hu = Math.max(m.huella || u, 0.15 * u), s = cfg.superficie, f = cfg.fondo, l = cfg.luz;
-    const medidas = `${u.toPrecision(6)}|${hu.toPrecision(6)}|${(m.base || 0).toPrecision(6)}`;
+    const ext = Math.max(1, Number.isFinite(m.ext) ? m.ext : 1);
+    const medidas = `${u.toPrecision(6)}|${hu.toPrecision(6)}|${(m.base || 0).toPrecision(6)}|${ext.toFixed(3)}`;
     // qué hay que rehacer: la geometría (formas, medidas y el material, que da la escala de la textura), la luz (y su
-    // ventana) o solo los colores. El relleno (ambiente) no rehace nada: lo aplica el estudio en cada cuadro
-    const kGeo = JSON.stringify([s.forma, s.tamano, s.altura, s.material, f.forma, f.distancia, f.material, medidas]);
+    // ventana), solo los colores o solo el degradado. El relleno (ambiente) no rehace nada: lo aplica el estudio en cada cuadro
+    const kGeo = JSON.stringify([s.forma, s.tamano, s.altura, s.material, f.forma, f.distancia, f.material, medidas, f.forma === 'tela' && !!m.flotando]);
     const kLuz = JSON.stringify([l, s.tamano, kGeo]), kMat = JSON.stringify([s.material, s.color, f.material, f.color]);
+    const kDeg = JSON.stringify([f.degradado, kGeo]), kDes = JSON.stringify([f.destellos, kGeo]);
     const cambioGeo = kGeo !== this.claves.geo, cambioLuz = kLuz !== this.claves.luz, cambioMat = kMat !== this.claves.mat;
+    const cambioDeg = kDeg !== this.claves.deg, cambioDes = kDes !== this.claves.des;
     this.cfg = cfg;
-    const kJoya = `${m.version ?? m.joya?.uuid}|${medidas}`;
-    if (!cambioGeo && !cambioLuz && !cambioMat && this.claves.joya === kJoya) return false;
+    const kJoya = `${m.version ?? m.joya?.uuid}|${medidas}|${!!m.flotando}`;
+    if (this.tela) this.tela.ondas = f.ondas;
+    if (!cambioGeo && !cambioLuz && !cambioMat && !cambioDeg && !cambioDes && this.claves.joya === kJoya) return false;
 
     if (cambioMat || !this.mats.sup) {
       const viejos = { sup: this.mats.sup, fondo: this.mats.fondo };
@@ -763,8 +949,11 @@ export class Escenario3D {
       const ped = pedestal(s, u, hu, TIPOS[s.material].T * u);
       const piso = tope - ped.H;
       const B = s.forma === 'piso' ? (1.5 + 3 * f.distancia) * u : ped.alcanceZ + (0.8 + 2.2 * f.distancia) * u;
-      const fd = fondo(f, B, u, TIPOS[f.material].T * u, ped.alcanceZ);
+      // (la joya que flota no toca la tela: el piso puede plegarse justo debajo)
+      const fd = fondo(f, B, u, TIPOS[f.material].T * u, ped.alcanceZ, ext, m.flotando && s.forma === 'piso' ? 0.4 * u : null);
       fd.geo.translate(0, piso, 0);
+      this.tela = fd.tela ? { geo: fd.geo, datos: fd.tela, ondas: f.ondas, fase: null } : null;
+      if (this.tela) { fd.tela.base = fd.geo.attributes.position.array.slice(); this.plegar(this.t, true); }
       const piezas = [];
       if (ped.geo) { ped.geo.translate(0, tope, 0); ped.geo.computeTangents(); piezas.push([ped.geo, this.mats.sup, true]); }
       fd.geo.computeTangents();
@@ -772,6 +961,7 @@ export class Escenario3D {
       for (const [geo, mat, sombra] of piezas) {
         const a = new THREE.Mesh(geo, mat), b = new THREE.Mesh(geo, mat);
         a.castShadow = sombra; a.receiveShadow = true; a.userData.parte = 'geo'; b.userData.parte = 'geo';
+        if (geo === fd.geo) a.userData.fondo = b.userData.fondo = true;
         this.grupo.add(a); this.grupoPT.add(b);
       }
       // acrílico: reflejo de la joya y del fondo en la cara de arriba
@@ -787,28 +977,66 @@ export class Escenario3D {
         d.rotation.x = -Math.PI / 2; d.position.y = piso + 0.004 * u; d.renderOrder = 1; d.userData.parte = 'geo';
         this.grupo.add(d);
       }
-      this.limites = { tope, piso, alto: ped.H, fondo: B, alcance: Math.hypot(ANCHO, FRENTE, ALTO_FONDO) * u, radioSup: ped.alcanceZ, forma: s.forma, curva: fd.curva || 0 };
+      this.limites = { tope, piso, alto: ped.H, fondo: B, alcance: Math.hypot(ANCHO, FRENTE, ALTO_FONDO) * u * ext, radioSup: ped.alcanceZ, forma: s.forma, curva: fd.curva || 0, tela: !!fd.tela };
     }
-    if (cambioLuz || cambioGeo) { this.limpiarGrupo('luz'); this.armarLuz(cfg, u); }
-    // la mancha de contacto depende de la joya: se rehace si cambió la pieza, su orientación o el pedestal
+    // degradado del fondo (más oscuro arriba): colores por vértice, sin rehacer la geometría
+    if (cambioDeg || cambioGeo || cambioMat) {
+      const fg = this.grupo.children.find(o => o.userData.fondo)?.geometry;
+      if (fg) colorearFondo(fg, f.degradado, this.limites.piso, u);
+      const vc = f.degradado > 0;
+      if (this.mats.fondo.vertexColors !== vc) { this.mats.fondo.vertexColors = vc; this.mats.fondo.needsUpdate = true; }
+    }
+    if (cambioLuz || cambioGeo) { this.limpiarGrupo('luz'); this.armarLuz(cfg, u, hu); }
+    if (cambioDes || cambioGeo) {
+      const pts = this.destellos.armar(f.destellos, u, this.limites.piso, this.limites.fondo);
+      if (pts && pts.parent !== this.grupo) this.grupo.add(pts);
+    }
+    // la mancha de contacto depende de la joya: se rehace si cambió la pieza, su orientación o el pedestal.
+    // (si la joya flota o va en un estuche no hay contacto: la sombra la da la luz)
     if (cambioGeo || this.claves.joya !== kJoya) {
       this.limpiarGrupo('contacto', this.contacto);
-      if (m.joya && s.forma !== 'cojin') {   // en el terciopelo la pieza se hunde un poco: la sombra la pone la luz
+      if (m.joya && s.forma !== 'cojin' && !m.flotando) {   // en el terciopelo la pieza se hunde un poco: la sombra la pone la luz
         const { tex, ext } = manchaContacto(m.joya, m.base || 0, u, hu);
         const d = new THREE.Mesh(new THREE.PlaneGeometry(2 * ext, 2 * ext), new THREE.MeshBasicMaterial({ color: 0x000000, alphaMap: tex, transparent: true, opacity: 0.62, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
         d.rotation.x = -Math.PI / 2; d.position.y = tope + 0.002 * u; d.renderOrder = 1; d.userData.parte = 'contacto';
         this.contacto.add(d);
       }
     }
-    this.claves = { geo: kGeo, luz: kLuz, mat: kMat, joya: kJoya };
+    this.claves = { geo: kGeo, luz: kLuz, mat: kMat, joya: kJoya, deg: kDeg, des: kDes };
     this.ambiente = cfg.ambiente;
     this.grupo.updateMatrixWorld(true); this.grupoPT.updateMatrixWorld(true);
     return true;
   }
 
-  // Luz principal: dirección, color, fuerza, gobo y su penumbra. Las dos luces (rápida y trazada) dan la misma irradiancia
-  armarLuz(cfg, u) {
-    const l = cfg.luz;
+  // Pliegues de la tela en el instante t: con ondas se corren despacio (siempre igual para el mismo t). true si cambió
+  plegar(t, forzar = false) {
+    const T = this.tela; if (!T) return false;
+    const fase = 0.022 * (T.ondas || 0) * (Number.isFinite(t) ? t : 0);
+    if (!forzar && T.fase === fase) return false;
+    T.fase = fase; plegarTela(T.geo, T.datos, fase);
+    return true;
+  }
+  // Lo que se mueve con el tiempo: los pliegues (con ondas) y los destellos. Devuelve true si cambió la geometría
+  actualizar(t) {
+    this.t = Number.isFinite(t) ? t : 0;
+    return this.tela?.ondas > 0 ? this.plegar(this.t) : false;
+  }
+  // La pista «luz»: la luz principal y las de apoyo giran alrededor de la joya (grados). true si cambió
+  ponerGiroLuz(grados) {
+    const a = M.degToRad(Number.isFinite(grados) ? grados : 0);
+    if (a === this.giroLuz) return false;
+    this.giroLuz = a;
+    for (const r of [this.rig, this.rigPT]) if (r) { r.rotation.y = a; r.updateMatrixWorld(true); }
+    return true;
+  }
+
+  // Luz principal: dirección, color, fuerza, gobo y su penumbra. Las dos luces (rápida y trazada) dan la misma irradiancia.
+  // Va en un grupo (rig) con las luces de apoyo del esquema: así la pista «luz» las gira juntas
+  armarLuz(cfg, u, hu = u) {
+    const l = cfg.luz, esquema = l.esquema || 'ventana';
+    this.rig = new THREE.Group(); this.rigPT = new THREE.Group();
+    for (const [r, g] of [[this.rig, this.grupo], [this.rigPT, this.grupoPT]]) { r.userData.parte = 'luz'; r.rotation.y = this.giroLuz; g.add(r); }
+    const rig = this.rig, rigPT = this.rigPT;
     // la luz no puede venir de detrás del fondo (la taparía): de ±90° en adelante queda rasante por el costado
     const az = M.degToRad(limitar(l.angulo, -90, 90)), el = M.degToRad(limitar(l.elevacion, 10, 80));
     const L = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)).normalize();
@@ -819,12 +1047,16 @@ export class Escenario3D {
     const T = this.limites.tope / u, proyTope = (x, z) => { q.set(x, T, z); return { x: q.dot(ex), y: q.dot(ey) }; };
     const g = gobo(l.gobo, proy, L.x < 0 ? -1 : 1, proyTope, Math.max(this.limites.radioSup / u, 1), l.suavidad);
     const penG = penumbraGobo(g, l.suavidad);
-    const color = colorLuz(l.calidez), E = 2.6 * l.intensidad;   // irradiancia en la joya (la escala la da la exposición)
+    // contraluz: la luz de adelante queda de relleno (la principal viene de atrás)
+    // (en clave alta el estudio ya ilumina mucho: la principal baja para que la tela clara no se queme y se lean los pliegues)
+    const color = colorLuz(l.calidez), E = 2.6 * l.intensidad * (esquema === 'contraluz' ? 0.3 : esquema === 'alta-clave' ? 0.55 : 1);   // irradiancia en la joya (la escala la da la exposición)
     const foco = l.gobo === 'foco', sinGobo = l.gobo === 'ninguno';
+    // clave baja sin gobo: un foco angosto (la escena cae a oscuro alrededor de la joya) en vez de la caja de luz grande
+    const angosta = sinGobo && esquema === 'clave-baja';
     // D: distancia del disco de la luz (en el trazador) = vértice del foco del motor rápido; así el patrón y el cono coinciden
     const D = (foco || sinGobo ? 34 : DIST_LUZ) * u;
-    const medio = foco ? (2.3 + 0.9 * cfg.superficie.tamano) * u : sinGobo ? 36 * u : MEDIO_COOKIE * u;
-    const angulo = Math.atan(medio / D), pen = foco ? 0.3 + 0.55 * l.suavidad : sinGobo ? 0.35 : 0.25;
+    const medio = foco ? (2.3 + 0.9 * cfg.superficie.tamano) * u : angosta ? (5.5 + 2 * hu / u) * u : sinGobo ? 36 * u : MEDIO_COOKIE * u;
+    const angulo = Math.atan(medio / D), pen = foco ? 0.3 + 0.55 * l.suavidad : angosta ? 0.9 : sinGobo ? 0.35 : 0.25;
     // --- motor rápido: foco con cookie y mapa de sombras ---
     const sl = new THREE.SpotLight(color, E * D * D, 0, angulo, pen, 2);
     sl.position.copy(L).multiplyScalar(D); sl.castShadow = true;
@@ -832,15 +1064,15 @@ export class Escenario3D {
     sl.shadow.camera.near = Math.max(u, D - 45 * u); sl.shadow.camera.far = D + 45 * u;
     sl.shadow.bias = -0.0004; sl.shadow.normalBias = 0.015 * u;
     // la sombra de la joya: más suave cuanto más difusa la luz (el trazador la hace con el tamaño de la luz)
-    sl.shadow.radius = 1.5 + (sinGobo ? 7 : 4) * l.suavidad;
+    sl.shadow.radius = 1.5 + (angosta ? 11 : sinGobo ? 7 : 4) * l.suavidad;
     // (las sombras nítidas —persiana, ventana— necesitan el doble de resolución; las suaves no y así se dibujan más rápido)
     if (g) sl.map = dibujarCookie(g, penG, penG < 0.3 ? 2048 : 1024);
     const tgt = new THREE.Object3D(); sl.target = tgt;
-    for (const o of [sl, tgt]) { o.userData.parte = 'luz'; this.grupo.add(o); }
+    rig.add(sl, tgt);
     // --- trazado de rayos ---
     let lp;
     const Do = DIST_VENTANA * u;
-    if (sinGobo) {
+    if (sinGobo && !angosta) {
       // sin ventana: una caja de luz redonda y grande (sombras suaves); el trazador la refleja en el metal
       const S = (2 + 22 * l.suavidad) * u;
       lp = new ShapedAreaLight(color, E * D * D / (Math.PI * S * S / 4), S, S);
@@ -848,14 +1080,14 @@ export class Escenario3D {
     } else {
       // foco físico con radio (penumbra de verdad en la joya y en la ventana)
       // radio: el borde del patrón queda con la penumbra pedida en el plano de la joya (semejanza de triángulos)
-      const radio = foco ? (0.15 + 1.6 * l.suavidad) * u : penG * u * (D - Do) / (2 * Do);
+      const radio = foco ? (0.15 + 1.6 * l.suavidad) * u : angosta ? (0.4 + 2.2 * l.suavidad) * u : penG * u * (D - Do) / (2 * Do);
       lp = new PhysicalSpotLight(color, E * D * D, 0, angulo, pen, 2);
       lp.radius = radio;
       // el trazador pone el disco delante de la posición de la luz (a radio / tan(ángulo)): se corre para que el disco quede en D
       lp.position.copy(L).multiplyScalar(D + radio / Math.tan(angulo));
-      const t2 = new THREE.Object3D(); lp.target = t2; t2.userData.parte = 'luz'; this.grupoPT.add(t2);
+      const t2 = new THREE.Object3D(); lp.target = t2; rigPT.add(t2);
     }
-    lp.userData.parte = 'luz'; this.grupoPT.add(lp);
+    rigPT.add(lp);
     // la ventana de verdad (solo en el trazado de rayos): un plano de una cara que mira a la luz
     if (g) {
       const k = (D - Do) / D;   // del plano de la joya al plano de la ventana, visto desde el centro de la luz
@@ -873,10 +1105,46 @@ export class Escenario3D {
       const z = L.clone(), x = new THREE.Vector3(0, 1, 0).cross(z).normalize(), y = z.clone().cross(x);
       v.matrixAutoUpdate = false;
       v.matrix.makeBasis(x, y, z).setPosition(L.clone().multiplyScalar(Do));
-      v.userData.parte = 'luz';
-      this.grupoPT.add(v);
+      rigPT.add(v);
     }
-    this.luz = { L, D, angulo, E, sl, lp };
+    this.luz = { L, D, angulo, E, sl, lp, apoyo: this.lucesApoyo(cfg, u, hu, color, L) };
+  }
+
+  // Luces de apoyo de cada esquema (las dos copias: foco del motor rápido y foco físico del trazador).
+  //  · clave baja: un charco de luz cálida en el piso, justo bajo la joya (con sombra: la joya que flota se despega del piso)
+  //  · clave alta: un relleno grande del otro lado (casi sin sombras)
+  //  · contraluz: el fondo encendido por detrás de la joya y dos luces de borde desde atrás (siluetas con filo de luz)
+  lucesApoyo(cfg, u, hu, color, Lp) {
+    const l = cfg.luz, esquema = l.esquema || 'ventana', lim = this.limites, k = l.intensidad, lista = [];
+    const piso = lim.tope, B = lim.fondo;
+    const foco = ({ pos, mira, E, radioCono, radio, sombra = false, col = color, pen = 1 }) => {
+      const D = pos.distanceTo(mira), ang = Math.min(1.2, Math.atan(radioCono / D));
+      const a = new THREE.SpotLight(col, E * D * D, 0, ang, pen, 2); a.position.copy(pos);
+      const ta = new THREE.Object3D(); ta.position.copy(mira); a.target = ta;
+      if (sombra) { a.castShadow = true; a.shadow.mapSize.set(1024, 1024); a.shadow.camera.near = Math.max(u, D - 30 * u); a.shadow.camera.far = D + 30 * u; a.shadow.bias = -0.0005; a.shadow.normalBias = 0.02 * u; a.shadow.radius = 6; }
+      this.rig.add(a, ta);
+      const b = new PhysicalSpotLight(col, E * D * D, 0, ang, pen, 2); b.radius = radio;
+      const dir = mira.clone().sub(pos).normalize();
+      b.position.copy(pos).addScaledVector(dir, -radio / Math.tan(ang));
+      const tb = new THREE.Object3D(); tb.position.copy(mira); b.target = tb;
+      this.rigPT.add(b, tb);
+      lista.push({ rapido: a, pt: b });
+    };
+    const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+    if (esquema === 'clave-baja') {
+      // el charco: un foco desde arriba, apenas adelante, del ancho de la pieza (o del par)
+      // (sin mapa de sombras en el motor rápido: dejaba una sombra dura; en el trazador la sombra sale suave por el radio)
+      foco({ pos: V3(0, piso + 30 * u, 2.5 * u), mira: V3(0, piso, 0), E: 1.5 * k, radioCono: (2.2 * u + 1.3 * hu), radio: 2.2 * u, col: colorLuz(Math.min(1, l.calidez + 0.3)) });
+    } else if (esquema === 'alta-clave') {
+      const L = Lp || V3(0, 1, 1);
+      foco({ pos: V3(-L.x, Math.max(0.5, L.y), L.z).normalize().multiplyScalar(30 * u), mira: V3(0, 0, 0), E: 0.5 * k, radioCono: 22 * u, radio: 6 * u, pen: 1 });
+    } else if (esquema === 'contraluz') {
+      // el fondo encendido: un foco ancho entre la joya y el fondo, mirando a la pared (un degradado de luz natural)
+      foco({ pos: V3(0, piso + 11 * u, -0.2 * B), mira: V3(0, piso + 3 * u, -B), E: 3.4 * k, radioCono: 14 * u, radio: 3 * u, col: colorLuz(l.calidez * 0.5) });
+      // bordes: dos focos angostos desde atrás y arriba, a cada lado, hacia la joya
+      for (const lado of [-1, 1]) foco({ pos: V3(lado * (2.4 * u + hu), 5.5 * u, -0.6 * B), mira: V3(0, 0.2 * u, 0), E: 2.6 * k, radioCono: 2.4 * u + hu, radio: 0.5 * u, col: colorLuz(l.calidez) });
+    }
+    return lista;
   }
 
   // La escena del motor rápido gira con la cámara (como el estudio): el fondo siempre queda detrás y la joya gira sobre el
@@ -885,8 +1153,9 @@ export class Escenario3D {
     if (this.grupo.rotation.y !== az) { this.grupo.rotation.y = az; this.grupo.updateMatrixWorld(true); }
   }
 
-  // Altura mínima de la cámara: nunca por debajo de la superficie donde está la joya (no se mete en el pedestal ni el piso)
-  alturaMinima() { return this.limites ? this.limites.tope : -Infinity; }
+  // Altura mínima de la cámara: nunca por debajo de la superficie donde está la joya (no se mete en el pedestal ni el piso;
+  // en la tela, tampoco en un pliegue)
+  alturaMinima() { return this.limites ? this.limites.tope + (this.tela ? this.tela.datos.ampPiso * 1.1 : 0) : -Infinity; }
 
   limpiarGrupo(parte, g = null) {
     for (const grupo of g ? [g] : [this.grupo, this.grupoPT]) {
@@ -908,7 +1177,8 @@ export class Escenario3D {
     for (const p of ['geo', 'luz']) this.limpiarGrupo(p);
     this.limpiarGrupo('contacto', this.contacto);
     for (const k of ['sup', 'fondo']) if (this.mats[k]) { this.mats[k].map?.dispose(); this.mats[k].dispose(); this.mats[k] = null; }
-    this.cfg = null; this.claves = {}; this.limites = null; this.luz = null;
+    this.destellos.vaciar();
+    this.cfg = null; this.claves = {}; this.limites = null; this.luz = null; this.tela = null; this.rig = this.rigPT = null;
   }
 }
 
@@ -986,4 +1256,4 @@ export class LimpiadorPT {
 }
 
 // (para las pruebas)
-export const _interno = { TIPOS, gobo, penumbra, penumbraGobo, pedestal, patron };
+export const _interno = { TIPOS, gobo, penumbra, penumbraGobo, pedestal, patron, fondoTela, pliegue, colorearFondo };

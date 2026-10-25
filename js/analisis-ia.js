@@ -12,6 +12,7 @@ import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RAN
 import { METALES, PIEDRAS } from './catalogo.js';
 import { PISTAS, CURVAS, TRANSICIONES, DURACION_MAX } from './proyecto.js';
 import { ESTILOS_TEXTO_IDS, ANIMACIONES_IDS, ESTILOS_MUSICA_IDS } from './interprete.js';
+import { ESQUEMAS_LUZ, TIPOS_UTILERIA, POSICIONES_UTILERIA, ELEMENTOS_IA, COREOGRAFIAS_IDS, RECORRIDOS_CINTA_IDS, IDS_ESCENA, FORMAS_FONDO_V4, ESCENAS_SATEN, completarEscena } from './escena-marca.js';
 
 export const API_ANALIZAR = '/api/analizar';
 export const TIPOS_JOYA = { anillo: 'Anillo', aretes: 'Aretes', collar: 'Collar', pulsera: 'Pulsera', dije: 'Dije', otro: 'Otra joya' };
@@ -19,6 +20,7 @@ export const ENCUADRES = { macro: 'Macro', detalle: 'Detalle', medio: 'Plano med
 export const MAX_FOTOGRAMAS = 16;
 export const MAX_PLANOS = 40;
 export const MAX_TEXTOS = 8;
+export const MAX_ELEMENTOS_IA = 6;
 export const MAX_CUERPO_ANALISIS = 4 * 1024 * 1024;   // bytes del pedido (Vercel no recibe más de 4,5 MB)
 export const MAX_BASE64 = 1_500_000;                 // un fotograma (≈ 1,1 MB de JPEG; los de 512 px pesan 30–90 KB)
 // Valores «no se sabe» del esquema (las salidas estructuradas no llevan null: se usan estas palabras y aquí pasan a null)
@@ -62,13 +64,13 @@ export const ESQUEMA_ANALISIS = obj({
     descripcion: txt('Cómo es la joya, en una frase corta en español (forma, montura, piedras).'),
   }, 'La joya que aparece en el video.'),
   escena: obj({
-    id: opcion(Object.keys(ESCENAS), 'La escena lista más parecida al video («ninguna» solo si el fondo es liso, sin superficie visible).'),
+    id: opcion(IDS_ESCENA, 'La escena lista más parecida al video («ninguna» solo si el fondo es liso, sin superficie visible; saten-* si el fondo y el piso son una tela de satén con pliegues).'),
     superficie: obj({
       forma: opcion(Object.keys(FORMAS_SUPERFICIE)), material: opcion(Object.keys(MATERIALES_ESCENA)),
       color: txt('Color de la superficie donde se apoya la joya, en #RRGGBB (la parte iluminada, sin la sombra).'),
     }),
     fondo: obj({
-      forma: opcion(Object.keys(FORMAS_FONDO)), material: opcion(Object.keys(MATERIALES_ESCENA)),
+      forma: opcion(Object.keys(FORMAS_FONDO_V4), 'tela = una tela de satén o seda con pliegues que hace de fondo y de piso.'), material: opcion(Object.keys(MATERIALES_ESCENA)),
       color: txt('Color del fondo en #RRGGBB (la parte iluminada).'),
     }),
     luz: obj({
@@ -104,6 +106,26 @@ export const ESQUEMA_ANALISIS = obj({
     estilo: opcion([...ESTILOS_MUSICA_IDS, SIN_MUSICA], 'El estilo de música que le va al ritmo del video; «desconocido» si no se puede decir.'),
     bpm: num('Pulsos por minuto que encajan con los cortes; 0 = no se sabe.'),
   }),
+  luz_esquema: opcion(Object.keys(ESQUEMAS_LUZ), 'ventana = luz normal de estudio o de ventana; clave-baja = imagen oscura, fondo casi negro y el metal con reflejos fuertes y bandas oscuras; alta-clave = todo claro, luminoso y suave; contraluz = fondo claro y brillante con los objetos oscuros, casi en silueta.'),
+  destellos: { type: 'boolean', description: 'true si en el fondo flotan puntitos de luz desenfocados (polvo brillante).' },
+  flotando: { type: 'boolean', description: 'true si la joya flota en el aire sin apoyarse en nada (o cuelga de algo invisible).' },
+  par: { type: 'boolean', description: 'true si se ven DOS piezas iguales lado a lado (un par de aretes, dos anillos iguales).' },
+  utileria: obj({
+    tipo: opcion(Object.keys(TIPOS_UTILERIA), 'El estuche o la caja que se ve: estuche-anillo, caja-regalo (caja con tapa suelta y moño), estuche-aretes, estuche-collar, cofre (tapa alta con bisagra), cajon, bandeja, pila-cajas (torres de cajas cerradas); ninguna si no hay.'),
+    color: txt('Color del estuche o de la caja en #RRGGBB; "" si no hay.'),
+    cinta: txt('Color de la cinta o del moño en #RRGGBB; "" si no tiene.'),
+    posicion: opcion(POSICIONES_UTILERIA, 'asiento = la joya está dentro o encima; al-lado = la caja está al lado o debajo de la joya, que flota; escenario = una caja gigante hace de piso.'),
+  }, 'El estuche, la caja de regalo o las cajas que acompañan a la joya.'),
+  abre_estuche: obj({
+    abre: { type: 'boolean', description: 'true si en el video se abre la tapa del estuche o de la caja.' },
+    desde: num('Segundo en que la tapa empieza a abrirse; -1 si no se abre.'),
+    hasta: num('Segundo en que queda abierta; -1 si no se abre.'),
+  }),
+  elementos: lista(obj({
+    tipo: opcion(Object.keys(ELEMENTOS_IA), 'esferas = bolas grandes mate; perlas; cuentas = bolitas pequeñas; cristal = esfera de vidrio transparente; cinta = cinta de satén que dibuja una forma; cadena = cadena que cuelga.'),
+    coreografia: opcion([...COREOGRAFIAS_IDS], 'Cómo se mueven: quieto, rodar (entra rodando y frena), rebotar (cae y rebota), fila-flotante, caer-en-circulo (caen y forman un círculo), orbitar, lluvia, entrar, volar.'),
+    recorrido: opcion([...RECORRIDOS_CINTA_IDS, 'ninguno'], 'Solo para la cinta: la forma que dibuja; ninguno para lo demás.'),
+  }), 'Objetos que acompañan a la joya (no la joya ni la caja). Lista vacía si no hay.'),
   resumen: txt('1 a 3 frases cortas en español de Colombia, tuteando, para la joyera: qué tipo de video es y qué se va a replicar.'),
 });
 
@@ -166,17 +188,18 @@ function normalizarEscenaIA(e) {
   const s = esObj(e.superficie) ? e.superficie : {}, f = esObj(e.fondo) ? e.fondo : {}, l = esObj(e.luz) ? e.luz : {};
   const colS = colorHex(s.color), colF = colorHex(f.color);
   // sin un id válido se escoge la escena lista de colores más parecidos; sin nada que sirva no hay escena
-  let id = de(ESCENAS, e.id, null);
+  let id = de(IDS_ESCENA, e.id, null);
   if (!id && (colS || colF)) id = escenaParecida({ fondo: colF, superficie: colS });
   const algoValido = id || de(FORMAS_SUPERFICIE, s.forma, null) || de(GOBOS, l.gobo, null);
   if (!algoValido) return ESCENA_VACIA;
   id ||= ESCENA_INICIAL;
-  const b = ESCENAS[id].ninguna ? ESCENAS[ESCENA_INICIAL] : ESCENAS[id];   // para completar lo que falte
+  // para completar lo que falte (las de satén, de escenas.js o, si aún no las trae, de escena-marca.js)
+  const b = ESCENAS[id] ? (ESCENAS[id].ninguna ? ESCENAS[ESCENA_INICIAL] : ESCENAS[id]) : ESCENAS_SATEN[id];
   const luzNum = k => { const x = numero(l[k], NaN); return esNum(x) ? r2(limitar(x, RANGOS[k].min, RANGOS[k].max)) : b.luz[k]; };
   return {
     id,
     superficie: { forma: de(FORMAS_SUPERFICIE, s.forma, b.superficie.forma), material: de(MATERIALES_ESCENA, s.material, b.superficie.material), color: colS || b.superficie.color },
-    fondo: { forma: de(FORMAS_FONDO, f.forma, b.fondo.forma), material: de(MATERIALES_ESCENA, f.material, b.fondo.material), color: colF || b.fondo.color },
+    fondo: { forma: de(FORMAS_FONDO_V4, f.forma, b.fondo.forma), material: de(MATERIALES_ESCENA, f.material, b.fondo.material), color: colF || b.fondo.color },
     luz: { gobo: de(GOBOS, l.gobo, b.luz.gobo), angulo: luzNum('angulo'), elevacion: luzNum('elevacion'), suavidad: luzNum('suavidad'), calidez: luzNum('calidez') },
   };
 }
@@ -230,7 +253,10 @@ export function analisisIAVacio({ planos, duracion } = {}) {
  * → { joya:{ tipo, metal|null, piedra|null, descripcion }, escena:{ id, superficie:{forma,material,color}, fondo:{forma,material,color},
  *     luz:{gobo,angulo,elevacion,suavidad,calidez} } | null, planos:[{ indice, encuadre, transicion, giro, zoomDesde, zoomHasta,
  *     inclinacionDesde, inclinacionHasta, rodar, curva, descripcion, porIA }], textos:[{ texto, entra, sale, y, estilo, animacion }],
- *     musica:{ estilo|null, bpm|null }, resumen }
+ *     musica:{ estilo|null, bpm|null }, resumen,
+ *     luz_esquema: 'ventana'|'clave-baja'|'alta-clave'|'contraluz'|null, destellos, flotando, par (booleanos),
+ *     utileria:{ tipo ('ninguna' si no hay), color|null, cinta|null, posicion }, abre_estuche:{ abre, desde, hasta (-1 = no se sabe) },
+ *     elementos:[{ tipo: esferas|perlas|cuentas|cristal|cinta|cadena, coreografia|null, recorrido|null }] }
  * @param {any} crudo
  * @param {{ planos?: any[] | null, duracion?: any }} [opciones]
  */
@@ -270,13 +296,77 @@ function normalizar(crudo, planosRef, duracion) {
   const bpm = numero(mu.bpm, 0);
   const musica = { estilo: de(ESTILOS_MUSICA_IDS, mu.estilo, null), bpm: bpm >= 40 && bpm <= 220 ? Math.round(bpm) : null };
 
-  return { joya, escena: normalizarEscenaIA(a.escena), planos, textos: normalizarTextos(a.textos, D), musica, resumen: texto(a.resumen, 600) };
+  return {
+    joya, escena: normalizarEscenaIA(a.escena), planos, textos: normalizarTextos(a.textos, D), musica, resumen: texto(a.resumen, 600),
+    luz_esquema: esquemaDe(a.luz_esquema ?? a.luzEsquema), destellos: siNo(a.destellos), flotando: siNo(a.flotando), par: siNo(a.par),
+    utileria: normalizarUtileriaIA(a.utileria), abre_estuche: normalizarApertura(a.abre_estuche ?? a.abreEstuche, D), elementos: normalizarElementosIA(a.elementos),
+  };
+}
+
+// ---------- Lo nuevo de v4: luz, flotar, par, estuches y cajas, elementos ----------
+const siNo = v => v === true || (typeof v === 'string' && /^(si|sí|true|1)$/i.test(v.trim()));
+function esquemaDe(v) {
+  if (typeof v !== 'string') return null;
+  if (Object.hasOwn(ESQUEMAS_LUZ, v)) return v;
+  const s = sinTildes(v);
+  return /clave\s*baja|low\s*key|oscur/.test(s) ? 'clave-baja' : /alta\s*clave|clave\s*alta|high\s*key/.test(s) ? 'alta-clave' : /contra\s*luz|back\s*light|silueta/.test(s) ? 'contraluz' : /ventana|normal|estudio/.test(s) ? 'ventana' : null;
+}
+// el tipo de estuche: el id exacto o lo que se le parezca («caja de regalo», «cajas apiladas», «estuche»)
+function tipoUtileriaDe(v) {
+  if (typeof v !== 'string') return 'ninguna';
+  if (Object.hasOwn(TIPOS_UTILERIA, v)) return v;
+  const s = sinTildes(v);
+  if (!s || /ningun|sin |no hay/.test(s)) return 'ninguna';
+  if (/pila|apilad|torre|cajas/.test(s)) return 'pila-cajas';
+  if (/regalo|mono|gift/.test(s)) return 'caja-regalo';
+  if (/cofre|tapa alta/.test(s)) return 'cofre';
+  if (/cajon|drawer/.test(s)) return 'cajon';
+  if (/bandeja|tray|plato/.test(s)) return 'bandeja';
+  if (/estuche|caja|box/.test(s)) return /arete|pendiente/.test(s) ? 'estuche-aretes' : /collar|cadena|dije/.test(s) ? 'estuche-collar' : 'estuche-anillo';
+  return 'ninguna';
+}
+function normalizarUtileriaIA(u) {
+  const c = typeof u === 'string' ? { tipo: u } : esObj(u) ? u : {};
+  const tipo = tipoUtileriaDe(c.tipo);
+  return { tipo, color: tipo === 'ninguna' ? null : colorHex(c.color), cinta: tipo === 'ninguna' ? null : colorHex(c.cinta), posicion: de(POSICIONES_UTILERIA, c.posicion, tipo === 'pila-cajas' ? 'asiento' : 'asiento') };
+}
+function normalizarApertura(v, D) {
+  const c = typeof v === 'boolean' || typeof v === 'string' ? { abre: siNo(v) } : esObj(v) ? v : {};
+  const abre = siNo(c.abre);
+  if (!abre) return { abre: false, desde: -1, hasta: -1 };
+  let desde = numero(c.desde, -1), hasta = numero(c.hasta, -1);
+  desde = desde >= 0 ? r2(limitar(desde, 0, Math.max(0, D - 0.2))) : -1;
+  hasta = hasta >= 0 ? r2(limitar(hasta, 0, D)) : -1;
+  if (desde >= 0 && hasta >= 0 && hasta < desde + 0.2) hasta = r2(Math.min(D, desde + 1));
+  return { abre: true, desde, hasta };
+}
+function tipoElementoDe(v) {
+  if (typeof v !== 'string') return null;
+  if (Object.hasOwn(ELEMENTOS_IA, v)) return v;
+  const s = sinTildes(v);
+  return /cristal|vidrio|glass|transparen/.test(s) ? 'cristal' : /perla/.test(s) ? 'perlas' : /cuenta|bolita|bead/.test(s) ? 'cuentas' : /esfera|bola|sphere|pelota/.test(s) ? 'esferas'
+    : /cinta|liston|ribbon|lazo/.test(s) ? 'cinta' : /cadena|chain/.test(s) ? 'cadena' : null;
+}
+function normalizarElementosIA(lista) {
+  const out = [], vistos = new Set();
+  for (const x of Array.isArray(lista) ? lista.slice(0, 40) : []) {
+    const c = typeof x === 'string' ? { tipo: x } : esObj(x) ? x : null;
+    const tipo = c && tipoElementoDe(c.tipo);
+    if (!tipo || vistos.has(tipo) || out.length >= MAX_ELEMENTOS_IA) continue;
+    vistos.add(tipo);
+    out.push({ tipo, coreografia: de(COREOGRAFIAS_IDS, c.coreografia, null), recorrido: tipo === 'cinta' ? de(RECORRIDOS_CINTA_IDS, c.recorrido, 'corazon') : null });
+  }
+  return out;
 }
 
 // La configuración completa de la escena que vio la IA (lista para estudio.ponerEscena), o null
 export function configEscenaIA(ia) {
   const e = esObj(ia?.escena) ? ia.escena : esObj(ia) && ia.id ? ia : null;
-  return e ? normalizarEscena({ id: e.id, superficie: e.superficie, fondo: e.fondo, luz: e.luz }) : null;
+  if (!e) return null;
+  // una de satén que escenas.js aún no conoce: se arma sobre su respaldo (completarEscena conserva la tela y lo demás)
+  const sat = !ESCENAS[e.id] && ESCENAS_SATEN[e.id];
+  return completarEscena(sat ? { ...JSON.parse(JSON.stringify(sat)), id: sat.respaldo, preset: e.id, superficie: { ...sat.superficie, ...e.superficie }, fondo: { ...sat.fondo, ...e.fondo }, luz: { ...sat.luz, ...e.luz } }
+    : { id: e.id, superficie: e.superficie, fondo: e.fondo, luz: e.luz });
 }
 
 // =====================================================================================================

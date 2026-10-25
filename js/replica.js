@@ -2,16 +2,18 @@
 // opcional) a un plan para el proyecto: duración, cortes, keyframes de cada pista por plano, escena, metal y piedra, textos,
 // sonidos en los cortes y música. Es puro (sin DOM): lo usan el panel Replicar y las pruebas en Node.
 //
-//   construirReplica(analisis, ia | null, opciones) → plan
+//   construirReplica(analisis, ia | null, { duracion, colores: 'video' | 'marca' }) → plan
+//   recolorearEscena(escena, { fondo, superficie, caja, cinta }) → la escena con esos colores (las muestras del panel)
 //   aplicarReplica(proyecto, plan, { movimientos, cortes, textos, sonidos, musica, duracion }) → lo que cambió (muta el proyecto;
 //   la escena y los materiales los pone main.js con sus propias funciones)
 //
 // Cómo se mezclan las dos fuentes: el flujo (lo medido cuadro a cuadro) sabe hacia dónde y cuándo se mueve la cámara; la IA
 // sabe mejor el encuadre (qué tan cerca, desde qué altura) porque mira la foto entera. Si dicen lo mismo, se afina la
 // cantidad; si se contradicen, el flujo manda en la dirección y el tiempo y la IA en el encuadre.
-import { PISTAS, CURVAS, TRANSICIONES, DURACION_MIN, DURACION_MAX, ajustarACuadro, normalizarCortes, escalarTiempo } from './proyecto.js';
+import { PISTAS, CURVAS, TRANSICIONES, MOVIMIENTOS, DURACION_MIN, DURACION_MAX, ajustarACuadro, normalizarCortes, escalarTiempo } from './proyecto.js';
 import { ESCENAS, escenaParecida, normalizarEscena } from './escenas.js';
 import { configEscenaIA, TIPOS_JOYA, ENCUADRES } from './analisis-ia.js';
+import { COLORES_MARCA, ESCENAS_SATEN, SATEN_DE_MARCA, ESQUEMAS_LUZ, TIPOS_UTILERIA, ELEMENTOS_IA, marcaMasCercana, idMarca, escenaDeId, completarEscena, grupoElemento, nombreEscena, oklab } from './escena-marca.js';
 import { EFECTOS } from './sonido.js';
 import { textosDesdeAcciones } from './textos.js';
 
@@ -20,6 +22,8 @@ const MAX_SONIDOS = 12;
 const ESTILOS_MUSICA_BPM = { lujo: 76, lofi: 82, trap: 140, house: 122, phonk: 130, popViral: 116, cinematico: 90 };
 // Pistas de cámara que lleva cada plano (las de imagen, exposición y desenfoque, solo si hacen falta)
 const PISTAS_CAMARA = ['giro', 'inclinacion', 'zoom', 'altura', 'lateral', 'foco', 'rodar'];
+// Pistas de la escena (v4): se aplican con la escena, no con los movimientos
+const PISTAS_DE_ESCENA = ['apertura', 'elevar', 'luz'];
 // Encuadre → zoom de la app (el «macro/detalle» además mira la piedra)
 const RANGO_ENCUADRE = { macro: [2.6, 3.5], detalle: [2, 2.8], medio: [1.1, 1.7], general: [0.85, 1.1] };
 
@@ -100,25 +104,39 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
     const t0 = limites[j], t1 = limites[j + 1];
     const pa = planoQueCubre(lista, t0 / k, t1 / k) || lista[Math.min(j, lista.length - 1)];
     const pi = iaDe(pa.indice ?? j);
-    const v = valoresPlano(pa, pi, previo, alterna, avisos);
+    let v = valoresPlano(pa, pi, previo, alterna, avisos);
     if (v.salto) alterna = -alterna;
-    hayMacro ||= v.encuadre === 'macro';
     const ta = r4(j === 0 ? 0 : t0), tb = r4(j + 1 < limites.length - 1 ? t1 - CUADRO : D);
-    poner(pistas, ta, tb, v, pa, k);
+    // un macro que se aleja sin parar (r1) o un alejamiento que baja la cámara para revelar lo de abajo (r5, r7): keys como
+    // las de los movimientos «Macro revelado» y «Descenso revelado», con el encuadre de la IA si lo dio
+    const patron = tb - ta >= 1.2 ? patronDePlano(pa, pi, v, { abre: conIA && !!ia.abre_estuche?.abre && planos.length === 0 && tb - ta >= 6 }) : null;
+    if (patron) v = { ...v, ...patron.v };
+    hayMacro ||= v.encuadre === 'macro' || !!patron;
+    if (patron) ponerPatron(pistas, ta, tb, v, patron.tipo); else poner(pistas, ta, tb, v, pa, k);
     planos.push({
       indice: j, analizado: pa.indice ?? j, inicio: r3(ta), fin: r3(j + 1 < limites.length - 1 ? t1 : D), duracion: r2(t1 - t0),
       transicion: j === 0 ? null : cortes[j - 1].transicion, encuadre: v.encuadre,
       giro: r2(v.g1 - v.g0), zoomDesde: r2(v.z0), zoomHasta: r2(v.z1), inclinacionDesde: r2(v.i0), inclinacionHasta: r2(v.i1),
       lateral: r3(v.l1 - v.l0), altura: r3(v.a1 - v.a0), rodar: r2(v.r1 - v.r0), curva: v.curva, confianza: v.confianza,
-      descripcion: pi?.descripcion || describirMovimiento({ giro: v.g1 - v.g0, zoomDesde: v.z0, zoomHasta: v.z1, inclinacion: v.i1 - v.i0, lateral: v.l1 - v.l0, altura: v.a1 - v.a0, rodar: v.r1 - v.r0, curva: v.curva }),
+      descripcion: pi?.descripcion || (patron ? DESCRIPCION_PATRON[patron.tipo] : describirMovimiento({ giro: v.g1 - v.g0, zoomDesde: v.z0, zoomHasta: v.z1, inclinacion: v.i1 - v.i0, lateral: v.l1 - v.l0, altura: v.a1 - v.a0, rodar: v.r1 - v.r0, curva: v.curva })),
+      movimientoBase: patron?.tipo || null,
       miniatura: Array.isArray(a.miniaturas) ? a.miniaturas[pa.indice ?? j] || null : null,
     });
     previo = v;
   }
   if (!hayMacro) pistas.desenfoque = [];
 
-  // escena: la que vio la IA; sin IA, la lista más parecida a los colores del video, con esos colores y la luz que se midió
-  const escena = escenaDelPlan(ia, a.paleta);
+  // escena: la que vio la IA; sin IA, la lista más parecida a los colores del video, con esos colores y la luz que se midió.
+  // Con colores «de mi marca», cada parte (fondo, superficie, caja, cinta) pasa al color de la marca que hace su papel.
+  const modoColor = opciones.colores === 'marca' ? 'marca' : 'video';
+  const { escena, muestras } = escenaDelPlan(conIA ? ia : null, a.paleta, modoColor);
+  // la tapa del estuche se abre cuando la IA lo vio (keys en la pista «apertura»)
+  const ab = conIA && esObj(ia.abre_estuche) && ia.abre_estuche.abre && escena?.utileria && escena.utileria.tipo !== 'ninguna' ? ia.abre_estuche : null;
+  if (ab) {
+    const t0 = ajustarACuadro(limitar(num(ab.desde, -1) >= 0 ? ab.desde * k : 0.4, 0, D - 0.4));
+    const t1 = ajustarACuadro(limitar(num(ab.hasta, -1) > num(ab.desde, -1) ? ab.hasta * k : t0 + 1.1, t0 + 0.3, D));
+    pistas.apertura = [...(t0 > 0 ? [{ t: 0, v: 0, curva: 'lineal' }] : []), { t: r4(t0), v: 0, curva: 'suave' }, { t: r4(t1), v: 1, curva: 'lineal' }];
+  }
   const materiales = conIA && (ia.joya?.metal || ia.joya?.piedra) ? { metal: ia.joya.metal || null, piedra: ia.joya.piedra || null } : null;
   const joya = conIA && esObj(ia.joya) ? { tipo: ia.joya.tipo, nombreTipo: TIPOS_JOYA[ia.joya.tipo] || 'Joya', descripcion: ia.joya.descripcion || '', metal: ia.joya.metal || null, piedra: ia.joya.piedra || null } : null;
 
@@ -132,7 +150,7 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
   const musica = musicaDelPlan(ia, cortes, D);
   if (!conIA) avisos.push('Sin IA: los movimientos, los cortes y los colores salen del análisis hecho en tu equipo; la joya y los textos no se detectan.');
   const resumen = conIA && ia.resumen ? ia.resumen : resumenLocal(planos, cortes, escena, D);
-  return { duracion: D, bucle: false, cortes, pistas, escena, materiales, joya, textos, sonidos, musica, resumen, avisos, planos, conIA: !!conIA, duracionVideo: r2(durVideo) };
+  return { duracion: D, bucle: false, cortes, pistas, escena, materiales, joya, textos, sonidos, musica, resumen, avisos, planos, conIA: !!conIA, duracionVideo: r2(durVideo), colores: { modo: modoColor, muestras } };
 }
 
 // El plano analizado que más se solapa con [a, b) (en segundos del video)
@@ -196,7 +214,8 @@ function valoresPlano(pa, pi, previo, alterna, avisos) {
   const [l0, l1] = macro ? centrado(m?.lateral) : [limitar(num(m?.lateral?.desde, 0), -0.35, 0.35), limitar(num(m?.lateral?.hasta, num(m?.lateral?.desde, 0)), -0.35, 0.35)];
   const [a0, a1] = macro ? centrado(m?.altura) : [limitar(num(m?.altura?.desde, 0), -0.35, 0.35), limitar(num(m?.altura?.hasta, num(m?.altura?.desde, 0)), -0.35, 0.35)];
   // roll: el ladeo con que empieza lo dice la IA (absoluto); el cambio, el flujo
-  const rF = num(m?.rodar?.grados, 0);
+  // un ladeo de más de 50° no es un plano holandés: es el flujo confundido por una órbita o un giro de la pieza
+  const rF0 = num(m?.rodar?.grados, 0), rF = Math.abs(rF0) > 50 ? 0 : rF0;
   const r0 = limitar(pi && esNum(pi.rodar) && Math.abs(rF) < 4 ? pi.rodar : 0, PISTAS.rodar.min, PISTAS.rodar.max);
   const r1 = limitar(r0 + rF, PISTAS.rodar.min, PISTAS.rodar.max);
   // giro al empezar: el primero desde 0; después de un corte, si el encuadre casi no cambia, la cámara salta a otro ángulo
@@ -273,20 +292,98 @@ function clavesMedias(pa, v, ta, tb, k) {
   return res;
 }
 
-// Escena del plan: la de la IA, o la lista más parecida a los colores del video (con esos colores y la luz medida)
-function escenaDelPlan(ia, paleta) {
-  const deIA = esObj(ia) ? configEscenaIA(ia) : null;
-  if (deIA) return deIA;
-  const p = esObj(paleta) ? paleta : null;
-  if (!p) return null;
-  const hex = h => (typeof h === 'string' && /^#[0-9a-f]{6}$/i.test(h) ? h.toUpperCase() : null);
-  const F = hex(p.fondo), S = hex(p.superficie);
+// ---------- Movimientos con nombre dentro de un plano ----------
+const DESCRIPCION_PATRON = {
+  'macro-revelado': 'Empieza en un macro de la piedra, ladeado y desenfocado, y se aleja despacio frenando hasta la pieza completa, de frente',
+  'descenso-revelado': 'Empieza cerca de la joya y se aleja bajando la cámara: revela lo que hay debajo',
+  'dentro-del-estuche': 'Desde arriba se abre el estuche, la cámara baja hasta la joya, la rodea de cerca y termina de frente',
+};
+// ¿Este plano es un macro que se aleja (r1) o un alejamiento con la cámara que baja (r5, r7)? → { tipo, v } o null.
+// La IA dice el encuadre (si empieza en macro, desde qué altura); el flujo, que se aleja y cuánto sube la pieza en el cuadro.
+function patronDePlano(pa, pi, v, { abre = false } = {}) {
+  const m = esObj(pa.movimiento) ? pa.movimiento : null;
+  // r4: el estuche se abre visto desde arriba y la cámara entra (un plano largo): como «Dentro del estuche»
+  if (abre && num(pi?.inclinacionDesde, 0) >= 55) return { tipo: 'dentro-del-estuche', v: { encuadre: pi?.encuadre || 'medio', curva: 'suave', desenfoque: 0, z0: 0.72, z1: 1.25, i0: 78, i1: 16, g1: v.g0, r0: 0, r1: 0, l0: 0, l1: 0, a0: 0, a1: 0 } };
+  const fF = num(m?.zoom?.factor, 1), fI = pi && esNum(pi.zoomDesde) && esNum(pi.zoomHasta) && pi.zoomDesde > 0 ? pi.zoomHasta / pi.zoomDesde : null;
+  // se aleja: lo dicen el flujo (con confianza) o la IA; ninguno de los dos dice lo contrario
+  const aleja = (fF <= 0.7 && num(m?.zoom?.confianza, 0) >= 0.3 && !(fI !== null && fI > 0.95)) || (fI !== null && fI <= 0.6 && !(fF > 1.1));
+  if (!aleja) return null;
+  // sin IA: empieza en macro si la pieza llena el cuadro y no se ve el fondo (r1); con fondo a la vista es un plano cercano (r7)
+  const empiezaMacro = pi?.encuadre === 'macro' || num(pi?.zoomDesde, 0) >= 2.6
+    || (!pi && (num(m?.zoom?.desde, 0) >= 2.55 || pa.objeto?.inicio?.llena || (num(pa.objeto?.inicio?.tam, 0) >= 0.88 && m?.fondoVisible === false && fF <= 0.5)));
+  const dIncIA = pi && esNum(pi.inclinacionDesde) && esNum(pi.inclinacionHasta) ? pi.inclinacionHasta - pi.inclinacionDesde : null;
+  const subeFlujo = num(m?.altura?.delta, 0);
+  const g = pi && esNum(pi.giro) && Math.abs(pi.giro) <= 60 ? pi.giro : 0;   // en un macro el flujo confunde el deslizamiento con giro
+  if (empiezaMacro) {
+    const z0 = limitar(esNum(pi?.zoomDesde) && pi.zoomDesde >= 2.6 ? pi.zoomDesde : 3.5, 2.6, PISTAS.zoom.max);
+    const z1 = limitar(esNum(pi?.zoomHasta) && pi.zoomHasta <= 1.4 ? pi.zoomHasta : 1, 0.85, 1.4);
+    const r0 = pi && esNum(pi.rodar) && Math.abs(pi.rodar) >= 4 ? limitar(pi.rodar, -25, 25) : -12;
+    const i0 = limitar(esNum(pi?.inclinacionDesde) ? pi.inclinacionDesde : 4, -10, 30), i1 = limitar(esNum(pi?.inclinacionHasta) ? pi.inclinacionHasta : 8, -5, 25);
+    return { tipo: 'macro-revelado', v: { encuadre: 'macro', z0, z1, r0, r1: 0, i0, i1, g1: r2(v.g0 + g), l0: 0, l1: 0, a0: 0, a1: 0, curva: 'salida', desenfoque: 0.6 } };
+  }
+  const baja = (dIncIA !== null && dIncIA <= -6) || subeFlujo >= 0.15;
+  if (!baja) return null;
+  const z0 = limitar(esNum(pi?.zoomDesde) ? pi.zoomDesde : Math.max(1.8, num(m?.zoom?.desde, 1.8)), 1.3, 3), z1 = limitar(esNum(pi?.zoomHasta) && pi.zoomHasta < z0 ? pi.zoomHasta : 0.85, 0.6, 1.2);
+  const i0 = limitar(esNum(pi?.inclinacionDesde) ? pi.inclinacionDesde : 22, 0, 45), i1 = limitar(esNum(pi?.inclinacionHasta) && dIncIA !== null && dIncIA < 0 ? pi.inclinacionHasta : i0 - 14, -10, 30);
+  const a1 = subeFlujo >= 0.15 ? limitar(subeFlujo * 0.8, 0.18, 0.32) : 0.25;
+  return { tipo: 'descenso-revelado', v: { encuadre: pi?.encuadre || 'detalle', z0, z1, i0, i1, a0: 0, a1, l0: 0, l1: 0, r0: 0, r1: 0, g1: r2(v.g0 + limitar(g, -40, 40)), curva: 'salida', desenfoque: 0.25 } };
+}
+// Keys de un plano con movimiento con nombre: todo frena al final (salida); el desenfoque se va antes de llegar
+function ponerPatron(pistas, ta, tb, v, tipo) {
+  const macro = tipo === 'macro-revelado', L = tb - ta;
+  if (tipo === 'dentro-del-estuche') {
+    // las keys del movimiento de la línea de tiempo (o unas iguales si proyecto.js aún no lo trae), llevadas al plano
+    const K = (t, x, curva = 'suave') => ({ t, v: x, curva });
+    const crear = MOVIMIENTOS['dentro-del-estuche']?.crear || (D => ({
+      inclinacion: [K(0, 78), K(D * 0.3, 76), K(D * 0.55, 42), K(D * 0.82, 14), K(D, 16)], zoom: [K(0, 0.72), K(D * 0.3, 0.8, 'entrada'), K(D * 0.55, 2.4), K(D * 0.82, 2.2), K(D, 1.25)],
+      giro: [K(0, 0), K(D * 0.45, 0), K(D * 0.82, 70), K(D, 0)], foco: [K(0, 0), K(D * 0.4, 0), K(D * 0.6, 0.6), K(D * 0.85, 0.4), K(D, 0)],
+      desenfoque: [K(0, 0), K(D * 0.45, 0), K(D * 0.6, 0.45), K(D * 0.85, 0.35), K(D, 0.05)],
+    }));
+    const plantilla = crear(L);
+    for (const id of [...PISTAS_CAMARA, 'desenfoque']) {
+      // las pistas que el movimiento no trae quedan quietas (la pieza centrada y la cámara derecha)
+      const P = PISTAS[id], quieta = id === 'inclinacion' ? 18 : P.def;
+      const ks = Array.isArray(plantilla[id]) && plantilla[id].length ? plantilla[id] : [K(0, quieta, 'lineal'), K(L, quieta, 'lineal')];
+      for (const k of ks) pistas[id].push({ t: r4(Math.min(tb, ajustarACuadro(ta + limitar(k.t, 0, L)))), v: r4(id === 'giro' ? v.g0 + k.v : limitar(k.v, P.min, P.max)), curva: k.curva || 'suave' });
+    }
+    return;
+  }
+  const par = (id, x0, x1, curva = 'salida') => {
+    const P = PISTAS[id], lim = x => r4(id === 'giro' ? x : limitar(x, P.min, P.max));
+    pistas[id].push({ t: ta, v: lim(x0), curva: Math.abs(x1 - x0) < 1e-6 ? 'lineal' : curva });
+    if (L >= CUADRO - 1e-6) pistas[id].push({ t: tb, v: lim(x1), curva: Math.abs(x1 - x0) < 1e-6 ? 'lineal' : curva });
+  };
+  par('zoom', v.z0, v.z1); par('giro', v.g0, v.g1); par('inclinacion', v.i0, v.i1); par('rodar', v.r0, v.r1);
+  par('lateral', 0, 0); par('altura', v.a0, v.a1);
+  par('foco', macro ? 0.9 : focoDe(v.z0), 0);
+  // desenfoque: fuerte al empezar y nítido un poco antes del final (en el macro, a los 4/5 del plano)
+  const d = pistas.desenfoque;
+  d.push({ t: ta, v: v.desenfoque, curva: 'salida' });
+  if (L > 0.6) d.push({ t: r4(ajustarACuadro(ta + L * (macro ? 0.8 : 0.6))), v: 0, curva: 'lineal' });
+  if (L >= CUADRO - 1e-6) d.push({ t: tb, v: 0, curva: 'lineal' });
+}
+
+// ---------- Escena del plan ----------
+const NOMBRE_ROL = { fondo: 'Fondo', superficie: 'Superficie', caja: 'Estuche o caja', cinta: 'Cinta' };
+const hex6 = h => (typeof h === 'string' && /^#[0-9a-f]{6}$/i.test(h) ? h.toUpperCase() : null);
+const claridad = h => oklab(h)?.L ?? 0.5;
+const esTela = e => !!e && e.id !== 'ninguna' && (e.fondo?.forma === 'tela' || /^saten-/.test(e.preset || e.base || e.id || ''));
+
+// La escena sin IA: la lista más parecida a los colores del video (con esos colores y la luz medida). Una escena oscura y sin
+// sombras marcadas es la de los reels de joyería en clave baja: satén con la luz de clave baja.
+function escenaLocal(p) {
+  if (!esObj(p)) return null;
+  const F = hex6(p.fondo), S = hex6(p.superficie);
   if (!F && !S) return null;
   // un fondo claro, parejo y sin sombras marcadas (fondo blanco de catálogo): el fondo liso de la marca
   const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
   if (F && S && !p.sombrasDuras && !p.oscuro) {
     const a = rgb(F), b = rgb(S), d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]), luz = (a[0] + a[1] + a[2]) / 3;
     if (d < 18 && luz > 215) return { id: 'ninguna' };
+  }
+  if (p.oscuro && !p.sombrasDuras && F) {
+    const id = SATEN_DE_MARCA[marcaMasCercana(F, 'fondo')] || 'saten-noche', base = escenaDeId(id);
+    return completarEscena({ ...base, fondo: { ...base.fondo, color: F }, superficie: { ...base.superficie, color: S || F }, luz: { ...base.luz, esquema: 'clave-baja' } });
   }
   const id = escenaParecida({ fondo: F, superficie: S, oscuro: !!p.oscuro });
   const base = ESCENAS[id];
@@ -297,6 +394,112 @@ function escenaDelPlan(ia, paleta) {
     ambiente: base.ambiente,
   });
 }
+
+// El esquema de luz: el que dijo la IA; si no, por la imagen (oscura → clave baja; fondo claro con cajas oscuras → contraluz)
+function esquemaDe(ia, escena, paleta) {
+  if (ia?.luz_esquema && Object.hasOwn(ESQUEMAS_LUZ, ia.luz_esquema)) return ia.luz_esquema;
+  if (escena?.luz?.esquema && escena.luz.esquema !== 'ventana') return escena.luz.esquema;
+  const oscuro = esObj(paleta) ? !!paleta.oscuro : claridad(escena?.fondo?.color) < 0.4;
+  if (oscuro) return 'clave-baja';
+  if (ia?.utileria?.tipo === 'pila-cajas' && claridad(escena?.fondo?.color) >= 0.6) return 'contraluz';
+  return escena?.luz?.esquema || 'ventana';
+}
+
+/**
+ * La escena del plan con todo lo de v4 (satén, esquema de luz, flotar, par, estuche o caja, elementos) y sus muestras de color.
+ * modo 'marca': cada color pasa al de la marca que hace su papel (marcaMasCercana); 'video': los colores tal como se vieron.
+ * → { escena (config para estudio.ponerEscena) | null, muestras: [{ rol, nombre, original, hex, marca }] }
+ */
+function escenaDelPlan(ia, paleta, modo = 'video') {
+  let escena = ia ? configEscenaIA(ia) : null;
+  if (!escena) escena = escenaLocal(paleta);
+  if (!escena || escena.id === 'ninguna') return { escena, muestras: [] };
+  const u = ia && esObj(ia.utileria) && Object.hasOwn(TIPOS_UTILERIA, ia.utileria.tipo) && ia.utileria.tipo !== 'ninguna' ? ia.utileria : null;
+  const elementos = ia && Array.isArray(ia.elementos) ? ia.elementos.filter(x => esObj(x) && Object.hasOwn(ELEMENTOS_IA, x.tipo)) : [];
+  const hayCinta = !!u?.cinta || u?.tipo === 'caja-regalo' || elementos.some(x => x.tipo === 'cinta');
+  // los colores del video (o los de un estuche de la marca si la IA no dijo el suyo)
+  const orig = { fondo: escena.fondo.color, superficie: escena.superficie.color, caja: u ? hex6(u.color) : null, cinta: hayCinta ? hex6(u?.cinta) : null };
+  const marca = modo === 'marca';
+  const elegir = rol => {
+    const o = orig[rol];
+    if (marca || !o) { const id = o ? marcaMasCercana(o, rol) : rol === 'caja' ? 'tinta' : rol === 'cinta' ? 'oro' : 'perla'; return { hex: COLORES_MARCA[id].hex, marca: id }; }
+    return { hex: o, marca: idMarca(o) };
+  };
+  const roles = ['fondo', 'superficie', ...(u ? ['caja'] : []), ...(hayCinta ? ['cinta'] : [])];
+  const muestras = roles.map(rol => ({ rol, nombre: NOMBRE_ROL[rol], original: orig[rol], ...elegir(rol) }));
+  // una cinta del mismo color que su caja no se ve: en la marca va en oro (o perla sobre una caja dorada)
+  const mc = muestras.find(m => m.rol === 'caja'), mt = muestras.find(m => m.rol === 'cinta');
+  if (marca && mc && mt && mc.marca === mt.marca) { mt.marca = mc.marca === 'oro' ? 'perla' : 'oro'; mt.hex = COLORES_MARCA[mt.marca].hex; }
+  const col = Object.fromEntries(muestras.map(m => [m.rol, m.hex]));
+  // satén: con los colores de la marca, el de su tono (un fondo esmeralda va en «Satén esmeralda»)
+  const tela = esTela(escena);
+  if (tela) {
+    const id = marca ? SATEN_DE_MARCA[marcaMasCercana(orig.fondo, 'fondo')] || 'saten-noche' : (Object.hasOwn(ESCENAS_SATEN, escena.preset || escena.id) ? escena.preset || escena.id : SATEN_DE_MARCA[marcaMasCercana(orig.fondo, 'fondo')] || 'saten-noche');
+    const base = escenaDeId(id), l = escena.luz;
+    escena = { ...base, luz: { ...base.luz, angulo: l.angulo, elevacion: l.elevacion, calidez: Math.max(l.calidez, 0.2) } };
+  }
+  const esquema = esquemaDe(ia, escena, paleta);
+  const flota = !!ia?.flotando, debajo = u?.posicion === 'al-lado' && flota;
+  const cfg = {
+    ...escena,
+    superficie: { ...escena.superficie, color: tela ? col.fondo : col.superficie },
+    fondo: { ...escena.fondo, color: col.fondo, ...(ia?.destellos ? { destellos: 0.35, degradado: Math.max(num(escena.fondo.degradado, 0), 0.45) } : {}) },
+    luz: { ...escena.luz, esquema },
+  };
+  if (ia) {
+    // la IA dice si flota (en r2 el par descansa sobre el satén, aunque el satén de la lista flote por defecto)
+    if (flota || tela) cfg.flotar = { activo: flota, altura: debajo ? 1.5 : 0.35, bob: flota ? 0.25 : 0 };
+    if (ia.par) cfg.par = { activo: true, separacion: 0.6 };
+    if (u) {
+      const abre = !!ia.abre_estuche?.abre;
+      cfg.utileria = {
+        tipo: u.tipo, color: col.caja, cinta: col.cinta || COLORES_MARCA.oro.hex, interior: claridad(col.caja) < 0.5 ? COLORES_MARCA.perla.hex : COLORES_MARCA.tinta.hex,
+        material: u.tipo === 'caja-regalo' || u.tipo === 'pila-cajas' ? 'papel' : 'cuero', posicion: u.posicion || 'asiento', logo: true,
+        apertura: abre ? 1 : u.tipo === 'caja-regalo' && u.posicion !== 'asiento' ? 0 : 1, ...(debajo ? { tamano: 0.8 } : {}),
+      };
+    }
+    if (elementos.length) {
+      cfg.elementos = elementos.map((x, i) => grupoElemento(x.tipo, { coreografia: x.coreografia, recorrido: x.recorrido, id: `el-${i + 1}`, color: x.tipo === 'cinta' ? col.cinta : null })).filter(Boolean);
+    }
+  }
+  return { escena: completarEscena(cfg), muestras };
+}
+
+/**
+ * La escena con otros colores en sus partes (lo que la joyera cambia en las muestras antes de aplicar).
+ * cambios: { fondo, superficie, caja, cinta } en #RRGGBB (los que falten no cambian). En satén, la tela es fondo y piso.
+ */
+export function recolorearEscena(escena, cambios = {}) {
+  if (!esObj(escena) || escena.id === 'ninguna') return escena;
+  const c = Object.fromEntries(Object.entries(esObj(cambios) ? cambios : {}).map(([k, v]) => [k, hex6(v)]).filter(([, v]) => v));
+  const e = JSON.parse(JSON.stringify(escena)), tela = esTela(e);
+  if (c.fondo) { e.fondo.color = c.fondo; if (tela && !c.superficie) e.superficie.color = c.fondo; }
+  if (c.superficie) e.superficie.color = c.superficie;
+  if (esObj(e.utileria) && e.utileria.tipo !== 'ninguna') {
+    if (c.caja) { e.utileria.color = c.caja; e.utileria.interior = claridad(c.caja) < 0.5 ? COLORES_MARCA.perla.hex : COLORES_MARCA.tinta.hex; }
+    if (c.cinta) e.utileria.cinta = c.cinta;
+  }
+  if (c.cinta && Array.isArray(e.elementos)) for (const g of e.elementos) if (g?.forma === 'cinta') g.color = c.cinta;
+  return completarEscena(e);
+}
+
+// Lo que va en la escena, en palabras (para el panel y el resumen): «Satén de noche · clave baja · flota · en par · Caja de regalo»
+export function describirPuesta(escena) {
+  if (!esObj(escena) || escena.id === 'ninguna') return [];
+  const out = [];
+  if (escena.luz?.esquema && escena.luz.esquema !== 'ventana') out.push(ESQUEMAS_LUZ[escena.luz.esquema].replace(/\s*\(.*\)$/, ''));
+  if (escena.fondo?.forma === 'tela') out.push('Tela de satén');
+  if (escena.flotar?.activo) out.push('La joya flota');
+  if (escena.par?.activo) out.push('En par');
+  if (escena.utileria?.tipo && escena.utileria.tipo !== 'ninguna') out.push(TIPOS_UTILERIA[escena.utileria.tipo]);
+  for (const g of Array.isArray(escena.elementos) ? escena.elementos : []) {
+    const n = g.forma === 'cinta' ? `Cinta de satén${g.recorrido === 'corazon' ? ' en corazón' : ''}` : g.forma === 'cadena' ? 'Cadena' : g.material === 'cristal' ? 'Esfera de cristal'
+      : { esfera: 'Esferas', perla: 'Perlas', cuenta: 'Cuentas' }[g.forma] || null;
+    if (n && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+export const nombreDeEscena = e => (!esObj(e) ? null : e.id === 'ninguna' ? ESCENAS.ninguna.nombre : nombreEscena(e.preset) || nombreEscena(e.id === 'personalizada' ? e.base : e.id));
 
 // Sonidos en los cortes (estilo viral): el golpe cae justo en el corte
 const SONIDO_CORTE = { seco: ['whooshCorto', 0.6], barrido: ['whoosh', 0.7], flash: ['impacto', 0.75], negro: ['impacto', 0.6] };
@@ -335,10 +538,10 @@ function resumenLocal(planos, cortes, escena, D) {
   for (const c of cortes) tipos[c.transicion] = (tipos[c.transicion] || 0) + 1;
   const deCortes = Object.entries(tipos).map(([t, q]) => `${q} ${q === 1 ? NOMBRE_TRANSICION[t] : NOMBRE_TRANSICION[t].replace(/^(\S+)/, '$1s').replace('flashs', 'flashes').replace('fundidos a negro', 'fundidos a negro')}`);
   const principal = planos.slice().sort((a, b) => b.duracion - a.duracion)[0];
-  const mov = principal ? principal.descripcion.toLowerCase() : 'plano quieto';
+  const mov = principal ? principal.descripcion.replace(/[.\s]+$/, '').toLowerCase() : 'plano quieto';
   let s = `Video de ${decimal(D)} s con ${n === 1 ? 'un solo plano' : `${n} planos`}${deCortes.length ? ` (${deCortes.join(', ')})` : ''}.`;
   s += ` El movimiento principal: ${mov}.`;
-  if (escena) s += escena.id === 'ninguna' ? ' Fondo liso, como el de la marca.' : ` Escena parecida: «${ESCENAS[escena.base || escena.id]?.nombre || 'personalizada'}».`;
+  if (escena) s += escena.id === 'ninguna' ? ' Fondo liso, como el de la marca.' : ` Escena parecida: «${nombreDeEscena(escena) || 'personalizada'}».`;
   return s;
 }
 
@@ -376,13 +579,14 @@ export function escalarPlan(plan, nuevaDuracion) {
 }
 
 /**
- * Aplica el plan al proyecto (lo muta). opciones: { movimientos, cortes, textos, sonidos, musica, duracion (true = la del video;
- * false = se queda la del proyecto y el plan se ajusta a ella), formato, textosDesdeAcciones }.
- * La escena (plan.escena) y los materiales (plan.materiales) no viven en el proyecto: los pone main.js.
- * → { duracion, movimientos, cortes, textos, sonidos, musica, algo }
+ * Aplica el plan al proyecto (lo muta). opciones: { movimientos, cortes, escena, textos, sonidos, musica, duracion (true = la del
+ * video; false = se queda la del proyecto y el plan se ajusta a ella), formato, textosDesdeAcciones }.
+ * La escena (plan.escena) y los materiales (plan.materiales) no viven en el proyecto: los pone main.js. Con escena, aquí van sus
+ * pistas (apertura del estuche, elevar, luz).
+ * → { duracion, movimientos, cortes, escena, textos, sonidos, musica, algo }
  */
-export function aplicarReplica(proyecto, plan, { movimientos = true, cortes = true, textos = false, sonidos = false, musica = false, duracion = true, formato = 'reel', textosDesdeAcciones: convertir = textosDesdeAcciones } = {}) {
-  const hecho = { duracion: false, movimientos: false, cortes: false, textos: false, sonidos: false, musica: false, algo: false };
+export function aplicarReplica(proyecto, plan, { movimientos = true, cortes = true, escena = true, textos = false, sonidos = false, musica = false, duracion = true, formato = 'reel', textosDesdeAcciones: convertir = textosDesdeAcciones } = {}) {
+  const hecho = { duracion: false, movimientos: false, cortes: false, escena: false, textos: false, sonidos: false, musica: false, algo: false };
   if (!esObj(proyecto) || !esObj(plan) || !esObj(plan.pistas)) return hecho;
   const antes = num(proyecto.duracion, 8);
   let P = plan;
@@ -394,6 +598,7 @@ export function aplicarReplica(proyecto, plan, { movimientos = true, cortes = tr
   if (movimientos) {
     const pistas = {};
     for (const id of Object.keys(PISTAS)) {
+      if (PISTAS_DE_ESCENA.includes(id)) { pistas[id] = proyecto.pistas?.[id] || []; continue; }   // van con la escena (abajo)
       const nuevas = Array.isArray(P.pistas[id]) ? P.pistas[id] : [];
       // exposición y desenfoque: se respetan los que había si el plan no trae
       pistas[id] = nuevas.length || PISTAS_CAMARA.includes(id) ? nuevas.filter(c => c.t <= D + 1e-6).map(c => ({ t: r4(Math.min(c.t, D)), v: c.v, curva: c.curva })) : (proyecto.pistas?.[id] || []);
@@ -401,6 +606,16 @@ export function aplicarReplica(proyecto, plan, { movimientos = true, cortes = tr
     proyecto.pistas = pistas;
     proyecto.bucle = false;
     hecho.movimientos = true;
+  }
+  // la apertura del estuche, elevar la joya y el giro de la luz son de la escena: van con ella (si proyecto.js ya las tiene)
+  if (escena) {
+    proyecto.pistas = esObj(proyecto.pistas) ? proyecto.pistas : {};
+    for (const id of PISTAS_DE_ESCENA) {
+      if (!PISTAS[id]) continue;
+      const nuevas = Array.isArray(P.pistas[id]) ? P.pistas[id] : [];
+      proyecto.pistas[id] = nuevas.filter(c => c.t <= D + 1e-6).map(c => ({ t: r4(Math.min(c.t, D)), v: c.v, curva: c.curva }));
+      if (nuevas.length) hecho.escena = true;
+    }
   }
   if (cortes) { proyecto.cortes = normalizarCortes(P.cortes, D); hecho.cortes = true; }
   if (textos && Array.isArray(P.textos) && P.textos.length) {
@@ -423,4 +638,4 @@ export function aplicarReplica(proyecto, plan, { movimientos = true, cortes = tr
   return hecho;
 }
 
-export { ENCUADRES, TIPOS_JOYA, NOMBRE_TRANSICION };
+export { ENCUADRES, TIPOS_JOYA, NOMBRE_TRANSICION, COLORES_MARCA };

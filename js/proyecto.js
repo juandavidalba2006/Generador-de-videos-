@@ -12,7 +12,13 @@ export const PISTAS = {
   rodar:       { nombre: 'Inclinación (roll)', unidad: '°', min: -45,   max: 45,   paso: 1,    def: 0 },     // cámara ladeada
   exposicion:  { nombre: 'Exposición',         unidad: '',  min: 0.5,   max: 2,    paso: 0.01, def: 1.15 },
   desenfoque:  { nombre: 'Desenfoque macro',   unidad: '',  min: 0,     max: 1,    paso: 0.01, def: 0 },     // solo se ve en el render realista
+  // v4 (escena): sin keyframes no hacen nada; la línea de tiempo las muestra solo cuando sirven (hay estuche, la joya flota…)
+  apertura:    { nombre: 'Apertura del estuche', unidad: '', min: 0,     max: 1,    paso: 0.01, def: 1 },     // 0 = cerrado; sin keyframes, la del panel
+  elevar:      { nombre: 'Elevar la joya',     unidad: '',  min: 0,     max: 1.5,  paso: 0.01, def: 0 },     // en altos de la joya, sobre su asiento o el piso
+  luz:         { nombre: 'Giro de la luz',     unidad: '°', min: -180,  max: 180,  paso: 1,    def: 0 },     // la luz principal gira: los brillos recorren la tela
 };
+// Pistas de la escena: un movimiento base no las borra salvo que las traiga el movimiento anterior (como las de imagen)
+export const PISTAS_ESCENA = ['apertura', 'elevar', 'luz'];
 
 // ---------- Curvas de transición: cada keyframe dice cómo llegar al siguiente ----------
 const rebote = u => {   // como una pelota que cae y rebota hasta quedarse quieta (nunca pasa del valor final)
@@ -117,10 +123,47 @@ export const MOVIMIENTOS = {
     nombre: 'Héroe (de abajo hacia arriba)', bucle: false,
     crear: D => ({ giro: [K(0, -90), K(D, 90)], inclinacion: [K(0, -5), K(D, 25)], zoom: [K(0, 1.12), K(D, 0.96)] }),
   },
+  // v4 — los reels de lujo de referencia
+  'macro-revelado': {
+    // un solo plano: de un macro ladeado y desenfocado sobre la piedra se aleja frenando, se endereza y termina de frente, nítido
+    nombre: 'Macro y revelado (del pavé a la pieza)', bucle: false,
+    crear: D => ({
+      giro: [K(0, -24, 'salida'), K(D, 0)], inclinacion: [K(0, 6, 'salida'), K(D, 10)], zoom: [K(0, 3.5, 'salida'), K(D, 1)],
+      foco: [K(0, 1, 'salida'), K(D * 0.8, 0)], rodar: [K(0, -12, 'salida'), K(D * 0.85, 0)], desenfoque: [K(0, 0.6, 'salida'), K(D * 0.8, 0)],
+    }),
+  },
+  'abrir-estuche': {
+    // el estuche cerrado, la tapa se abre, la joya sube un poco y la cámara se acerca despacio
+    nombre: 'Abrir el estuche', bucle: false,
+    crear: D => ({
+      giro: [K(0, -14, 'lineal'), K(D, 10)], inclinacion: [K(0, 30), K(D, 18)], zoom: [K(0, 0.82, 'lineal'), K(D, 1.3)],
+      apertura: [K(0, 0), K(D * 0.12, 0), K(D * 0.5, 1)], elevar: [K(0, 0), K(D * 0.48, 0), K(D * 0.8, 0.3)],
+    }),
+  },
+  'dentro-del-estuche': {
+    // desde arriba con la caja cerrada → la tapa se abre → la cámara baja hasta la joya → pasadas macro → final de frente
+    nombre: 'Dentro del estuche', bucle: false,
+    crear: D => ({
+      inclinacion: [K(0, 78), K(D * 0.3, 76), K(D * 0.55, 42), K(D * 0.82, 14), K(D, 16)],
+      zoom: [K(0, 0.72), K(D * 0.3, 0.8, 'entrada'), K(D * 0.55, 2.4), K(D * 0.82, 2.2), K(D, 1.25)],
+      apertura: [K(0, 0), K(D * 0.08, 0), K(D * 0.32, 1)],
+      giro: [K(0, 0), K(D * 0.45, 0), K(D * 0.82, 70), K(D, 0)],
+      foco: [K(0, 0), K(D * 0.4, 0), K(D * 0.6, 0.6), K(D * 0.85, 0.4), K(D, 0)],
+      desenfoque: [K(0, 0), K(D * 0.45, 0), K(D * 0.6, 0.45), K(D * 0.85, 0.35), K(D, 0.05)],
+    }),
+  },
+  'descenso-revelado': {
+    // de cerca en la joya (arriba en el cuadro), se aleja y baja como una grúa hasta mostrar la caja o la cinta de abajo
+    nombre: 'Descenso y revelado', bucle: false,
+    crear: D => ({
+      giro: [K(0, -10), K(D, 0)], inclinacion: [K(0, 30, 'salida'), K(D, 8)], zoom: [K(0, 2.4, 'salida'), K(D, 1)],
+      foco: [K(0, 1, 'salida'), K(D * 0.85, 0)], desenfoque: [K(0, 0.25, 'salida'), K(D * 0.7, 0)],
+    }),
+  },
 };
 
-// Pistas de "imagen": un movimiento base no las borra salvo que las traiga el movimiento anterior
-const PISTAS_IMAGEN = ['exposicion', 'desenfoque'];
+// Pistas de "imagen" (y las de la escena): un movimiento base no las borra salvo que las traiga el movimiento anterior
+const PISTAS_IMAGEN = ['exposicion', 'desenfoque', ...PISTAS_ESCENA];
 
 const pistasVacias = () => Object.fromEntries(Object.keys(PISTAS).map(id => [id, []]));
 
