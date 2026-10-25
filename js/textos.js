@@ -319,12 +319,13 @@ const MINIMO = 3;   // contraste mínimo (el de los textos grandes): por debajo,
 function tonoCapa(capa, caja, oscuro, fondo) {
   const m = fondo.medir(caja); if (!m) return null;
   const cTinta = contraste(L_TINTA, m.bajo), cBlanco = contraste(1, m.alto), c = osc => (osc ? cBlanco : cTinta);
+  // gana el que mejor se lee, con ventaja para el tono de la escena (el que pensó la joyera con ese fondo)
+  const puntos = osc => c(osc) * (osc === oscuro ? 1.25 : 1);
   // la elección se recuerda por capa: en un video el texto no salta de negro a blanco por una sombra que pasa; solo
-  // cambia si el tono de antes quedó casi ilegible y el otro se lee mucho mejor
+  // cambia cuando el otro tono se lee claramente mejor
   const antes = fondo.memoria?.get(capa.id);
-  let osc;
-  if (typeof antes === 'boolean' && !(c(antes) < 2.2 && c(!antes) > 1.5 * c(antes))) osc = antes;
-  else osc = c(oscuro) >= 4.5 || c(oscuro) >= c(!oscuro) ? oscuro : !oscuro;   // el tono de la escena si se lee bien
+  let osc = puntos(oscuro) >= puntos(!oscuro) ? oscuro : !oscuro;
+  if (typeof antes === 'boolean' && antes !== osc && puntos(osc) <= 1.2 * puntos(antes)) osc = antes;
   fondo.memoria?.set(capa.id, osc);
   const auto = !capa.color || capa.color === 'auto';
   if (!auto) return { oscuro: osc };

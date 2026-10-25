@@ -1280,7 +1280,7 @@ function planCadena(g, J, ctx) {
     }
   } else tramos.push({ desde: iz, hasta: de });
   if (g.sobre && !sobre) avisos.push('La cadena no encontró el elemento sobre el que se apoya.');
-  const juego = Wo / 2 + 0.08 * d;
+  const juego = Wo / 2 + 0.08 * d, cacheRelajar = new Map();
   const forma = (t, vaiven = true) => tramos.map((tr, k) => {
     const n = Math.max(24, Math.ceil(tr.desde.distanceTo(tr.hasta) / (1.4 * paso)));
     let P = catenaria(tr.desde, tr.hasta, g.holgura, n), toco = false;
@@ -1291,7 +1291,13 @@ function planCadena(g, J, ctx) {
     }
     // suelta: la joya es un obstáculo (el cilindro que la envuelve en cualquier giro)
     if (g.colgar !== 'joya') obst.push({ p: J.centro.clone().setX(0).setZ(0), q: Q(), qi: Q(), rb: J.R, sdf: x => sdfElemento('cilindro', { r: J.rJ + J.gap, h: J.yMax - J.yMin + 2 * J.gap }, 0, x) });
-    if (obst.length) ({ P, toco } = relajar(P, obst, juego, J.suelo));
+    if (obst.length) {
+      // (si el elemento de abajo no se movió, la cadena apoyada queda igual: no se vuelve a relajar en cada cuadro)
+      const clave = k + '|' + (obst[0].p.toArray().join(',') + obst[0].q.toArray().join(','));
+      const c = cacheRelajar.get(clave);
+      if (c) ({ P, toco } = { P: c.P.map(x => x.clone()), toco: c.toco });
+      else { ({ P, toco } = relajar(P, obst, juego, J.suelo)); if (cacheRelajar.size > 64) cacheRelajar.clear(); cacheRelajar.set(clave, { P: P.map(x => x.clone()), toco }); }
+    }
     if (vaiven && g.vaiven > 0) {
       // la panza de la catenaria gira un poco alrededor de la cuerda (de lado a lado), lejos de donde se apoya
       const eje = V().subVectors(tr.hasta, tr.desde).normalize(), th = g.vaiven * 0.22 * Math.sin(2 * Math.PI * 0.32 * t + 1.7 * k);
@@ -1535,7 +1541,10 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, 
       // vidrio de verdad: refracta (la esfera invierte lo que hay detrás), canto brillante; el color es un tinte suave
       // (thickness solo lo usa el motor rápido, que refracta en pantalla: con el diámetro entero la muestra cae fuera de la
       // imagen y la esfera se ve negra; ~0,6 del radio da el vidrio macizo creíble. El trazador usa la geometría de verdad)
-      Object.assign(m, { transmission: 1, ior: 1.5, thickness: 0.6 * tamano, roughness: 0, metalness: 0, specularIntensity: 1, envMapIntensity: 1.3 });
+      // canto: el reflejo de Fresnel del estudio más fuerte y un velo blanco finísimo de ángulo rasante (sheen): el borde de la
+      // esfera se lee claro aun sobre un fondo oscuro, como el canto de un vidrio de verdad (también en el trazador)
+      Object.assign(m, { transmission: 1, ior: 1.5, thickness: 0.6 * tamano, roughness: 0, metalness: 0, specularIntensity: 1, envMapIntensity: 2.2, sheen: 0.35, sheenRoughness: 0.32 });
+      m.sheenColor.set(0xffffff);
       m.color.set(0xffffff).lerp(color, tinte);
       m.attenuationColor.copy(color).lerp(new THREE.Color(0xffffff), 1 - tinte); m.attenuationDistance = (tinte > 0.5 ? 1.2 : 6) * tamano;
       break;
