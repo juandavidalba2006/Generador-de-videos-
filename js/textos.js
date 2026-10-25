@@ -305,6 +305,69 @@ function colorDe(capa, oscuro) {
 }
 const luminancia = hex => { const m = /^#?([0-9a-f]{6})$/i.exec(hex); if (!m) return 1; const v = parseInt(m[1], 16); return (0.299 * (v >> 16) + 0.587 * (v >> 8 & 255) + 0.114 * (v & 255)) / 255; };
 
+// ---------- Tono de los textos sobre una escena 3D ----------
+// Con escena, lo que queda detrás de un texto puede ser el fondo, el pedestal o la sombra de la ventana, y no siempre
+// tienen el mismo tono (fondo oscuro con un bloque claro, pedestal carbón con fondo arena…). Por eso cada capa «auto»
+// elige tinta o blanco según el cuadro de verdad: fondo.medir(caja) da la luminancia relativa (0..1) de lo más oscuro
+// (bajo, percentil 10) y lo más claro (alto, percentil 90) detrás de su caja. Se mide el peor píxel de cada opción.
+const aLineal = v => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+const aPantalla = l => (l <= 0.0031308 ? 12.92 * l : 1.055 * Math.pow(l, 1 / 2.4) - 0.055);
+const contraste = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+const L_TINTA = aLineal(0x1E / 255) * 0.2126 + aLineal(0x1B / 255) * 0.7152 + aLineal(0x15 / 255) * 0.0722;   // ≈ 0,012
+const L_TINTA2 = aLineal(0x5E / 255) * 0.2126 + aLineal(0x5A / 255) * 0.7152 + aLineal(0x50 / 255) * 0.0722;  // ≈ 0,10
+const MINIMO = 3;   // contraste mínimo (el de los textos grandes): por debajo, el texto lleva un velo suave detrás
+function tonoCapa(capa, caja, oscuro, fondo) {
+  const m = fondo.medir(caja); if (!m) return null;
+  const cTinta = contraste(L_TINTA, m.bajo), cBlanco = contraste(1, m.alto), c = osc => (osc ? cBlanco : cTinta);
+  // la elección se recuerda por capa: en un video el texto no salta de negro a blanco por una sombra que pasa; solo
+  // cambia si el tono de antes quedó casi ilegible y el otro se lee mucho mejor
+  const antes = fondo.memoria?.get(capa.id);
+  let osc;
+  if (typeof antes === 'boolean' && !(c(antes) < 2.2 && c(!antes) > 1.5 * c(antes))) osc = antes;
+  else osc = c(oscuro) >= 4.5 || c(oscuro) >= c(!oscuro) ? oscuro : !oscuro;   // el tono de la escena si se lee bien
+  fondo.memoria?.set(capa.id, osc);
+  const auto = !capa.color || capa.color === 'auto';
+  if (!auto) return { oscuro: osc };
+  // el detalle y el pie van en la tinta secundaria; si con ella no llega al mínimo, toman la tinta plena
+  const secundaria = capa.tipo !== 'marca' && (capa.estilo === 'detalle' || capa.estilo === 'pie');
+  const fuerte = secundaria && (osc ? contraste(0.78 * 0.88 + 0.22 * m.alto, m.alto) : contraste(L_TINTA2, m.bajo)) < MINIMO;
+  // velo: lo justo para que el peor píxel quede en 3:1 con el texto (se mezcla en valores de pantalla, como el lienzo)
+  let velo = 0;
+  if (c(osc) < MINIMO && capa.fondo !== 'pastilla') {
+    const v = aPantalla(osc ? m.alto : m.bajo), meta = aPantalla(osc ? 1.05 / MINIMO - 0.05 : MINIMO * (L_TINTA + 0.05) - 0.05);
+    velo = clamp(1.15 * (osc ? (v - meta) / (v - 0.07) : (meta - v) / (0.99 - v)), 0, 0.6);
+  }
+  return { oscuro: osc, fuerte, velo };
+}
+// Velo difuso detrás de la caja (del tono contrario al texto): un rectángulo redondeado de bordes suaves, hecho una vez
+// con la sombra de un rectángulo (sin ctx.filter, que Safari no tiene) y estirado a la caja
+let velos = null;
+function spriteVelo(claro) {
+  if (velos === null) {
+    velos = {};
+    try {
+      for (const [k, col] of [['oscuro', '18,16,12'], ['claro', '252,251,248']]) {
+        const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(256, 128) : document.createElement('canvas');
+        c.width = 256; c.height = 128;
+        const x = c.getContext('2d');
+        x.shadowColor = `rgb(${col})`; x.shadowBlur = 22; x.shadowOffsetX = 1000; x.fillStyle = `rgb(${col})`;
+        rectRedondo(x, 40 - 1000, 34, 176, 60, 30); x.fill();
+        velos[k] = c;
+      }
+    } catch (e) { velos = {}; }
+  }
+  return velos[claro ? 'claro' : 'oscuro'] || null;
+}
+function dibujarVelo(ctx, caja, u, textoClaro, alfa) {
+  const img = spriteVelo(!textoClaro); if (!img || alfa <= 0.01) return;
+  // el sprite tiene el rectángulo lleno en su parte central (176 × 60 de 256 × 128): esa parte cubre la caja con un margen
+  const mx = Math.max(14 * u, caja.h * 0.25), my = Math.max(8 * u, caja.h * 0.18), w = caja.w + 2 * mx, h = caja.h + 2 * my;
+  const W = w * 256 / 176, H = h * 128 / 60;
+  ctx.save(); ctx.globalAlpha *= alfa;
+  ctx.drawImage(img, caja.x - mx - (W - w) / 2, caja.y - my - (H - h) / 2, W, H);
+  ctx.restore();
+}
+
 // Calcula fuente, líneas y caja de una capa en reposo (sin animación)
 function disponer(ctx, capa, W, H) {
   const u = Math.min(W, H) / 1080, X = capa.x * W, Yb = capa.y * H, al = capa.alinear;
@@ -427,9 +490,12 @@ function barrido(capa, tm) {
   return ciclo < 1 ? ciclo : null;
 }
 
-function dibujarCapa(ctx, capa, W, H, t, oscuro) {
+function dibujarCapa(ctx, capa, W, H, t, oscuro, fondo) {
   const tm = tiempos(capa, t); if (!tm) return;
   const L = disponer(ctx, capa, W, H), u = L.u, caja = L.caja, e = facil(tm.p);
+  // con escena 3D el tono sale de lo que hay detrás de la caja en reposo (la animación no lo cambia)
+  const tono = fondo ? tonoCapa(capa, caja, oscuro, fondo) : null;
+  if (tono) oscuro = tono.oscuro;
   let alfa = tm.salida, dx = 0, dy = 0, escala = 1, hasta = Infinity, cursor = null;
   switch (capa.animacion) {
     case 'aparecer': alfa *= e; break;
@@ -446,12 +512,13 @@ function dibujarCapa(ctx, capa, W, H, t, oscuro) {
     }
   }
   if (alfa <= 0.001) return;
-  const col = colorDe(capa, oscuro), oro = colores(oscuro).oro;
+  const col = tono?.fuerte ? colores(oscuro).tinta : colorDe(capa, oscuro), oro = colores(oscuro).oro;
   ctx.save();
   ctx.globalAlpha *= alfa * (capa.estilo === 'pie' && capa.tipo !== 'marca' ? 0.9 : 1);
   if (dx || dy) ctx.translate(dx, dy);
   if (escala !== 1) { const cx = caja.x + caja.w / 2, cy = caja.y + caja.h / 2; ctx.translate(cx, cy); ctx.scale(escala, escala); ctx.translate(-cx, -cy); }
 
+  if (tono?.velo && !L.pastilla) dibujarVelo(ctx, caja, u, oscuro, tono.velo);
   if (L.pastilla) {
     const P = L.pastilla, claro = luminancia(col) > 0.55;
     rectRedondo(ctx, P.x, P.y, P.w, P.h, P.r);
@@ -509,14 +576,15 @@ function dibujarCapa(ctx, capa, W, H, t, oscuro) {
 
 // Dibuja todas las capas visibles en t (segundos). Con t null se dibujan completas y quietas (fotos, miniaturas).
 // duracion se acepta por contrato; sale null ya significa "hasta el final", así que no hace falta para dibujar.
-export function dibujarTextos(ctx, capas, { W, H, t = null, oscuro = false, duracion } = {}) {
+// fondo (opcional, con escena 3D): { medir(caja) → { bajo, alto }, memoria: Map } — el tono de cada capa sale del cuadro
+export function dibujarTextos(ctx, capas, { W, H, t = null, oscuro = false, duracion, fondo = null } = {}) {
   if (!ctx || !Array.isArray(capas)) return;
   W = W || ctx.canvas.width; H = H || ctx.canvas.height;
   ctx.save();
   ctx.globalCompositeOperation = 'source-over'; ctx.textBaseline = 'alphabetic';
   for (const c of capas) {
     if (!c || c.oculta) continue;
-    dibujarCapa(ctx, normalizarSiHaceFalta(c), W, H, t, oscuro);
+    dibujarCapa(ctx, normalizarSiHaceFalta(c), W, H, t, oscuro, fondo);
   }
   ctx.restore();
 }

@@ -27,8 +27,40 @@ export async function cargarFuentes() {
   } catch (e) { /* si no cargan, el lienzo usa las fuentes de respaldo */ }
 }
 
+// sRGB (0..255) → lineal, para medir la luminancia relativa del cuadro
+const LINEAL = Float32Array.from({ length: 256 }, (_, i) => { const v = i / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+
 export class Compositor {
-  constructor(lienzo) { this.lienzo = lienzo; this.ctx = lienzo.getContext('2d'); this.capa = document.createElement('canvas'); this.cache = {}; }
+  constructor(lienzo) { this.lienzo = lienzo; this.ctx = lienzo.getContext('2d'); this.capa = document.createElement('canvas'); this.cache = {}; this.tonos = new Map(); }
+
+  // Con escena 3D: lo que hay detrás de cada texto en el cuadro (el render ya hecho, sin textos), en una grilla chica de
+  // luminancia. La tarjeta achica el cuadro y solo se lee la grilla (leer el cuadro entero en cada cuadro cuesta).
+  // medir(caja) da los percentiles 10 y 90 detrás de la caja; memoria guarda el tono elegido de cada capa (ver textos.js)
+  fondoTextos(render3D, W, H) {
+    const gw = Math.min(W, 120), gh = Math.max(1, Math.round(H * gw / W));
+    const a = this.grilla || (this.grilla = document.createElement('canvas')), b = this.grillaLeida || (this.grillaLeida = document.createElement('canvas'));
+    for (const c of [a, b]) if (c.width !== gw || c.height !== gh) { c.width = gw; c.height = gh; }
+    const xa = a.getContext('2d'), xb = b.getContext('2d', { willReadFrequently: true });
+    xa.imageSmoothingEnabled = true; xa.imageSmoothingQuality = 'medium';
+    xa.clearRect(0, 0, gw, gh); xa.drawImage(render3D, 0, 0, gw, gh);
+    xb.clearRect(0, 0, gw, gh); xb.drawImage(a, 0, 0);
+    const d = xb.getImageData(0, 0, gw, gh).data, L = new Float32Array(gw * gh);
+    for (let i = 0; i < L.length; i++) L[i] = 0.2126 * LINEAL[d[4 * i]] + 0.7152 * LINEAL[d[4 * i + 1]] + 0.0722 * LINEAL[d[4 * i + 2]];
+    if (this.tonos.size > 64) this.tonos.clear();   // (capas sin id fijo: no se acumulan)
+    const kx = gw / W, ky = gh / H;
+    return {
+      memoria: this.tonos,
+      medir: caja => {
+        const x0 = Math.max(0, Math.floor(caja.x * kx)), x1 = Math.min(gw - 1, Math.ceil((caja.x + caja.w) * kx) - 1);
+        const y0 = Math.max(0, Math.floor(caja.y * ky)), y1 = Math.min(gh - 1, Math.ceil((caja.y + caja.h) * ky) - 1);
+        if (x1 < x0 || y1 < y0) return null;   // la caja quedó fuera del cuadro
+        const v = [];
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) v.push(L[y * gw + x]);
+        v.sort((p, q) => p - q);
+        return { bajo: v[Math.floor((v.length - 1) * 0.1)], alto: v[Math.ceil((v.length - 1) * 0.9)] };
+      },
+    };
+  }
 
   tamano(w, h) { if (this.lienzo.width !== w || this.lienzo.height !== h) { this.lienzo.width = w; this.lienzo.height = h; } this.cache = {}; }
 
@@ -56,7 +88,8 @@ export class Compositor {
   // Dibuja el cuadro completo. render3D: lienzo WebGL; mascara: silueta (solo en el render final con trazado de rayos).
   // capas: los textos del proyecto; t: segundo del video (null = todos quietos y completos); seleccion: capa con marco (solo vista previa)
   // opaco: el render 3D trae su propia escena (pedestal y fondo) y cubre todo: no van el fondo de marca ni la sombra 2D.
-  // oscuro: si se da, decide el color de los textos (con escena lo dice la escena); si no, el del fondo de marca
+  // oscuro: si se da, decide el color de los textos (con escena lo dice la escena); si no, el del fondo de marca.
+  // Con escena, ese es solo el tono preferido: cada texto «auto» se ajusta a lo que tiene detrás en el cuadro
   cuadro({ fondo, render3D, sombra, intensidadSombra = 1, mascara = null, capas = [], t = null, duracion, seleccion = null, opaco = false, oscuro = null }) {
     const ctx = this.ctx, W = this.lienzo.width, H = this.lienzo.height, f = FONDOS[fondo] || FONDOS.perla;
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
@@ -72,7 +105,8 @@ export class Compositor {
       ctx.drawImage(capa, 0, 0);
     }
     if (render3D) ctx.drawImage(render3D, 0, 0, W, H);
-    dibujarTextos(ctx, capas, { W, H, t, oscuro: typeof oscuro === 'boolean' ? oscuro : f.oscuro, duracion });
+    const fondoTextos = opaco && render3D && capas?.some(c => c && !c.oculta) ? this.fondoTextos(render3D, W, H) : null;
+    dibujarTextos(ctx, capas, { W, H, t, oscuro: typeof oscuro === 'boolean' ? oscuro : f.oscuro, duracion, fondo: fondoTextos });
     if (seleccion) marcoSeleccion(ctx, seleccion, { W, H });
   }
 }
