@@ -703,6 +703,9 @@ function reposo(forma, F, r) {
   const yaw = qEje(EJE_Y, r() * 2 * Math.PI);
   if (forma === 'gema') return yaw.multiply(qEje(V(1, 0, 0), Math.PI / 2 - Math.atan(1 / 0.86)));   // la gema suelta se recuesta sobre el pabellón y el filetín
   if (forma === 'cubo') return qEje(EJE_Y, Math.floor(r() * 4) * Math.PI / 2 + (r() - 0.5) * 0.5);
+  // el STL propio queda como lo subió la joyera (un logo mira a la cámara); la cajita, casi de frente
+  if (forma === 'stl') return Q();
+  if (forma === 'regalo') return qEje(EJE_Y, (r() - 0.5) * 0.6);
   return yaw;
 }
 
@@ -1230,7 +1233,8 @@ function planCadena(g, J, ctx) {
   // argolla sobre el punto más alto: el dije queda colgado (nada de la argolla baja de ese punto: no toca la joya)
   const tramos = [];
   if (base) {
-    const Rc = 3 * d, c = base.clone().add(V(0, Rc + d / 2 + 0.06 * d, 0));
+    // (la serpiente es más gruesa que el alambre: su arco va un poco más arriba)
+    const Rc = 3 * d, c = base.clone().add(V(0, Rc + (estilo === 'serpiente' ? 0.65 : 0.5) * d + 0.06 * d, 0));
     const hor = V(de.x - iz.x, 0, de.z - iz.z); if (hor.lengthSq() < 1e-12) hor.set(1, 0, 0); hor.normalize();
     aro = { centro: c, Rc, normal: V().crossVectors(hor, EJE_Y).normalize(), hor };
     for (const [Pq, lado] of [[iz, -1], [de, 1]]) {
@@ -1648,6 +1652,7 @@ export class Elementos {
         const k = cintaCortada(c, t, true);
         cintaActualizar(m.geo, k.P, k.N, k.B, k.T, c.ancho, c.espesor); movio = true; continue;
       }
+      if (m.fijo) continue;
       if (m.cadena) { if (antes === null || m.cadena.camino.dinamica) { this.ponerCadena(m, t); movio = true; } continue; }
       if (m.destello) {
         const s = destello(m.destello.pl, m.destello.ins, m.destello.k, t, p);
@@ -1678,7 +1683,7 @@ export class Elementos {
     const c = new THREE.Box3(), fin = this.plan.tFin, p = V(), q = Q();
     for (const m of this.mallas) {
       if (m.ins) { m.ins.en(fin, p, q); c.expandByPoint(p.clone().addScalar(m.ins.rb)); c.expandByPoint(p.clone().addScalar(-m.ins.rb)); }
-      else if (m.cinta || m.cadena) { m.geo.computeBoundingBox(); if (!m.geo.boundingBox.isEmpty()) c.union(m.geo.boundingBox); }
+      else if (m.cinta || m.cadena || m.fijo) { m.geo.computeBoundingBox(); if (!m.geo.boundingBox.isEmpty()) c.union(m.geo.boundingBox); }
     }
     return c.isEmpty() ? null : c;
   }
