@@ -283,8 +283,13 @@ export function detectarCortes(cuadros, { planoMin = PLANO_MIN } = {}) {
     const fondo = vecinos.length ? percentil(vecinos, 0.7) : 0;
     const cerca = Math.max(i > 0 ? s[i - 1] : 0, i + 1 < s.length ? s[i + 1] : 0);
     const umbral = Math.max(0.42, 2.2 * fondo + 0.12);
-    if (v < umbral) continue;
-    if (v < 1.6 * cerca && v < 0.9) continue;   // no es un pico aislado: movimiento rápido
+    // Un corte entre dos planos del mismo color con movimiento rápido a un lado (perlas que cruzan el cuadro, un macro que
+    // se desliza): la forma de los vecinos sube el umbral, pero el color salta solo en este par. Si el histograma cambia
+    // mucho más que en los dos pares de al lado y la forma tampoco calza, es un corte.
+    const p = pares[i], hA = i > 0 ? pares[i - 1].hist : 0, hD = i + 1 < pares.length ? pares[i + 1].hist : 0;
+    const saltoColor = p.hist >= 0.15 && p.forma >= 0.35 && p.hist >= 3 * Math.max(hA, hD) + 0.02 && v >= 0.36;
+    if (v < umbral && !saltoColor) continue;
+    if (v < 1.6 * cerca && v < 0.9 && !saltoColor) continue;   // no es un pico aislado: movimiento rápido
     candidatos.push({ k, t: cuadros[k].t, transicion: 'seco', confianza: limitar((v - umbral) / umbral + 0.5, 0.3, 1), zona: [cuadros[i].t, cuadros[k].t], ini: k, fin: k, puntaje: v });
   }
 
