@@ -201,7 +201,7 @@ export function escenaDe(id) {
 // Si se toca algo respecto a la escena lista, el id pasa a 'personalizada' (y base guarda de cuál salió).
 export function normalizarEscena(cfg) {
   if (typeof cfg === 'string') cfg = { id: cfg };
-  if (!esObj(cfg)) return escenaDeBase(ESCENA_INICIAL);
+  if (!esObj(cfg)) return normalizarEscena({ id: ESCENA_INICIAL });   // (con todos los campos, también los nuevos)
   if (cfg.id === 'ninguna') return { id: 'ninguna' };
   const idBase = clave(ESCENAS, cfg.id, null) && cfg.id !== 'ninguna' ? cfg.id : clave(ESCENAS, cfg.base, ESCENA_INICIAL);
   const b = escenaDeBase(idBase === 'ninguna' ? ESCENA_INICIAL : idBase);

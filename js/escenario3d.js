@@ -99,7 +99,7 @@ const TIPOS = {
   arena:        { T: 1.8, N: 1024, rug: [0.88, 1],    relieve: 1.5 },
   madera:       { T: 7,   N: 1024, rug: [0.42, 0.62], relieve: 0.35, capa: 0.15 },
   acrilico:     { T: 10,  N: 256,  rug: [0.035, 0.05], relieve: 0, capa: 1, espejo: true },
-  saten:        { T: 2.4, N: 256,  rug: [0.3, 0.36],  relieve: 0, brillo: 1 },   // liso: los brillos los dan los pliegues
+  saten:        { T: 2.4, N: 256,  rug: [0.38, 0.44], relieve: 0, brillo: 1 },   // liso: los brillos los dan los pliegues
 };
 
 // Patrón de cada material, en gris (se guarda: cambiar el color solo vuelve a teñir).
@@ -250,7 +250,7 @@ function crearMaterial(tipo, color) {
     // satén: brillo de tela (sheen) del color aclarado y un reflejo especular suave y largo en las crestas de los pliegues
     // (poco brillo de tela: a ras, en el piso, lo lavaba; el brillo del satén es especular, largo, sobre las crestas)
     m.sheen = 0.3; m.sheenRoughness = 0.5; m.sheenColor.set(color).lerp(new THREE.Color(0xffffff), 0.3);
-    m.specularIntensity = 1; m.specularColor.set(color).lerp(new THREE.Color(0xffffff), 0.5);
+    m.specularIntensity = 0.75; m.specularColor.set(color).lerp(new THREE.Color(0xffffff), 0.45);
   } else if (def.brillo) {   // terciopelo y lino: brillo aterciopelado en los bordes (sheen)
     m.sheen = def.brillo; m.sheenRoughness = tipo === 'terciopelo' ? 0.32 : 0.7;
     m.sheenColor.set(color).lerp(new THREE.Color(0xffffff), tipo === 'terciopelo' ? 0.18 : 0.5);
@@ -522,13 +522,14 @@ function ruido2(x, y, k = 0) {
 // Pliegues alargados en diagonal que se tuercen despacio (el ruido estirado a lo largo del pliegue y deformado por otro);
 // fase: corrimiento lento con el tiempo (ondas)
 function pliegue(x, s, fase = 0) {
-  const wx = x + 2.2 * (ruido2(x / 9, s / 9, 3) - 0.5), ws = s + 2.2 * (ruido2(x / 9 + 17, s / 9, 4) - 0.5);
-  const th = 0.55 + 0.7 * (ruido2(x / 22, s / 22, 5) - 0.5), c = Math.cos(th), sn = Math.sin(th);
+  const wx = x + 3 * (ruido2(x / 14, s / 14, 3) - 0.5), ws = s + 3 * (ruido2(x / 14 + 17, s / 14, 4) - 0.5);
+  const th = 0.55 + 0.6 * (ruido2(x / 30, s / 30, 5) - 0.5), c = Math.cos(th), sn = Math.sin(th);
   const a = wx * c + ws * sn, b = -wx * sn + ws * c;
-  // crestas: donde el ruido estirado pasa por la mitad (líneas largas a lo largo del pliegue), redondeadas; valles anchos
-  const r1 = ruido2(a / 4.6 + 0.35 * fase, b / 15 + fase, 1), c1 = 1 - Math.abs(2 * r1 - 1), h1 = c1 * c1 * (3 - 2 * c1);
-  const h2 = ruido2(a / 2.4 + 9 - 0.2 * fase, b / 8 + 4 + 0.6 * fase, 2);
-  return (h1 - 0.45) * 2.1 + (h2 - 0.5) * 0.5;
+  // pocos pliegues anchos y suaves (como una tela grande que cae): crestas redondeadas donde el ruido estirado pasa por la
+  // mitad, valles anchos, y apenas un segundo pliegue más chico
+  const r1 = ruido2(a / 8.5 + 0.35 * fase, b / 24 + fase, 1), c1 = 1 - Math.abs(2 * r1 - 1), h1 = c1 * c1 * (3 - 2 * c1);
+  const h2 = ruido2(a / 4.5 + 9 - 0.2 * fase, b / 13 + 4 + 0.6 * fase, 2);
+  return (h1 - 0.45) * 2 + (h2 - 0.5) * 0.3;
 }
 // Rejilla fina cerca de la joya (los pliegues necesitan detalle donde se ven) y gruesa lejos
 function pasosTela(a, b, u, fino, lejos) {
@@ -567,15 +568,16 @@ function fondoTela(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
   const plano = liso ?? Math.max(1.5 * u, alcanceZ + 0.6 * u), sCurva = perfil.find(p => p.ny < 0.999)?.s ?? 0;
   for (let j = 0; j < perfil.length; j++) for (let i = 0; i < xs.length; i++) {
     const k = j * xs.length + i, p = perfil[j], x = xs[i];
-    const enPiso = p.ny > 0.999, d = Math.hypot(x, p.z), cerca = enPiso ? suav(limitar((d - plano) / (3.2 * u), 0, 1)) : 1;
+    // (el piso bajo la joya queda tranquilo: ahí se lee el charco de luz)
+    const enPiso = p.ny > 0.999, d = Math.hypot(x, p.z), cerca = enPiso ? 0.15 + 0.85 * suav(limitar((d - plano) / (5 * u), 0, 1)) : 1;
     const subida = suav(limitar((p.s - sCurva) / (Rc * 1.2), 0, 1));   // del piso (pliegues bajos) al fondo (más altos)
     const lejos = 1 - suav(limitar((Math.abs(x) - 17 * u) / (9 * u), 0, 1));
     const arriba = 1 - suav(limitar((p.y - 25 * u) / (10 * u), 0, 1)), frente = 1 - suav(limitar((p.z - 14 * u) / (8 * u), 0, 1));
-    amp[k] = u * (0.62 + 0.75 * subida) * cerca * lejos * arriba * frente;
+    amp[k] = u * (0.3 + 0.75 * subida) * cerca * lejos * arriba * frente;
     sx[k] = x / u; ss[k] = p.s / u;
   }
   const base = geo.attributes.position.array.slice(), nBase = geo.attributes.normal.array.slice();
-  return { geo, curva: Rc, tela: { base, nBase, amp, sx, ss, ampPiso: 0.62 * u } };
+  return { geo, curva: Rc, tela: { base, nBase, amp, sx, ss, ampPiso: 0.3 * u } };
 }
 // Pone los pliegues en el instante t (fase lenta con ondas). Devuelve true si la tela cambió
 function plegarTela(geo, tela, fase) {
@@ -950,7 +952,7 @@ export class Escenario3D {
       const piso = tope - ped.H;
       const B = s.forma === 'piso' ? (1.5 + 3 * f.distancia) * u : ped.alcanceZ + (0.8 + 2.2 * f.distancia) * u;
       // (la joya que flota no toca la tela: el piso puede plegarse justo debajo)
-      const fd = fondo(f, B, u, TIPOS[f.material].T * u, ped.alcanceZ, ext, m.flotando && s.forma === 'piso' ? 0.4 * u : null);
+      const fd = fondo(f, B, u, TIPOS[f.material].T * u, ped.alcanceZ, ext, m.flotando && s.forma === 'piso' ? 1.2 * u : null);
       fd.geo.translate(0, piso, 0);
       this.tela = fd.tela ? { geo: fd.geo, datos: fd.tela, ondas: f.ondas, fase: null } : null;
       if (this.tela) { fd.tela.base = fd.geo.attributes.position.array.slice(); this.plegar(this.t, true); }

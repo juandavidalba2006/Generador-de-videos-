@@ -2,7 +2,7 @@
 // los cortes (✂) encima de la cámara, los textos como barras que se pueden mover y recortar, y los sonidos como bloques.
 // Arriba, el inspector muestra el valor de cada ajuste en el cabezal: al moverlo se crea un keyframe ahí mismo.
 import {
-  PISTAS, CURVAS, MOVIMIENTOS, TOLERANCIA, TRANSICIONES, valorEn, ponerClave, quitarClave, moverClave, claveEn,
+  PISTAS, PISTAS_ESCENA, CURVAS, MOVIMIENTOS, TOLERANCIA, TRANSICIONES, valorEn, ponerClave, quitarClave, moverClave, claveEn,
   escalarTiempo, serializar, deserializar, movimientoDe, aplicarMovimiento, ajustarACuadro,
   ponerCorte, quitarCorte, moverCorte, corteEn, separarPlanos, unirPlanos, limitesCorte,
 } from './proyecto.js';
@@ -85,11 +85,13 @@ let instancias = 0;
 
 export class LineaTiempo {
   // pistaVisible(id): si el carril de una pista se muestra (las de la escena —apertura, elevar, luz— solo cuando sirven:
-  // con un estuche, con la joya que flota, con una escena 3D). Una pista con keyframes se muestra siempre. Sin esto, todas
+  // con un estuche, con la joya que flota, con una escena 3D). Una pista con keyframes se muestra siempre. Sin esto, las de la
+  // cámara (y «Añadir keyframe en todas» marca todas las pistas, como antes)
   constructor(contenedor, { obtenerProyecto, alCambiar, alMoverCabezal, alSeleccionar, efectos, estilosMusica, pistaVisible, valorSinClaves } = {}) {
     this.cont = contenedor;
     this.obtenerProyecto = obtenerProyecto;
-    this.pistaVisible = typeof pistaVisible === 'function' ? pistaVisible : () => true;
+    this.pistaVisible = typeof pistaVisible === 'function' ? pistaVisible : k => !PISTAS_ESCENA.includes(k);
+    this.claveEnTodas = typeof pistaVisible === 'function' ? () => this.visibles() : () => Object.keys(PISTAS);
     // valor de una pista que todavía no tiene keyframes y lo toma de otro lado (la apertura del estuche, del panel)
     this.valorSinClaves = typeof valorSinClaves === 'function' ? valorSinClaves : () => null;
     this.alCambiar = alCambiar || (() => {});
@@ -688,7 +690,7 @@ export class LineaTiempo {
     else if (acc === 'claveTodas') {
       this.guardarHistorial();
       const t = ajustarACuadro(this.t);
-      for (const k of this.visibles()) ponerClave(p, k, t, this.valor(k, this.t));
+      for (const k of this.claveEnTodas()) ponerClave(p, k, t, this.valor(k, this.t));
       this.t = t; this.render(); this.alMoverCabezal(t); this.alCambiar('claves');
     } else if (acc === 'borrarTodas') {
       if (!confirm('¿Borrar todos los keyframes de la cámara?\nLa cámara queda quieta en la vista inicial. Puedes deshacerlo.')) return;

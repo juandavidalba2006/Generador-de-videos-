@@ -39,8 +39,8 @@ directo en el piso), un **fondo** (curvo sin esquinas, pared y piso, o un nicho 
 sombras de **ventana**, **persiana**, una ventana con arco o un **foco** de luz. El estudio arranca con
 *Pedestal arena*: el pedestal de yeso, el fondo taupe y la luz de ventana de las fotos de catálogo.
 
-- Toca una tarjeta para cambiar de escena: hay 10 listas (Pedestal arena, Travertino, Mármol blanco, Mármol negro, Podio de
-  escalones, Nicho con arco, Terciopelo esmeralda, Acrílico espejo, Arena y sol, Rosa empolvado).
+- Toca una tarjeta para cambiar de escena: hay 14 listas (Pedestal arena, Travertino, Mármol blanco, Mármol negro, Podio de
+  escalones, Nicho con arco, Terciopelo esmeralda, Acrílico espejo, Arena y sol, Rosa empolvado y las cuatro de satén).
 - **Personalizar**: cambia la forma, el material (yeso, travertino, mármol, concreto, terciopelo, lino, arena, madera,
   acrílico) y el color de la superficie y del fondo; de dónde viene la luz, qué tan alta está, qué tan suaves son las
   sombras, su intensidad y su calidez, y el relleno de la sala. La tarjeta queda marcada como *Ajustada*; *Volver a la escena
@@ -55,10 +55,54 @@ sombras de **ventana**, **persiana**, una ventana con arco o un **foco** de luz.
   trazado de rayos tarda unas **6 veces más** por cuadro que con el fondo liso.
 - La escena se guarda con el proyecto. Los proyectos de antes (sin escena) se abren con el fondo liso de marca, como se hicieron.
 
+### Telas de satén, luz de reel de lujo, joya flotando y en par
+
+Para videos como los de las grandes casas de joyería (oro como espejo sobre una tela oscura, la joya flotando):
+
+- **Escenas de satén**: *Satén de noche* (tinta, la réplica del reel de referencia), *Satén esmeralda*, *Satén granate* y
+  *Satén perla* (claro). Una sola tela baja del fondo y hace de piso, con pliegues anchos y suaves; en *Personalizar → Fondo*
+  está la forma **Tela de satén** (y el material *Satén* para cualquier superficie), **Movimiento de la tela** (los pliegues
+  se corren despacio), **Degradado** (el fondo más oscuro arriba) y **Destellos en el aire** (brillitos desenfocados que
+  flotan, como polvo de luz). El degradado y los destellos sirven con cualquier fondo.
+- **Esquema de luz** (en *Personalizar → Luz*): *Ventana* (la de siempre), *Clave baja* (fondo oscuro, una luz dorada angosta,
+  tiras finas que dibujan el filo del oro y un charco de luz bajo la joya), *Clave alta* (clara y suave) y *Contraluz* (el
+  fondo encendido y luz desde atrás: siluetas con borde de luz). El esquema también cambia lo que se refleja en el metal, en la
+  vista previa y en el render hiperrealista.
+- **La joya en la escena**: *Flotando* (a qué altura sobre el piso —o sobre la caja que tenga debajo— y un vaivén suave) y *En
+  par* (una segunda pieza en espejo, al lado, como un par de aretes; elige la separación). La cámara encuadra el par completo
+  y el *Foco en la piedra* va a la pieza de la izquierda (así empieza el macro del reel).
+
+### Estuches, cajas de regalo y elementos
+
+- **Estuche o caja**: estuche de anillo (cojín con ranura), caja de regalo con moño, estuche de aretes, de collar, cofre de tapa
+  alta, caja de cajón, bandeja y una pila de cajas. Colores de la marca (o uno libre), material, logo dorado y un grabado.
+  *La joya va adentro*, *Al lado, de adorno* (con la joya flotando, la caja queda justo debajo, como la caja de regalo del
+  reel de la cinta) o *Escenario gigante*. Con la joya dentro de un estuche que se abre, el giro de la cámara se mece hasta unos
+  57° para que la tapa abierta nunca la tape. **Descargar STL**: el estuche en milímetros, por partes, para imprimirlo en 3D.
+- **Elementos**: esferas que ruedan, perlas que rebotan o caen formando un círculo, cuentas que flotan en fila, cubos,
+  cilindros, aros, gemas, una cajita de regalo que vuela, una **cinta de satén** (corazón, onda, espiral o lazo) que puede pasar
+  por el agujero del anillo y salir del moño de la caja de regalo, una **cadena** (cuelga del dije, entre dos torres de cajas o
+  sobre una esfera) y el material **Cristal** para cualquier forma (una esfera de vidrio que refracta). **Subir STL** usa tu
+  propio objeto (se guarda con el proyecto) y **Descargar STL** baja los elementos como quedan en ese momento del video.
+  Con una cinta que pasa por un anillo de frente, la escena se mira desde el costado de la argolla: así el corazón queda de frente.
+- Los estuches y los elementos necesitan una escena 3D (con el fondo liso de marca no se ven). Al cambiar de escena lista se
+  quedan; al volver de *Fondo liso de marca* también regresan. Todo cambio en la pestaña Escena se puede **deshacer**.
+
+### Pistas y movimientos de la escena
+
+- Pistas nuevas en la línea de tiempo (aparecen solo cuando sirven): **Apertura del estuche** (0 cerrado, 1 abierto; sin
+  keyframes vale la apertura del panel), **Elevar la joya** (la joya sube sobre su asiento o el piso, en altos de la joya) y
+  **Giro de la luz** (la luz gira y sus brillos recorren la tela, como en el reel de los aretes sobre satén).
+- Movimientos base nuevos: **Macro y revelado** (de un macro ladeado y desenfocado en la piedra a la pieza de frente),
+  **Abrir el estuche** (cerrado → se abre → la joya sube un poco → la cámara se acerca), **Dentro del estuche** (desde arriba
+  con la caja cerrada, se abre, la cámara entra hasta la joya, pasadas macro y final de frente) y **Descenso y revelado** (de
+  cerca en la joya, se aleja y baja hasta mostrar la caja o la cinta de abajo).
+
 ## Keyframes (como en CapCut)
 
 Cada ajuste de cámara es una **pista** en la línea de tiempo: Giro, Altura de cámara, Zoom, Posición vertical,
-Posición lateral, Foco en la piedra, Inclinación (roll), Exposición y Desenfoque macro.
+Posición lateral, Foco en la piedra, Inclinación (roll), Exposición y Desenfoque macro (y, con una escena 3D, Apertura del
+estuche, Elevar la joya y Giro de la luz).
 
 - **Mueve el cabezal** tocando la regla o arrastrando la línea granate. La vista previa muestra ese instante.
 - **Toca el rombo ◆** de un ajuste (arriba de las pistas) para poner un keyframe con el valor actual en el cabezal;
@@ -190,7 +234,8 @@ cuando la cámara llega a la piedra.
 
 El proyecto se **guarda solo** en este navegador y se recupera al volver a abrir la página. Con
 **Guardar proyecto** descargas un archivo `.atelier.json` (keyframes, cortes, textos, sonidos, escena, formato, fondo,
-materiales y los bitmaps escogidos) para seguir en otro momento o en otro equipo con **Abrir**. *Nuevo* empieza de cero (se puede
+materiales, los bitmaps escogidos, el estuche, los elementos y los STL que subiste para ellos) para seguir en otro momento o
+en otro equipo con **Abrir** (en el guardado automático del navegador los STL propios van solo si son chicos). *Nuevo* empieza de cero (se puede
 deshacer). El STL, una canción subida, una imagen propia de bitmap y el HDRI no van dentro del archivo: al abrir el
 proyecto (o al recuperarlo) el estudio te avisa cuáles tienes que volver a subir, y antes de crear el video te avisa si
 falta tu canción.
@@ -250,8 +295,10 @@ python3 -m http.server 8000
   físicos de metal y piedras con su índice de refracción real, y el trazado de rayos con
   [three-gpu-pathtracer](https://github.com/gkjohnson/three-gpu-pathtracer). La luz gira con la cámara,
   así que el resultado es el de una tornamesa con la pieza girando bajo luces fijas.
-- `js/escenas.js` (las escenas listas y su validación), `js/escenario3d.js` (pedestal, fondo, materiales procedurales y
-  la luz con su ventana, en el motor rápido y en el trazador) y `js/panel-escena.js` (la pestaña Escena).
+- `js/escenas.js` (las escenas listas y su validación), `js/escenario3d.js` (pedestal, fondo, la tela de satén, el degradado,
+  los destellos, materiales procedurales y la luz con su ventana y los esquemas de luz, en el motor rápido y en el trazador) y
+  `js/panel-escena.js` (la pestaña Escena). `js/utileria.js` y `js/panel-utileria.js` (estuches y cajas, con su STL),
+  `js/elementos.js` y `js/panel-elementos.js` (los elementos que se mueven), `js/stl.js` (el escritor de STL).
 - `js/transiciones.js`: el flash, el fundido a negro y el barrido de los cortes.
 - `js/analizador.js` (cortes, movimiento y colores de un video, en el navegador), `js/replica.js` (del análisis a un plan
   para el proyecto), `js/replicar.js` (la pestaña Replicar), `js/reel.js` y `api/reel.js` (el enlace de Instagram),

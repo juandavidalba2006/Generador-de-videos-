@@ -573,7 +573,7 @@ function medidas(g, J, stlInfo) {
   const R = J.R, k = g.tamano;
   switch (g.forma) {
     case 'esfera': return { r: 0.45 * R * k };
-    case 'perla': return { r: 0.28 * R * k };
+    case 'perla': return { r: 0.18 * R * k };   // (≈ 0,3 del ancho de un anillo: una perla de verdad, no una bola)
     case 'cuenta': return { r: 0.14 * R * k };
     case 'cubo': { const s = 0.7 * R * k; return { s, rc: 0.14 * s }; }
     case 'cilindro': return { r: 0.3 * R * k, h: 0.72 * R * k };
@@ -1041,7 +1041,7 @@ function recorridoLocal(tipo, wl) {
 }
 function planCinta(g, J, ctx) {
   const R = J.R, avisos = [];
-  const w0 = 0.34 * R * g.tamano, e = Math.max(0.035 * w0, 0.12 / J.mm), holgura = Math.max(0.02 * R, 0.6 * e);
+  const w0 = 0.24 * R * g.tamano, e = Math.max(0.035 * w0, 0.12 / J.mm), holgura = Math.max(0.02 * R, 0.6 * e);
   const tri = triangulosJoya(J);
   let ag = g.enhebrar && tri ? buscarAgujero(tri, R) : null, w = w0;
   if (g.enhebrar && !ag) avisos.push(tri ? 'La joya no tiene un agujero por donde pasar la cinta: va por detrás.' : 'Sin la malla de la joya la cinta va por detrás.');
@@ -1053,9 +1053,12 @@ function planCinta(g, J, ctx) {
   // punto y eje por donde pasa: el agujero, o detrás de la joya en horizontal
   const Ph = ag ? ag.centro.clone() : V(J.centro.x, J.centro.y, J.caja.min.z - 0.8 * w - 2 * J.gap);
   const a = ag ? ag.eje.clone().normalize() : V(1, 0, 0);
+  // nE: la normal del plano de la cinta (la vista, sin la parte del eje del agujero). Si el agujero mira casi a la cámara
+  // (un anillo de frente) la cinta no puede quedar de frente: se para de costado (normal horizontal) y el estudio gira el
+  // frente de la escena para verla de frente; antes caía acostada en el piso
   const vista = V(0, 0, 1);
   let nE = vista.clone().addScaledVector(a, -vista.dot(a));
-  if (nE.lengthSq() < 0.003) nE = EJE_Y.clone().addScaledVector(a, -EJE_Y.dot(a));
+  if (nE.lengthSq() < 0.25) { nE = V().crossVectors(a, EJE_Y); if (nE.lengthSq() < 1e-6) nE = vista.clone(); }
   nE.normalize();
   const ancla = aV(ctx.ancla?.ancla ?? ctx.ancla?.punto ?? ctx.ancla), dirAncla = aV(ctx.ancla?.direccion ?? ctx.direccion) || V(0, 1, 0);
   const nominalK = (tipo, loc) => loc.escala * R * g.largo;
@@ -1528,7 +1531,8 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, 
     case 'brillante': Object.assign(m, { roughness: 0.08, clearcoat: 0.8, clearcoatRoughness: 0.03 }); break;
     case 'nacar':
       // nácar: brillo suave que se desliza, un velo rosado en el borde y la iridiscencia de las capas
-      Object.assign(m, { roughness: 0.17, clearcoat: 0.85, clearcoatRoughness: 0.1, sheen: 0.75, sheenRoughness: 0.38, iridescence: 0.6, iridescenceIOR: 1.33, specularIntensity: 0.9 });
+      // (brillo suave: con la laca muy pulida se veían los rectángulos de las cajas de luz como marcas)
+      Object.assign(m, { roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.24, sheen: 0.75, sheenRoughness: 0.38, iridescence: 0.6, iridescenceIOR: 1.33, specularIntensity: 0.8 });
       m.color.multiplyScalar(0.86);
       m.iridescenceThicknessRange = [220, 560];
       m.sheenColor.set(0xFFE4EA).lerp(color, 0.3);
@@ -1549,8 +1553,9 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, 
       m.attenuationColor.copy(color).lerp(new THREE.Color(0xffffff), 1 - tinte); m.attenuationDistance = (tinte > 0.5 ? 1.2 : 6) * tamano;
       break;
     case 'saten':
-      Object.assign(m, { roughness: 0.26, sheen: 0.9, sheenRoughness: 0.28, specularIntensity: 0.75, side: THREE.FrontSide });
-      m.color.multiplyScalar(0.84);
+      // satén: un brillo largo que recorre la cinta y el color algo más hondo (una cinta clara plana se veía de papel)
+      Object.assign(m, { roughness: 0.34, sheen: 0.7, sheenRoughness: 0.35, specularIntensity: 0.9, side: THREE.FrontSide });
+      m.color.multiplyScalar(0.74);
       m.sheenColor.copy(color).lerp(new THREE.Color(0xffffff), 0.4);
       if (tx) { m.normalMap = tx.normalMap; m.normalScale.set(0.32, 0.32); }
       break;
