@@ -55,10 +55,11 @@ button{font:inherit;color:inherit;cursor:pointer}
 .encabezado{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:var(--blanco);border-bottom:1px solid var(--linea)}
 .encabezado .envoltura{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding-block:.7rem}
 .logo{display:block;flex:none;padding:6px 0}
-.logo img{width:180px;height:auto}
+.logo img{width:auto;height:46px}
 .menu{display:flex;align-items:center;gap:1.6rem}
 .menu a{font-family:var(--f-titulo);font-weight:500;font-size:.9rem;text-decoration:none;color:var(--azul)}
 .menu a:not(.boton):hover{color:var(--verde)}
+.menu a.boton{color:var(--blanco)}
 .menu-boton{display:none;background:none;border:1px solid var(--linea);border-radius:4px;padding:.45rem .7rem;font-family:var(--f-titulo);font-weight:600;font-size:.85rem}
 
 /* Portada */
@@ -157,7 +158,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 /* Pie */
 .pie{background:var(--gris);border-top:1px solid var(--linea)}
 .pie .envoltura{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:1.5rem;padding-block:2.2rem}
-.pie img{width:180px;height:auto}
+.pie img{width:auto;height:64px}
 .pie p{font-size:.88rem;color:var(--tinta-suave)}
 .pie-barra{background:var(--azul);color:var(--blanco);font-size:.78rem}
 .pie-barra .envoltura{padding-block:.8rem;display:flex;flex-wrap:wrap;justify-content:space-between;gap:.5rem}
@@ -212,7 +213,6 @@ button{font:inherit;color:inherit;cursor:pointer}
   .buscador{flex:1 1 100%}
 }
 @media (max-width:560px){
-  .logo img{width:150px}
   .lineas{grid-template-columns:repeat(2,1fr)}
   .linea:last-child{grid-column:1 / -1}
   .linea:last-child img{aspect-ratio:16/9}
@@ -233,7 +233,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 <header class="encabezado">
   <div class="envoltura">
-    <a class="logo" href="#inicio" aria-label="DISMET, ir al inicio"><img src="img/logo-dismet.png" alt="DISMET Innovaciones Industriales S.A.S." width="180" height="59"></a>
+    <a class="logo" href="#inicio" aria-label="DISMET, ir al inicio"><img src="img/isotipo-dismet.png" alt="DISMET" width="464" height="276"></a>
     <button class="menu-boton" id="menu-boton" aria-expanded="false" aria-controls="menu">Menú</button>
     <nav class="menu" id="menu" aria-label="Principal">
       <a href="#lineas">Productos</a>
@@ -375,7 +375,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 <footer>
   <div class="pie">
     <div class="envoltura">
-      <img src="img/logo-dismet.png" alt="DISMET Innovaciones Industriales S.A.S." loading="lazy" width="180" height="59">
+      <img src="img/isotipo-dismet.png" alt="DISMET" loading="lazy" width="464" height="276">
       <p>Mobiliario de oficina, escolar y almacenamiento.<br>Servicio de pintura electrostática.</p>
     </div>
   </div>
