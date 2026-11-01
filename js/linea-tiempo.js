@@ -156,7 +156,7 @@ export class LineaTiempo {
           <div class="lt-controles">${Object.entries(PISTAS).map(([k, P]) => `
             <div class="lt-ctl" data-ctl="${k}">
               <button class="lt-rombo" type="button" data-accion="rombo" data-pista="${k}" aria-pressed="false" aria-label="Keyframe de ${esc(P.nombre)} en el cabezal" title="Añadir o quitar un keyframe en el cabezal"></button>
-              <label class="lt-ctl-nombre" for="${id}-r-${k}" title="${esc(P.nombre)}"><span class="lt-largo">${esc(P.nombre)}</span><span class="lt-corto">${MEDIOS[k]}</span></label>
+              <label class="lt-ctl-nombre" for="${id}-r-${k}" title="${esc(P.nombre)}"><span class="lt-largo">${esc(P.corto || P.nombre)}</span><span class="lt-corto">${MEDIOS[k]}</span></label>
               <input type="range" id="${id}-r-${k}" data-valor="${k}" min="${P.min}" max="${P.max}" step="${P.paso}" value="${P.def}">
               <span class="lt-num"><input type="number" data-numero="${k}" min="${P.min}" max="${P.max}" step="${P.paso}" value="${P.def}" aria-label="${esc(P.nombre)}"><i>${P.unidad}</i></span>
             </div>`).join('')}

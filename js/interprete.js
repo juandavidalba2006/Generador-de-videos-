@@ -587,7 +587,8 @@ const SONIDOS = [
   ['obturador', /\b(?:obturador|shutter)\b|\b(?:sonido|efecto)\s+de\s+(?:foto|camara)\b|\b(?:disparo|clic|click)\s+de\s+(?:la\s+)?camara\b/],
   ['brillo', /\b(?:bling|sparkle|brillitos?|chispas?|chispitas?|magia|brillos?)\b/],
   ['glitch', /\b(?:glitch|interferencia)\b|\b(?:efecto|sonido)\s+de\s+falla\b/],
-  ['latido', /\b(?:latidos?|corazon|heartbeat)\b/],
+  // «corazón» solo si no es la forma de una cinta («una cinta en corazón» es el elemento, no un latido)
+  ['latido', /\b(?:latidos?|heartbeat)\b|(?<!\b(?:cinta|liston|lazo|mono)\b[a-z\s]{0,30})\bcorazon\b/],
   ['swipe', /\bswipe\b|\b(?:sonido|efecto)\s+de\s+deslizar\b/],
   ['pop', /\b(?:pop|plop|burbujas?)\b/],
   ['click', /\b(?:click|clic|tic)\b/],
@@ -797,11 +798,19 @@ function analizarPuesta(k, r0) {
   else {
     const m = r.match(/\b(?:(?:pon\w*|mete\w*|guarda\w*|dentro\s+de|en|sobre|con|junto\s+a|al\s+lado\s+de|encima\s+de|arriba\s+de)\s+(?:un\s+|una\s+|el\s+|la\s+|unas\s+)?)?(estuche(?:\s+de\s+(?:anillo|aretes|collar|pulsera|dije))?|cofre|caj(?:a|ita)\s+de\s+regalo|regalo|caja\s+de\s+cajon|cajon|bandeja|pila\s+de\s+cajas|cajas\s+apiladas|torres?\s+de\s+cajas|caja)\b((?:\s+(?!y\b|que\b)[a-z]+){0,6})/);
     if (m) {
-      r = r.replace(m[0], ' ');
-      const resto = m[2] || '', conCinta = resto.match(/\bcon\s+(?:una\s+|la\s+|un\s+|el\s+)?(?:cinta|liston|mono|lazo)\b((?:\s+[a-z]+){0,3})/);
+      let quitar = m[0], resto = m[2] || '', deMono = false, conCinta = resto.match(/\bcon\s+(?:una\s+|la\s+|un\s+|el\s+)?(?:cinta|liston|mono|lazo)\b((?:\s+[a-z]+){0,3})/);
+      // «…con una cinta en corazón», «…con una cinta que pase por el anillo»: esa cinta es el elemento (r5), no la de la
+      // caja; se deja en la frase para que la tome el elemento (antes se volvía el color de la cinta de la caja)
+      const tras = conCinta ? resto.slice(conCinta.index + conCinta[0].length - conCinta[1].length) + r.slice(m.index + m[0].length) : '';
+      if (conCinta && /^con\s+(?:una\s+|la\s+|un\s+|el\s+)?(?:cinta|liston)\b/.test(conCinta[0])
+        && /^\s+(?:de\s+saten\s+)?(?:(?:en|como|con\s+forma\s+de|que\s+(?:forme|dibuje|haga))\s+(?:un\s+|una\s+|de\s+)?(?:corazon|onda|ola|espiral|lazo)|que\s+pase\s+por)\b/.test(tras)) {
+        quitar = m[0].slice(0, m[0].length - resto.length + conCinta.index); resto = resto.slice(0, conCinta.index); conCinta = null; deMono = true;
+      }
+      r = r.replace(quitar, ' ');
       const color = colorPuesta(conCinta ? resto.slice(0, conCinta.index) : resto), cinta = conCinta ? colorPuesta(conCinta[1]) || COLORES_MARCA.oro.hex : null;
       const tipo = tipoUtileriaPedido(m[1], r0);
-      const posicion = /\b(?:al\s+lado|junto)\b/.test(m[0]) ? 'al-lado' : /\b(?:encima|arriba)\s+de\b/.test(m[0]) || /\bgigante\b/.test(resto) ? 'escenario' : 'asiento';
+      // la cinta que sale del moño (r5) pide la caja al lado, con la joya flotando encima (salvo «dentro de la caja»)
+      const posicion = /\b(?:al\s+lado|junto)\b/.test(m[0]) || (deMono && !/\b(?:dentro|mete\w*|guarda\w*)\b/.test(m[0])) ? 'al-lado' : /\b(?:encima|arriba)\s+de\b/.test(m[0]) || /\bgigante\b/.test(resto) ? 'escenario' : 'asiento';
       p.utileria = { tipo, ...(color ? { color } : {}), ...(cinta ? { cinta } : {}), posicion };
     }
   }

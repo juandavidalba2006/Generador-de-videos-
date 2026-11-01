@@ -522,14 +522,15 @@ function ruido2(x, y, k = 0) {
 // Pliegues alargados en diagonal que se tuercen despacio (el ruido estirado a lo largo del pliegue y deformado por otro);
 // fase: corrimiento lento con el tiempo (ondas)
 function pliegue(x, s, fase = 0) {
-  const wx = x + 3 * (ruido2(x / 14, s / 14, 3) - 0.5), ws = s + 3 * (ruido2(x / 14 + 17, s / 14, 4) - 0.5);
+  const wx = x + 1.8 * (ruido2(x / 8, s / 8, 3) - 0.5), ws = s + 1.8 * (ruido2(x / 8 + 17, s / 8, 4) - 0.5);
   const th = 0.55 + 0.6 * (ruido2(x / 30, s / 30, 5) - 0.5), c = Math.cos(th), sn = Math.sin(th);
   const a = wx * c + ws * sn, b = -wx * sn + ws * c;
-  // pocos pliegues anchos y suaves (como una tela grande que cae): crestas redondeadas donde el ruido estirado pasa por la
-  // mitad, valles anchos, y apenas un segundo pliegue más chico
-  const r1 = ruido2(a / 8.5 + 0.35 * fase, b / 24 + fase, 1), c1 = 1 - Math.abs(2 * r1 - 1), h1 = c1 * c1 * (3 - 2 * c1);
-  const h2 = ruido2(a / 4.5 + 9 - 0.2 * fase, b / 13 + 4 + 0.6 * fase, 2);
-  return (h1 - 0.45) * 2 + (h2 - 0.5) * 0.3;
+  // unos pocos pliegues anchos (2 a 4 radios de la joya entre cresta y cresta, como en r1/r2): crestas redondeadas donde
+  // el ruido estirado pasa por la mitad, valles anchos, y apenas un segundo pliegue más chico. Con 8,5 × 24 radios se
+  // veía un solo brillo en todo el cuadro; mucho más cortos, la tela parecía chocolate derretido
+  const r1 = ruido2(a / 4.2 + 0.35 * fase, b / 11 + fase, 1), c1 = 1 - Math.abs(2 * r1 - 1), h1 = c1 * c1 * (3 - 2 * c1);
+  const h2 = ruido2(a / 2.6 + 9 - 0.2 * fase, b / 7 + 4 + 0.6 * fase, 2);
+  return (h1 - 0.45) * 2 + (h2 - 0.5) * 0.25;
 }
 // Rejilla fina cerca de la joya (los pliegues necesitan detalle donde se ven) y gruesa lejos
 function pasosTela(a, b, u, fino, lejos) {
@@ -569,15 +570,16 @@ function fondoTela(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
   for (let j = 0; j < perfil.length; j++) for (let i = 0; i < xs.length; i++) {
     const k = j * xs.length + i, p = perfil[j], x = xs[i];
     // (el piso bajo la joya queda tranquilo: ahí se lee el charco de luz)
-    const enPiso = p.ny > 0.999, d = Math.hypot(x, p.z), cerca = enPiso ? 0.15 + 0.85 * suav(limitar((d - plano) / (5 * u), 0, 1)) : 1;
+    // (fuera del círculo de apoyo los pliegues suben enseguida: en r2 las crestas rodean las piezas)
+    const enPiso = p.ny > 0.999, d = Math.hypot(x, p.z), cerca = enPiso ? 0.12 + 0.88 * suav(limitar((d - plano) / (2.2 * u), 0, 1)) : 1;
     const subida = suav(limitar((p.s - sCurva) / (Rc * 1.2), 0, 1));   // del piso (pliegues bajos) al fondo (más altos)
     const lejos = 1 - suav(limitar((Math.abs(x) - 17 * u) / (9 * u), 0, 1));
     const arriba = 1 - suav(limitar((p.y - 25 * u) / (10 * u), 0, 1)), frente = 1 - suav(limitar((p.z - 14 * u) / (8 * u), 0, 1));
-    amp[k] = u * (0.3 + 0.75 * subida) * cerca * lejos * arriba * frente;
+    amp[k] = u * (0.34 + 0.36 * subida) * cerca * lejos * arriba * frente;
     sx[k] = x / u; ss[k] = p.s / u;
   }
   const base = geo.attributes.position.array.slice(), nBase = geo.attributes.normal.array.slice();
-  return { geo, curva: Rc, tela: { base, nBase, amp, sx, ss, ampPiso: 0.3 * u } };
+  return { geo, curva: Rc, tela: { base, nBase, amp, sx, ss, ampPiso: 0.4 * u } };
 }
 // Pone los pliegues en el instante t (fase lenta con ondas). Devuelve true si la tela cambió
 function plegarTela(geo, tela, fase) {
@@ -1136,7 +1138,8 @@ export class Escenario3D {
     if (esquema === 'clave-baja') {
       // el charco: un foco desde arriba, apenas adelante, del ancho de la pieza (o del par)
       // (sin mapa de sombras en el motor rápido: dejaba una sombra dura; en el trazador la sombra sale suave por el radio)
-      foco({ pos: V3(0, piso + 30 * u, 2.5 * u), mira: V3(0, piso, 0), E: 1.5 * k, radioCono: (2.2 * u + 1.3 * hu), radio: 2.2 * u, col: colorLuz(Math.min(1, l.calidez + 0.3)) });
+      // (más cálido, más ceñido y más fuerte: como en r2, un charco dorado justo bajo las piezas)
+      foco({ pos: V3(0, piso + 30 * u, 2.5 * u), mira: V3(0, piso, 0), E: 2.3 * k, radioCono: (1.7 * u + 1.15 * hu), radio: 2.2 * u, col: colorLuz(Math.min(1, l.calidez + 0.45)) });
     } else if (esquema === 'alta-clave') {
       const L = Lp || V3(0, 1, 1);
       foco({ pos: V3(-L.x, Math.max(0.5, L.y), L.z).normalize().multiplyScalar(30 * u), mira: V3(0, 0, 0), E: 0.5 * k, radioCono: 22 * u, radio: 6 * u, pen: 1 });
@@ -1212,14 +1215,30 @@ const SOMBREADOR_LIMPIEZA = {
     vec3 guiado( vec2 uv ) { return pantalla( texture2D( guia, uv ).rgb ); }
     void main() {
       vec3 c0 = trazado( vUv );
-      // cuánto del píxel es joya (la silueta viene suavizada en los bordes): el borde se mezcla en esa proporción
-      float m = min( 1.0, 1.5 * texture2D( mascara, vUv ).r );
-      if ( m > 0.999 ) { gl_FragColor = vec4( c0, 1.0 ); return; }
+      // cuánto del píxel es joya (la silueta viene suavizada en los bordes): el borde se mezcla en esa proporción.
+      // En verde, solo el metal (las piedras van en magenta: su centelleo no se toca)
+      vec4 mk = texture2D( mascara, vUv );
+      float m = min( 1.0, 1.5 * mk.r ), mm = min( 1.0, 1.5 * mk.g );
       // el color de referencia es el promedio de 3×3 (un píxel solo es casi puro ruido)
       vec3 ref = vec3( 0.0 );
       for ( int j = -1; j <= 1; j ++ ) for ( int i = -1; i <= 1; i ++ ) ref += trazado( vUv + vec2( i, j ) * pixel );
       ref /= 9.0;
-      vec3 g0 = guiado( vUv ), suma = vec3( 0.0 );
+      vec3 g0 = guiado( vUv ), joya = c0;
+      // el metal también tiene grano: refleja la tela y las tiras finas del estudio, que el trazador junta despacio (con
+      // clave baja el oro se veía martillado). Se limpia aparte, solo con vecinos de metal, cerca (σ ≈ 1,6 px) y con la
+      // guía para no cruzar el filo de la pieza ni las bandas: el oro queda liso con sus bandas oscuras
+      if ( mm > 0.001 ) {
+        vec3 sj = vec3( 0.0 ); float pj = 0.0, kcj = 0.5 / ( 4.8 * sigmaColor * sigmaColor ), kgj = 0.5 / ( 0.01 );
+        for ( int j = -3; j <= 3; j ++ ) for ( int i = -3; i <= 3; i ++ ) {
+          vec2 d = vec2( i, j ), q = vUv + d * pixel;
+          vec3 c = trazado( q ), dc = c - ref, dg = guiado( q ) - g0;
+          float w = exp( - dot( d, d ) / 5.0 - dot( dg, dg ) * kgj - dot( dc, dc ) * kcj ) * texture2D( mascara, q ).g;
+          sj += c * w; pj += w;
+        }
+        if ( pj > 1e-4 ) joya = mix( c0, sj / pj, mm );
+      }
+      if ( m > 0.999 ) { gl_FragColor = vec4( joya, 1.0 ); return; }
+      vec3 suma = vec3( 0.0 );
       float peso = 0.0, kc = 0.5 / ( sigmaColor * sigmaColor ), kg = 0.5 / ( sigmaGuia * sigmaGuia );
       // vecinos hasta 4 píxeles (peso espacial con σ = 3 px: con 8 muestras el grano del yeso baja más de 3 veces sin
       // borrar las sombras de la ventana, que respeta la guía)
@@ -1230,7 +1249,7 @@ const SOMBREADOR_LIMPIEZA = {
         suma += c * w; peso += w;
       }
       vec3 limpio = peso > 1e-4 ? suma / peso : c0;
-      gl_FragColor = vec4( mix( limpio, c0, m ), 1.0 );
+      gl_FragColor = vec4( mix( limpio, joya, m ), 1.0 );
     }`,
 };
 export class LimpiadorPT {

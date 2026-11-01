@@ -1026,18 +1026,42 @@ function recorridoLocal(tipo, wl) {
     const ctrl = [[0.3, -1, 0], [0.16, -0.62, 0], [0.04, -0.36, 0], [-0.14, -0.08, 0], [-0.17, 0.12, 0], [-0.09, 0.28, 0], [0, 0.31, 0], [0.09, 0.28, 0.1], [0.17, 0.12, 0.4], [0.14, -0.08, 0.8], [-0.04, -0.36, 1], [-0.16, -0.62, 1], [-0.3, -1, 1]].map(([x, y, z]) => V(x, y, z * dz));
     return { ctrl, enhebre: [V(-0.05, 0.305, 0), V(0.05, 0.305, 0)], nominal: V(0, 0.31, 0), escala: 3.4 / 1.31, abajo: false };
   }
-  // corazón: sube por la derecha, pasa por arriba del lóbulo y baja al centro; ahí da un rizo (una vuelta en el plano del
-  // corazón, como la cinta del reel: cruza sobre sí misma un poco adelante) y sigue por el lóbulo izquierdo hasta abajo
-  const rc = Math.max(0.04, 1.05 * wl), dz = Math.max(0.9 * wl, 0.03), C = [0, 0.75];
-  const ent = [C[0] - 0.866 * rc, C[1] + 0.5 * rc], sal = [C[0] + 0.866 * rc, C[1] + 0.5 * rc];
-  const der = [[0.07, 0], [0.17, 0.13], [0.31, 0.31], [0.44, 0.5], [0.52, 0.67], [0.53, 0.83], [0.46, 0.95], [0.34, 1.0], [0.22, 0.97], [0.12, 0.9], [0.05, 0.84]];
-  const ctrl = der.map(([x, y]) => V(x, y, 0));
-  ctrl.push(V(ent[0], ent[1], 0));
+  // corazón (r5): alto y parejo, con dos lóbulos redondos y la punta abajo (en el moño). Es el corazón clásico
+  // (x = 16 sen³t, y = 13 cos t − 5 cos 2t − 2 cos 3t − cos 4t, un poco angosto): sube por la derecha, da la vuelta por
+  // arriba del lóbulo y baja al centro; ahí da un rizo (una vuelta en el plano que cruza un poco adelante, como la cinta
+  // del reel) y sigue por el lóbulo izquierdo hasta la punta. La joya va arriba del lóbulo derecho (donde la cinta va
+  // horizontal: el corazón queda derecho)
+  const F = t => V(0.92 * 16 * Math.sin(t) ** 3 / 29, (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t) + 17) / 29, 0);
+  let tTope = 1, yTope = 0;
+  for (let t = 0.3; t < 2; t += 0.002) { const y = F(t).y; if (y > yTope) { yTope = y; tTope = t; } }
+  const Fc = t => F(t).multiplyScalar(1 / yTope);   // de la punta (y = 0) a lo alto de los lóbulos (y = 1)
+  const rc = Math.max(0.055, 1.3 * wl), dz = Math.max(0.9 * wl, 0.03), C = [0, Fc(0).y - 1.7 * rc];
+  const der = [];
+  for (let k = 0; k <= 22; k++) der.push(Fc(Math.PI - 0.05 - (Math.PI - 0.67) * k / 22));
+  const ctrl = der.slice();
+  ctrl.push(V(C[0] - 0.866 * rc, C[1] + 0.5 * rc, 0));
   // la vuelta: de 240° a 480° de rumbo, en sentido antihorario (el centro queda a la izquierda de la marcha)
   for (let k = 1; k <= 14; k++) { const th = (240 + 240 * k / 14) * Math.PI / 180; ctrl.push(V(C[0] + rc * Math.cos(th - Math.PI / 2), C[1] + rc * Math.sin(th - Math.PI / 2), dz * suave(k / 14))); }
-  const izq = der.slice().reverse().map(([x, y]) => [-x, y]);
-  izq.forEach(([x, y], j) => ctrl.push(V(x, y, dz * (1 - suave((j + 1) / (izq.length * 0.45))))));
-  return { ctrl, enhebre: [V(0.52, 0.67, 0), V(0.3, 1.0, 0)], nominal: V(0.5, 0.86, 0), escala: 5.5, abajo: true, rc };
+  const izq = der.slice().reverse();
+  izq.forEach((p, j) => ctrl.push(V(-p.x, p.y, dz * (1 - suave((j + 1) / (izq.length * 0.3))))));
+  return { ctrl, enhebre: [Fc(tTope + 0.38), Fc(tTope - 0.3)], nominal: Fc(tTope + 0.1), escala: 5.2, abajo: true, rc, giros: [[0.025, 0.2], [0.8, 0.975]] };
+}
+// Media vuelta de la cinta alrededor de su eje en cada tramo [desde, hasta] (fracciones del largo): como una cinta de
+// verdad, muestra las dos caras y el brillo corre por ella. giro[i]: el ángulo en la muestra i (0 fuera de los tramos)
+function perfilGiro(n, tramos) {
+  const giro = new Float32Array(n);
+  if (!tramos) return giro;
+  for (let i = 0; i < n; i++) { const u = i / (n - 1); for (const [a, b] of tramos) if (u > a) giro[i] += Math.PI * suave((u - a) / (b - a)); }
+  return giro;
+}
+function torcer(fr, giro) {
+  if (!giro) return fr;
+  for (let i = 0; i < fr.N.length; i++) {
+    const f = giro[i]; if (!f) continue;
+    const c = Math.cos(f), s = Math.sin(f), n = fr.N[i], b = fr.B[i];
+    fr.N[i] = n.clone().multiplyScalar(c).addScaledVector(b, s); fr.B[i] = b.clone().multiplyScalar(c).addScaledVector(n, -s);
+  }
+  return fr;
 }
 function planCinta(g, J, ctx) {
   const R = J.R, avisos = [];
@@ -1060,7 +1084,8 @@ function planCinta(g, J, ctx) {
   let nE = vista.clone().addScaledVector(a, -vista.dot(a));
   if (nE.lengthSq() < 0.25) { nE = V().crossVectors(a, EJE_Y); if (nE.lengthSq() < 1e-6) nE = vista.clone(); }
   nE.normalize();
-  const ancla = aV(ctx.ancla?.ancla ?? ctx.ancla?.punto ?? ctx.ancla), dirAncla = aV(ctx.ancla?.direccion ?? ctx.direccion) || V(0, 1, 0);
+  // nominal: el corazón a su tamaño, sin moño ni piso (para saber dónde debe quedar el moño: puntaCorazon)
+  const nominal = !!ctx.nominal, ancla = nominal ? null : aV(ctx.ancla?.ancla ?? ctx.ancla?.punto ?? ctx.ancla), dirAncla = aV(ctx.ancla?.direccion ?? ctx.direccion) || V(0, 1, 0);
   const nominalK = (tipo, loc) => loc.escala * R * g.largo;
   let k = nominalK(g.recorrido, recorridoLocal(g.recorrido, 0.07));
   let mejor = null;
@@ -1095,11 +1120,13 @@ function planCinta(g, J, ctx) {
     if (mejor.loc.abajo) {
       const base = mapear(C[0].clone().add(C[C.length - 1]).multiplyScalar(0.5));
       if (ancla && base.lengthSq() > 0) k = limitar(V().subVectors(ancla, Ph).dot(base) / base.lengthSq(), 0.4 * k, 2.2 * k);
-      else if (base.y < 0) k = limitar((Ph.y - J.suelo - 0.6 * w - holgura) / -base.y, 0.35 * k, 1.6 * k);
+      else if (base.y < 0 && !nominal) k = limitar((Ph.y - J.suelo - 0.6 * w - holgura) / -base.y, 0.35 * k, 1.6 * k);
+      mejor.punta = base.multiplyScalar(k).add(Ph);
     }
     mejor.mapear = mapear;
   }
   const { crudo: C, i: ih, mapear, loc } = mejor;
+  if (nominal) return { tipo: 'cinta', punta: mejor.punta || null, paso: Ph.clone(), k };
   let P = C.map(p => mapear(p).multiplyScalar(k).add(Ph));
   const largoTotal = P.reduce((s, p, i) => (i ? s + p.distanceTo(P[i - 1]) : 0), 0), dS = largoTotal / (P.length - 1);
   const tangH = V().subVectors(P[Math.min(P.length - 1, ih + 1)], P[Math.max(0, ih - 1)]).normalize(), aS = a.clone().multiplyScalar(Math.sign(tangH.dot(a)) || 1);
@@ -1134,7 +1161,8 @@ function planCinta(g, J, ctx) {
   // índice del agujero en el remuestreo
   const iH = puntos.reduce((b, p, i) => (p.distanceTo(Ph) < puntos[b].distanceTo(Ph) ? i : b), 0);
   const plano = g.recorrido === 'espiral' ? null : nE.clone();
-  const marcos = marcosParalelos(puntos, nE.clone().cross(tangentes(puntos)[0]), plano);
+  const giro = loc.giros ? perfilGiro(puntos.length, loc.giros) : null;
+  const marcos = torcer(marcosParalelos(puntos, nE.clone().cross(tangentes(puntos)[0]), plano), giro);
   // revisar contra los triángulos de la joya (los cantos y el medio de la cinta); si algo roza, otro intento con más tramo recto
   const rej = tri ? rejillaDe(tri, R) : null;
   let juego = Infinity;
@@ -1142,7 +1170,7 @@ function planCinta(g, J, ctx) {
     const lado = esquinasCinta(puntos, marcos.N, marcos.B, w, e);
     for (const c of lado) for (let m = 0; m < 4; m++) for (let s = 0; s < 3; s++) juego = Math.min(juego, distanciaJoya(rej, c[m].clone().lerp(c[(m + 1) % 4], s / 3), 4 * holgura));
   }
-  return { tipo: 'cinta', g, puntos, marcos, plano, ancho: w, espesor: e, ag, iH, tramo, juego, holgura, avisos, abajo: loc.abajo, ancla: !!ancla };
+  return { tipo: 'cinta', g, puntos, marcos, giro, plano, ancho: w, espesor: e, ag, iH, tramo, juego, holgura, avisos, abajo: loc.abajo, ancla: !!ancla };
 }
 // La cinta en el instante t: el recorrido con el aleteo suave (cero en el agujero, en el rizo y en los extremos atados) y
 // hasta dónde está dibujada (tope, en muestras: crece desde el primer extremo)
@@ -1163,7 +1191,7 @@ function cintaEn(c, t) {
 // Lo dibujado de la cinta: los puntos hasta la punta (interpolada) y sus marcos; completo: el resto se junta en la punta
 // (mismo número de vértices cada cuadro: el trazador solo reajusta el BVH)
 function cintaCortada(c, t, completo) {
-  const { P, tope } = cintaEn(c, t), n = P.length, fr = marcosParalelos(P, c.marcos.N[0], c.plano);
+  const { P, tope } = cintaEn(c, t), n = P.length, fr = torcer(marcosParalelos(P, c.marcos.N[0], c.plano), c.giro);
   const i0 = Math.min(n - 2, Math.floor(tope)), f = tope - i0;
   const lerp = (L, normal) => { const v = L[i0].clone().lerp(L[i0 + 1], f); return normal ? v.normalize() : v; };
   const punta = { p: lerp(P), N: lerp(fr.N, 1), B: lerp(fr.B, 1), T: lerp(fr.T, 1) };
@@ -1349,6 +1377,16 @@ function eslabones(c, formas) {
 }
 
 // ---------- Plan completo ----------
+// Dónde tiene que quedar el moño para que la cinta en corazón salga a su tamaño (la punta del corazón, en el marco de la
+// joya) y por dónde pasa la cinta por la joya: el estudio sube la joya y corre la caja de regalo hasta ahí (r5).
+// { punta, joya } o null si no hay cinta en corazón
+export function puntaCorazon(lista, op = {}) {
+  if (!esObj(op)) op = {};
+  const g = normalizarElementos(lista).find(x => x.forma === 'cinta' && x.recorrido === 'corazon');
+  if (!g) return null;
+  const J = describirJoya(op), c = planCinta(g, J, { nominal: true });
+  return c.punta ? { punta: c.punta, joya: c.paso } : null;
+}
 // lista: grupos (se normalizan); op: { joya: { caja, mmPorUnidad, objeto?, triangulos? }, suelo, version, metal, ancla
 // (moño de la caja de regalo: { ancla|punto, direccion }), anclasCadena ({ izquierda, derecha }), centroVuelo }
 export function planearElementos(lista, op = {}) {
@@ -1728,6 +1766,18 @@ export class Elementos {
     this.grupo.updateMatrixWorld(true); this.grupoPT.updateMatrixWorld(true); this.grupoJoyaPT.updateMatrixWorld(true);
     if (movio) this.ptSucio = true;
     return movio;
+  }
+  // Solo dan sombra (motor rápido) los elementos que están en el cuadro o a punto de entrar: uno que cae desde arriba,
+  // todavía fuera de la imagen, dejaba una mancha oscura flotando en la pared de satén
+  sombrasEnCuadro(camara) {
+    const fr = this._fr || (this._fr = new THREE.Frustum()), esf = this._esf || (this._esf = new THREE.Sphere());
+    fr.setFromProjectionMatrix(_m4.multiplyMatrices(camara.projectionMatrix, camara.matrixWorldInverse));
+    for (const m of this.mallas) {
+      if (!m.ins || !m.rapido.visible) continue;
+      esf.center.copy(m.rapido.position).applyMatrix4(m.rapido.parent.matrixWorld); esf.radius = 1.1 * m.ins.rb * Math.max(m.rapido.scale.x, 1e-3);
+      const ve = fr.intersectsSphere(esf);
+      if (m.rapido.userData.sombra !== ve) { m.rapido.userData.sombra = ve; m.rapido.traverse(o => { if (o.isMesh) o.castShadow = ve; }); }
+    }
   }
   // Mismo giro de tornamesa que Escenario3D.girar: la utilería del piso gira con la cámara (motor rápido)
   girar(az) { if (this.escenario.rotation.y !== az) { this.escenario.rotation.y = az; this.escenario.updateMatrixWorld(true); } }

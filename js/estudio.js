@@ -10,7 +10,7 @@ import { METALES, PIEDRAS, ACABADOS } from './catalogo.js';
 import { Escenario3D, LimpiadorPT } from './escenario3d.js';
 import { normalizarEscena, escenaOscura, usarNormalizadores, joyaFlota, utileriaQueAbre } from './escenas.js';
 import { Utileria, normalizarUtileria } from './utileria.js';
-import { Elementos, normalizarElementos } from './elementos.js';
+import { Elementos, normalizarElementos, puntaCorazon } from './elementos.js';
 export { METALES, PIEDRAS, ACABADOS };
 // la escena valida su estuche y sus elementos con los validadores completos (escenas.js no importa three.js)
 usarNormalizadores({ utileria: normalizarUtileria, elementos: normalizarElementos });
@@ -128,9 +128,16 @@ export function hdrEstudio(oscuro = false, W = 1024, H = 512, sala = false) {
 //    lados para el filo del oro; el oro queda como espejo con bandas oscuras y los diamantes centellean con puntitos
 //  · clave alta: una sala clara y pareja con cajas grandes
 //  · contraluz: oscuro adelante y claro atrás, con dos tiras de borde detrás de la pieza
-function panelesEsquema(esquema) {
+// suave (el del trazador): las tiras finas y los puntitos más anchos y con menos intensidad (la misma luz) y los bordes
+// difusos. Con las tiras de 1,4 y los puntitos de 0,75 el trazador tarda mucho en juntarlos y el oro salía granulado
+function panelesEsquema(esquema, suave = false) {
   const P = [];
-  const panel = (w, h, intensidad, pos, color = 0xffffff) => P.push({ w, h, pos: new THREE.Vector3(...pos), color: lineal(color).multiplyScalar(intensidad) });
+  const panel = (w, h, intensidad, pos, color = 0xffffff) => {
+    let k = 1;
+    if (suave && Math.max(w, h) < 2 * Math.min(w, h)) { w *= 1.6; h *= 1.6; k = 1 / 2.56; }   // puntitos
+    else if (suave) { const a = Math.max(1, 2.4 / Math.min(w, h)); if (w < h) w *= a; else h *= a; k = 1 / a; }   // tiras
+    P.push({ w, h, pos: new THREE.Vector3(...pos), color: lineal(color).multiplyScalar(intensidad * k) });
+  };
   // (puntitos para que las piedras centelleen: no muy chicos ni muy fuertes, si no el trazador los convierte en grano en el oro)
   const puntitos = (n, base, extra, desde = 0.15) => { for (let i = 0; i < n; i++) { const t = i * 2.399963 + 0.7, y = 1 - (i + 0.5) / n * (1 - desde), rr = Math.sqrt(1 - y * y); panel(0.75, 0.75, base + (i % 3) * extra, [Math.cos(t) * rr * 12.5, y * 12.5, Math.sin(t) * rr * 12.5], i % 4 === 0 ? 0xfff0d8 : 0xffffff); } };
   if (esquema === 'clave-baja') {
@@ -160,8 +167,8 @@ function panelesEsquema(esquema) {
   }
   return P;
 }
-export function hdrEsquema(esquema, W = 1024, H = 512) {
-  const datos = new Float32Array(W * H * 4), P = panelesEsquema(esquema);
+export function hdrEsquema(esquema, W = 1024, H = 512, suave = false) {
+  const datos = new Float32Array(W * H * 4), P = panelesEsquema(esquema, suave);
   const C = {
     'clave-baja': [lineal(0x0e0c09), lineal(0x040404), lineal(0x000000)],
     'alta-clave': [lineal(0x8a847a), lineal(0x4a4640), lineal(0x2a2724)],
@@ -182,7 +189,12 @@ export function hdrEsquema(esquema, W = 1024, H = 512) {
         const dn = d.dot(p.n); if (dn <= 0) continue;
         const t = p.dist / dn; if (t >= cerca) continue;
         q.copy(d).multiplyScalar(t).sub(p.pos);
-        if (Math.abs(q.dot(p.der)) <= p.w / 2 && Math.abs(q.dot(p.arr)) <= p.h / 2) { cerca = t; r = p.color.r; g = p.color.g; b = p.color.b; }
+        const ex = Math.abs(q.dot(p.der)) / (p.w / 2), ey = Math.abs(q.dot(p.arr)) / (p.h / 2);
+        if (ex <= 1 && ey <= 1) {
+          // borde difuso en el del trazador (el último 30 % del panel se funde con la cúpula)
+          const f = suave ? Math.min(1, (1 - ex) / 0.3, (1 - ey) / 0.3) : 1, s2 = f * f * (3 - 2 * f);
+          cerca = t; r = c.r + (p.color.r - c.r) * s2; g = c.g + (p.color.g - c.g) * s2; b = c.b + (p.color.b - c.b) * s2;
+        }
       }
       const k = 4 * (j * W + i); datos[k] = r; datos[k + 1] = g; datos[k + 2] = b; datos[k + 3] = 1;
     }
@@ -315,23 +327,36 @@ export class Estudio {
     const cfg = this.escena3D, ant = this.joyas.position.y;
     this.ponerPar(cfg.par?.activo ? cfg.par : null);
     this.moverJoya(0);   // las medidas se toman con la joya en su lugar (sin elevar ni el vaivén)
-    const caja = this.cajaJoyas, alto = Math.max(1e-6, caja.max.y - caja.min.y), flota = joyaFlota(cfg);
+    const caja = this.cajaJoyas, alto = Math.max(1e-6, caja.max.y - caja.min.y), U = cfg.utileria;
+    // r5: la cinta en corazón que sale del moño de una caja de regalo al lado. La joya sube sola (flota aunque no se haya
+    // pedido) hasta donde el corazón cabe a su tamaño, y la caja se corre bajo la punta del corazón: con la altura de
+    // flotar de siempre el corazón quedaba aplastado en una «S» o torcido en un gancho
+    const r5 = U?.tipo === 'caja-regalo' && U.posicion === 'al-lado' && U.mono !== false && !this.par
+      ? puntaCorazon(cfg.elementos || [], { joya: { caja, mmPorUnidad: 1, objeto: this.joyas }, version: this.versionModelo }) : null;
+    const flota = joyaFlota(cfg) || !!r5;
     this.alturaJoya = alto;
-    const suelo = flota ? this.base - cfg.flotar.altura * alto : null;
+    const suelo = flota ? this.base - (cfg.flotar?.activo ? cfg.flotar.altura : 0.35) * alto : null;
     // el estuche
     let ru = null;
-    const U = cfg.utileria;
     if (U && U.tipo !== 'ninguna') {
       const pos = U.posicion, joya = { caja, mmPorUnidad: 1, objeto: this.joyas, par: this.par ? { separacion: this.par.d } : null };
-      let sueloU = pos === 'asiento' ? (U.tipo === 'pila-cajas' && flota ? suelo : undefined) : (suelo ?? this.base);
+      let sueloU = pos === 'asiento' ? (U.tipo === 'pila-cajas' && flota ? suelo : undefined) : (suelo ?? this.base), desplazar = null;
       // la joya que flota sobre una caja «al lado» (r5: el anillo sobre la caja de regalo): la altura se mide desde lo alto
       // de la caja, así la caja cabe debajo. Primero se mide la caja (con el piso bien abajo) y después se baja el piso
       if (pos === 'al-lado' && flota) {
-        const r0 = this.utileria.armar(U, { joya, version: this.versionModelo, suelo: suelo - 12 * alto });
+        const lejos = suelo - 12 * alto, r0 = this.utileria.armar(U, { joya, version: this.versionModelo, suelo: lejos });
         if (r0?.limitesCerrado && r0.limites) sueloU = suelo - (Math.max(r0.limitesCerrado.max.y, r0.limites.max.y) - r0.base);
+        const mono = r0?.anclas?.mono?.local;
+        if (r5 && mono) {
+          // el moño en la punta del corazón (más abajo si la altura de flotar pide más: el corazón crece), en la recta que
+          // va de la joya a la punta
+          const yMono = Math.min(r5.punta.y, sueloU + mono.y - lejos), f = (r5.joya.y - yMono) / Math.max(1e-6, r5.joya.y - r5.punta.y);
+          const meta = r5.joya.clone().lerp(r5.punta, f);
+          sueloU = yMono - (mono.y - lejos); desplazar = { x: meta.x - mono.x, z: meta.z - mono.z };
+        }
       }
       this.sueloFlota = sueloU;
-      ru = this.utileria.armar(U, { joya, version: this.versionModelo, suelo: sueloU });
+      ru = this.utileria.armar(U, { joya, version: this.versionModelo, suelo: sueloU, desplazar });
       for (const [e, g] of [[this.escena, this.utileria.grupo], [this.escenaPT, this.utileria.grupoPT]]) if (g.parent !== e) e.add(g);
     } else this.quitarUtileria();
     this.resultadoUtileria = ru;
@@ -415,7 +440,11 @@ export class Estudio {
   // lo demás: una lluvia de perlas no aleja la cámara)
   medirEncuadre(ru, re) {
     const c = this.cajaJoyas ? this.cajaJoyas.clone() : (this.caja?.clone() || new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)));
-    if (ru?.limites && !ru.escenario) c.union(ru.limites);
+    // la pila de cajas (r7): la joya y las cimas de las torres (de donde cuelga la cadena); las torres salen del cuadro
+    // por abajo y por los lados, como en el reel (con la pila entera la joya quedaba diminuta)
+    const an = ru?.anclas || {};
+    if (ru?.tipo === 'pila-cajas' && an.izquierda && an.derecha) c.expandByPoint(an.izquierda.local).expandByPoint(an.derecha.local);
+    else if (ru?.limites && !ru.escenario) c.union(ru.limites);
     let esfera = c.getBoundingSphere(new THREE.Sphere());
     if (re?.limites) {
       const mas = c.clone().union(re.limites), e2 = mas.getBoundingSphere(new THREE.Sphere());
@@ -625,6 +654,9 @@ export class Estudio {
       // tapa abierta, que queda detrás, nunca tapa la pieza
       const U = this.escena3D.utileria;
       if (this.utileria.activa && U?.posicion === 'asiento' && utileriaQueAbre(this.escena3D)) az = Math.sin(az);
+      // la pila de cajas (r7) y la caja al lado (r5, con su corazón de cinta): se mece ±34°. Con la vuelta entera, a 90° y
+      // 270° las torres o la caja tapaban la joya y la cadena, y el corazón se veía de canto
+      else if (this.utileria.activa && (U?.tipo === 'pila-cajas' || U?.posicion === 'al-lado')) az = 0.6 * Math.sin(az);
       az += this.frente || 0;
     }
     this.giroCamara = az;
@@ -673,6 +705,7 @@ export class Estudio {
     cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist).addScaledVector(derCam, -cx * tv * cam.aspect * dist));
     cam.up.copy(arribaLadeado);   // la orientación ya quedó calculada: camera.up vuelve a ser el «arriba» ladeado por el roll
     cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    if (escenario && !this.elementos.vacio) this.elementos.sombrasEnCuadro(cam);
     // el trazador lanza los rayos desde el plano cercano y mide el foco desde ahí: se descuenta para que lo nítido sea la joya
     cam.focusDistance = Math.max(this.radio * 0.05, cam.position.distanceTo(foco) - cam.near);
     // desenfoque 0 = todo nítido; 1 = macro con poca profundidad de campo (solo se ve con trazado de rayos).
@@ -737,7 +770,9 @@ export class Estudio {
     if (!esquema || esquema === 'ventana') { this.sala(); return { env: this.envSala, pm: this.pmSala, ganancia: this.gananciaSalaPT }; }
     if (!this.envEsquemas.has(esquema)) {
       const env = hdrEsquema(esquema), pm = new THREE.PMREMGenerator(this.renderer);
-      this.envEsquemas.set(esquema, env); this.pmEsquemas.set(esquema, pm.fromEquirectangular(env).texture); pm.dispose();
+      // (el trazador usa uno con las tiras suaves en clave baja: la misma luz con menos grano en el oro)
+      this.envEsquemas.set(esquema, esquema === 'clave-baja' ? hdrEsquema(esquema, 1024, 512, true) : env); this.pmEsquemas.set(esquema, pm.fromEquirectangular(env).texture); pm.dispose();
+      if (esquema === 'clave-baja') env.dispose();
     }
     return { env: this.envEsquemas.get(esquema), pm: this.pmEsquemas.get(esquema), ganancia: GANANCIA_ESQUEMA_PT[esquema] ?? 1 };
   }
@@ -783,7 +818,8 @@ export class Estudio {
   // La silueta blanca de la joya sobre negro transparente en el destino de ahora. Lo demás (escenario, estuche, elementos)
   // se dibuja antes solo en profundidad: lo que tapa a la joya (la tapa cerrada de un estuche, una perla delante) la tapa
   // también en la silueta. Sin esto se vería un fantasma del anillo a través de la tapa en el render realista
-  dibujarSilueta() {
+  // piedras: las piedras van en magenta (sin verde): el limpiador del trazador alisa solo el metal
+  dibujarSilueta({ piedras = false } = {}) {
     const r = this.renderer, e = this.escena, prev = e.overrideMaterial, env = e.environment, fondo = e.background, auto = r.autoClear;
     const vis = new Map(e.children.map(o => [o, o.visible]));
     const destellos = this.escenario.destellos.puntos, verDestellos = destellos?.visible;
@@ -799,6 +835,12 @@ export class Estudio {
     for (const o of e.children) o.visible = o === this.joyas;
     e.overrideMaterial = this.matMascara; r.autoClear = false;
     r.render(e, this.camara);
+    if (piedras && this.geoP) {
+      const metal = []; this.joyas.traverse(o => { if (o.isMesh && o.visible && o.material === this.mat) { metal.push(o); o.visible = false; } });
+      const mp = this.matMascaraPiedras || (this.matMascaraPiedras = new THREE.MeshBasicMaterial({ color: 0xff00ff, depthFunc: THREE.LessEqualDepth }));
+      e.overrideMaterial = mp; r.render(e, this.camara);
+      for (const o of metal) o.visible = true;
+    }
     r.autoClear = auto; e.overrideMaterial = prev; e.environment = env; e.background = fondo;
     for (const [o, v] of vis) o.visible = v;
     for (const o of espejos) o.visible = true;
@@ -862,7 +904,7 @@ export class Estudio {
     r.setRenderTarget(L.guia); r.clear(); r.render(this.escena, this.camara);
     if (pts) pts.visible = ver;
     r.setRenderTarget(L.mascara); r.setClearColor(0x000000, 0);
-    this.dibujarSilueta();
+    this.dibujarSilueta({ piedras: true });
     r.setClearColor(color, alfa); r.setRenderTarget(antes);
   }
   // Los destellos del aire encima del cuadro del trazador (en el lienzo): primero la profundidad de la escena del motor

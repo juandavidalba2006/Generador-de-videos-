@@ -13,7 +13,7 @@ export const PISTAS = {
   exposicion:  { nombre: 'Exposición',         unidad: '',  min: 0.5,   max: 2,    paso: 0.01, def: 1.15 },
   desenfoque:  { nombre: 'Desenfoque macro',   unidad: '',  min: 0,     max: 1,    paso: 0.01, def: 0 },     // solo se ve en el render realista
   // v4 (escena): sin keyframes no hacen nada; la línea de tiempo las muestra solo cuando sirven (hay estuche, la joya flota…)
-  apertura:    { nombre: 'Apertura del estuche', unidad: '', min: 0,     max: 1,    paso: 0.01, def: 1 },     // 0 = cerrado; sin keyframes, la del panel
+  apertura:    { nombre: 'Apertura del estuche', corto: 'Apertura', unidad: '', min: 0, max: 1, paso: 0.01, def: 1 },   // 0 = cerrado; sin keyframes, la del panel (corto: la etiqueta de la fila)
   elevar:      { nombre: 'Elevar la joya',     unidad: '',  min: 0,     max: 1.5,  paso: 0.01, def: 0 },     // en altos de la joya, sobre su asiento o el piso
   luz:         { nombre: 'Giro de la luz',     unidad: '°', min: -180,  max: 180,  paso: 1,    def: 0 },     // la luz principal gira: los brillos recorren la tela
 };

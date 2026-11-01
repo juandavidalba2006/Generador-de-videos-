@@ -828,7 +828,8 @@ function planificar(n, J, opc = {}) {
     if (suelo !== null && altoMaximo(p, 0) + margen <= libre) {
       // la joya flota encima: la caja va justo debajo (como el moño del que sale la cinta en r5). Si al abrirse la tapa
       // llegaría a la joya, la apertura se queda en el punto más alto posible (la línea de tiempo puede animarla)
-      m = new THREE.Matrix4().makeTranslation(J.c[0], suelo, J.c[2]).multiply(gira);
+      const dx = Number.isFinite(opc.desplazar?.x) ? opc.desplazar.x * J.k : 0, dz = Number.isFinite(opc.desplazar?.z) ? opc.desplazar.z * J.k : 0;
+      m = new THREE.Matrix4().makeTranslation(J.c[0] + dx, suelo, J.c[2] + dz).multiply(gira);
       if (p.abre && altoMaximo(p, 1) + margen > libre) {
         let a = 0, b = 1;
         for (let i = 0; i < 18; i++) { const c = (a + b) / 2; if (altoMaximo(p, c) + margen <= libre) a = c; else b = c; }
@@ -1191,16 +1192,17 @@ export class Utileria {
 
   // cfg: configuración (se normaliza). joya: { caja (Box3 en unidades del estudio), mmPorUnidad, objeto?, par? };
   // suelo: altura del piso bajo una joya que flota (unidades del estudio). Devuelve el resultado (null si no hay utilería)
-  armar(cfg, { joya, version, suelo } = {}) {
+  // desplazar: { x, z } (unidades del estudio) corre la caja «al lado» bajo la joya que flota (la punta de la cinta en corazón)
+  armar(cfg, { joya, version, suelo, desplazar = null } = {}) {
     const n = normalizarUtileria(cfg);
     this.cfg = n;
     if (n.tipo === 'ninguna') { this.vaciar(); return null; }
     const J = medirJoya(joya), cj = J.min.concat(J.max).map(v => v.toFixed(3)).join(',');
-    const kGeo = JSON.stringify([n.tipo, n.posicion, n.tamano, n.angulo, n.mono, n.semilla, n.frente, cj, J.k, J.banda.toFixed(3), J.par?.separacion, suelo, version]);
+    const kGeo = JSON.stringify([n.tipo, n.posicion, n.tamano, n.angulo, n.mono, n.semilla, n.frente, cj, J.k, J.banda.toFixed(3), J.par?.separacion, suelo, version, desplazar && [desplazar.x, desplazar.z]]);
     const kMat = JSON.stringify([n.color, n.interior, n.cinta, n.material]), kFoil = JSON.stringify([kMat, n.logo, n.grabado, kGeo]);
     if (kGeo !== this.claves.geo) {
       this.limpiarMallas();
-      this.plan = planificar(n, J, { suelo });
+      this.plan = planificar(n, J, { suelo, desplazar });
       this.J = J;
       this.crearMallas();
       this.apertura = -1;
@@ -1248,8 +1250,12 @@ export class Utileria {
       M.exterior3 = crearMaterial(n.material, '#' + new THREE.Color(n.color).offsetHSL(0, 0, 0.04).getHexString());
       M.forro = crearMaterial('saten', n.interior);
       M.interior = crearMaterial('terciopelo', n.interior);
-      // cinta de satén con un toque metálico: brillos largos en los dobleces (un color plano se ve de papel)
-      M.cinta = crearMaterial('saten', n.cinta); M.cinta.color.multiplyScalar(0.86); M.cinta.metalness = 0.45; M.cinta.roughness = HAY_DOM ? 1.05 : 0.32; M.cinta.sheen = 0.55;
+      // cinta de satén: un brillo suave y ancho que corre por los dobleces (rugosidad ≈0,38: 1,25 × el mapa de 0,3), el velo
+      // del satén en los cantos y apenas metal. El color va un poco más claro y menos saturado: con metal 0,45, rugosidad
+      // 1,05 sobre el mapa y el oro hondo de la marca salía un naranja mate de plástico
+      const cc = new THREE.Color(n.cinta), hsl = cc.getHSL({});
+      M.cinta = crearMaterial('saten', '#' + cc.setHSL(hsl.h, Math.min(hsl.s, 0.55), limitar(hsl.l * 1.12, 0.12, 0.8)).getHexString());
+      Object.assign(M.cinta, { metalness: 0.12, roughness: HAY_DOM ? 1.25 : 0.38, sheen: 1, sheenRoughness: 0.32, specularIntensity: 1 });
       M.oro = new THREE.MeshPhysicalMaterial({ color: 0xF1C46B, metalness: 1, roughness: 0.2 });
     }
     if (foil || colores || !M.foils) {
