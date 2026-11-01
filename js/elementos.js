@@ -467,13 +467,12 @@ const CARAS_CINTA = [[0, 1, 'B'], [2, 3, '-B'], [3, 0, 'N'], [1, 2, '-N']];
 function cintaGeometria(P, N, B, T, ancho, espesor, { cerrado = false, uLargo = 1 } = {}) {
   // por muestra: 8 vértices (2 por cara) + tapas
   const n = P.length, E = esquinasCinta(P, N, B, ancho, espesor), pos = [], nor = [], uv = [], idx = [];
-  const normal = (k, i) => (k === 'B' ? B[i] : k === '-B' ? B[i].clone().negate() : k === 'N' ? N[i] : N[i].clone().negate());
   let s = 0;
   for (let i = 0; i < n; i++) {
     if (i) s += P[i].distanceTo(P[i - 1]);
     for (const [a, b, k] of CARAS_CINTA) {
-      const nn = normal(k, i);
-      pos.push(...E[i][a].toArray(), ...E[i][b].toArray()); nor.push(...nn.toArray(), ...nn.toArray());
+      const [na, nb] = normalesCara(k, N[i], B[i]);
+      pos.push(...E[i][a].toArray(), ...E[i][b].toArray()); nor.push(na.x, na.y, na.z, nb.x, nb.y, nb.z);
       uv.push(s / uLargo, 0, s / uLargo, 1);
     }
   }
@@ -494,14 +493,24 @@ function cintaGeometria(P, N, B, T, ancho, espesor, { cerrado = false, uLargo = 
   g.setIndex(idx);
   return g;
 }
+// Normales de los dos cantos de cada cara. En las caras anchas se inclinan un poco hacia cada canto (la cinta de satén de
+// verdad se abomba): el brillo pasa de un lado al otro de la cinta en vez de verse como una franja de un solo tono
+const _na = V(), _nb = V();
+function normalesCara(k, N, B) {
+  if (k === 'N') return [_na.copy(N), _nb.copy(N)];
+  if (k === '-N') return [_na.copy(N).negate(), _nb.copy(N).negate()];
+  const sg = k === 'B' ? 1 : -1;
+  // cara B: canto a = +N, canto b = −N; cara −B: canto a = −N, canto b = +N
+  return [_na.copy(B).multiplyScalar(sg).addScaledVector(N, 0.25 * sg).normalize(), _nb.copy(B).multiplyScalar(sg).addScaledVector(N, -0.25 * sg).normalize()];
+}
 // Mueve los vértices de una cinta ya armada (mismo número de muestras): para el aleteo y para que crezca
 function cintaActualizar(g, P, N, B, T, ancho, espesor) {
   const n = P.length, E = esquinasCinta(P, N, B, ancho, espesor), pos = g.attributes.position, nor = g.attributes.normal;
   for (let i = 0; i < n; i++) {
     CARAS_CINTA.forEach(([a, b, k], f) => {
-      const nn = k === 'B' ? B[i] : k === '-B' ? B[i].clone().negate() : k === 'N' ? N[i] : N[i].clone().negate(), o = 8 * i + 2 * f;
+      const [na, nb] = normalesCara(k, N[i], B[i]), o = 8 * i + 2 * f;
       pos.setXYZ(o, E[i][a].x, E[i][a].y, E[i][a].z); pos.setXYZ(o + 1, E[i][b].x, E[i][b].y, E[i][b].z);
-      nor.setXYZ(o, nn.x, nn.y, nn.z); nor.setXYZ(o + 1, nn.x, nn.y, nn.z);
+      nor.setXYZ(o, na.x, na.y, na.z); nor.setXYZ(o + 1, nb.x, nb.y, nb.z);
     });
   }
   if (g.userData.tapas) for (const [i, signo, o] of [[0, -1, 8 * n], [n - 1, 1, 8 * n + 4]]) {
@@ -1044,7 +1053,8 @@ function recorridoLocal(tipo, wl) {
   for (let k = 1; k <= 14; k++) { const th = (240 + 240 * k / 14) * Math.PI / 180; ctrl.push(V(C[0] + rc * Math.cos(th - Math.PI / 2), C[1] + rc * Math.sin(th - Math.PI / 2), dz * suave(k / 14))); }
   const izq = der.slice().reverse();
   izq.forEach((p, j) => ctrl.push(V(-p.x, p.y, dz * (1 - suave((j + 1) / (izq.length * 0.3))))));
-  return { ctrl, enhebre: [Fc(tTope + 0.38), Fc(tTope - 0.3)], nominal: Fc(tTope + 0.1), escala: 5.2, abajo: true, rc, giros: [[0.025, 0.2], [0.8, 0.975]] };
+  // (pesoCurva bajo: lo alto del lóbulo es curvo; con el peso de siempre la joya se iba al hombro y el corazón quedaba torcido)
+  return { ctrl, enhebre: [Fc(tTope + 0.16), Fc(tTope - 0.12)], nominal: Fc(tTope + 0.04), escala: 5.2, abajo: true, rc, giros: [[0.025, 0.2], [0.8, 0.975]], pesoCurva: 4 };
 }
 // Media vuelta de la cinta alrededor de su eje en cada tramo [desde, hasta] (fracciones del largo): como una cinta de
 // verdad, muestra las dos caras y el brillo corre por ella. giro[i]: el ángulo en la muestra i (0 fuera de los tramos)
@@ -1105,7 +1115,7 @@ function planCinta(g, J, ctx) {
       const arriba = V(0, 1, 0).applyMatrix4(Rm);
       // la joya en el lóbulo, con el corazón derecho; con moño, que los extremos caigan cerca de él
       const curv = T[Math.max(0, i - 6)].angleTo(T[Math.min(T.length - 1, i + 6)]) / 12;   // radianes por muestra
-      let puntaje = arriba.y - 0.4 * Math.abs(i - iN) / crudo.length - 25 * curv;
+      let puntaje = arriba.y - 0.4 * Math.abs(i - iN) / crudo.length - (loc.pesoCurva ?? 25) * curv;
       if (loc.abajo && ancla) {
         const base = crudo[0].clone().add(crudo[crudo.length - 1]).multiplyScalar(0.5); base.x *= espejo;
         const rel = base.sub(V(crudo[i].x * espejo, crudo[i].y, crudo[i].z)).applyMatrix4(Rm);
@@ -1592,8 +1602,9 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, 
       break;
     case 'saten':
       // satén: un brillo largo que recorre la cinta y el color algo más hondo (una cinta clara plana se veía de papel)
-      Object.assign(m, { roughness: 0.34, sheen: 0.7, sheenRoughness: 0.35, specularIntensity: 0.9, side: THREE.FrontSide });
-      m.color.multiplyScalar(0.74);
+      // (anisotropía: el brillo se estira a lo largo de los hilos, como en la cinta de r5; el trazador usa la rugosidad sola)
+      Object.assign(m, { roughness: 0.28, sheen: 1, sheenRoughness: 0.28, specularIntensity: 1, anisotropy: 0.7, side: THREE.FrontSide });
+      m.color.multiplyScalar(0.46);
       m.sheenColor.copy(color).lerp(new THREE.Color(0xffffff), 0.4);
       if (tx) { m.normalMap = tx.normalMap; m.normalScale.set(0.32, 0.32); }
       break;

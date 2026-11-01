@@ -528,9 +528,12 @@ function pliegue(x, s, fase = 0) {
   // unos pocos pliegues anchos (2 a 4 radios de la joya entre cresta y cresta, como en r1/r2): crestas redondeadas donde
   // el ruido estirado pasa por la mitad, valles anchos, y apenas un segundo pliegue más chico. Con 8,5 × 24 radios se
   // veía un solo brillo en todo el cuadro; mucho más cortos, la tela parecía chocolate derretido
-  const r1 = ruido2(a / 4.2 + 0.35 * fase, b / 11 + fase, 1), c1 = 1 - Math.abs(2 * r1 - 1), h1 = c1 * c1 * (3 - 2 * c1);
+  // (una onda a lo largo de «a» torcida por ruido: el ruido de valor solo casi siempre queda cerca de la mitad y daba una
+  // meseta de crestas sin valles). El tamaño de cada pliegue cambia despacio; las crestas un poco más redondas que los valles
+  const f1 = Math.sin(2 * Math.PI * (a / 4.4 + 0.35 * fase) + 6.4 * (ruido2(a / 9, b / 9 + fase, 1) - 0.5));
+  const tam = 0.55 + 0.45 * ruido2(a / 7 + 3, b / 12 - 0.3 * fase, 6), h1 = Math.sign(f1) * Math.pow(Math.abs(f1), 0.8);
   const h2 = ruido2(a / 2.6 + 9 - 0.2 * fase, b / 7 + 4 + 0.6 * fase, 2);
-  return (h1 - 0.45) * 2 + (h2 - 0.5) * 0.25;
+  return h1 * tam + (h2 - 0.5) * 0.25;
 }
 // Rejilla fina cerca de la joya (los pliegues necesitan detalle donde se ven) y gruesa lejos
 function pasosTela(a, b, u, fino, lejos) {
@@ -566,7 +569,7 @@ function fondoTela(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
   // amplitud de cada vértice: el piso queda liso donde va la joya (o su pedestal) y los pliegues crecen hacia afuera; en el
   // fondo los pliegues son más grandes; lejos (donde la rejilla es gruesa y casi nunca se ve) se apagan
   const C = geo.attributes.position.count, amp = new Float32Array(C), sx = new Float32Array(C), ss = new Float32Array(C);
-  const plano = liso ?? Math.max(1.5 * u, alcanceZ + 0.6 * u), sCurva = perfil.find(p => p.ny < 0.999)?.s ?? 0;
+  const plano = liso ?? Math.max(1.5 * u, alcanceZ + 0.6 * u), sCurva = perfil.find(p => p.ny < 0.999)?.s ?? 0, ep = Math.pow(Math.max(1, ext), 0.8);
   for (let j = 0; j < perfil.length; j++) for (let i = 0; i < xs.length; i++) {
     const k = j * xs.length + i, p = perfil[j], x = xs[i];
     // (el piso bajo la joya queda tranquilo: ahí se lee el charco de luz)
@@ -575,11 +578,12 @@ function fondoTela(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
     const subida = suav(limitar((p.s - sCurva) / (Rc * 1.2), 0, 1));   // del piso (pliegues bajos) al fondo (más altos)
     const lejos = 1 - suav(limitar((Math.abs(x) - 17 * u) / (9 * u), 0, 1));
     const arriba = 1 - suav(limitar((p.y - 25 * u) / (10 * u), 0, 1)), frente = 1 - suav(limitar((p.z - 14 * u) / (8 * u), 0, 1));
-    amp[k] = u * (0.34 + 0.36 * subida) * cerca * lejos * arriba * frente;
-    sx[k] = x / u; ss[k] = p.s / u;
+    // (con un encuadre grande —el corazón de cinta, una pila de cajas— los pliegues crecen con él: si no, se veían menudos)
+    amp[k] = u * ep * (0.4 + 0.25 * subida) * cerca * lejos * arriba * frente;
+    sx[k] = x / (u * ep); ss[k] = p.s / (u * ep);
   }
   const base = geo.attributes.position.array.slice(), nBase = geo.attributes.normal.array.slice();
-  return { geo, curva: Rc, tela: { base, nBase, amp, sx, ss, ampPiso: 0.4 * u } };
+  return { geo, curva: Rc, tela: { base, nBase, amp, sx, ss, ampPiso: 0.45 * u * ep } };
 }
 // Pone los pliegues en el instante t (fase lenta con ondas). Devuelve true si la tela cambió
 function plegarTela(geo, tela, fase) {
@@ -591,6 +595,24 @@ function plegarTela(geo, tela, fase) {
   P.needsUpdate = true;
   geo.computeVertexNormals();
   geo.computeBoundingBox(); geo.computeBoundingSphere();
+  // los valles más oscuros (la luz casi no entra al fondo de un pliegue): da el contraste de cresta y valle de r1/r2 aunque
+  // la tela esté desenfocada, en la vista rápida y en el trazador (va en los colores por vértice, con el degradado)
+  const oc = geo.userData.oclusion || (geo.userData.oclusion = new Float32Array(amp.length));
+  for (let k = 0, n = amp.length; k < n; k++) {
+    if (!amp[k]) { oc[k] = 1; continue; }
+    const v = limitar((A[3 * k] - base[3 * k]) * nBase[3 * k] + (A[3 * k + 1] - base[3 * k + 1]) * nBase[3 * k + 1] + (A[3 * k + 2] - base[3 * k + 2]) * nBase[3 * k + 2], -2 * amp[k], 2 * amp[k]) / amp[k];
+    oc[k] = 1 - 0.5 * suav(limitar(-v / 0.9, 0, 1)) + 0.12 * suav(limitar((v - 0.4) / 0.6, 0, 1));
+  }
+  aplicarColores(geo);
+}
+// Colores por vértice de la tela y del fondo: el degradado (más oscuro arriba) por la sombra de los valles
+function aplicarColores(geo) {
+  const deg = geo.userData.degradado, oc = geo.userData.oclusion, C = geo.attributes.position.count;
+  let col = geo.attributes.color;
+  if (!deg && !oc) { if (col) geo.deleteAttribute('color'); return; }
+  if (!col || col.count !== C || col.itemSize !== 4) { col = new THREE.BufferAttribute(new Float32Array(C * 4), 4); geo.setAttribute('color', col); }
+  for (let i = 0; i < C; i++) { const k = (deg ? deg[i] : 1) * (oc && i < oc.length ? oc[i] : 1); col.setXYZW(i, k, k, k, 1); }
+  col.needsUpdate = true;
 }
 
 // ---------- Degradado: el fondo se oscurece hacia arriba (colores por vértice) ----------
@@ -598,14 +620,12 @@ function plegarTela(geo, tela, fase) {
 // baja hasta un 12 % de su color con degradado 1. Cuatro componentes: así coincide con lo que el trazador agrega solo
 function colorearFondo(geo, degradado, y0, u) {
   const P = geo.attributes.position, C = P.count;
-  let col = geo.attributes.color;
-  if (!degradado) { if (col) geo.deleteAttribute('color'); return; }
-  if (!col || col.count !== C || col.itemSize !== 4) { col = new THREE.BufferAttribute(new Float32Array(C * 4), 4); geo.setAttribute('color', col); }
-  for (let i = 0; i < C; i++) {
-    const h = (P.getY(i) - y0) / u, k = 1 - degradado * 0.88 * suav(limitar((h - 0.8) / 10, 0, 1));
-    col.setXYZW(i, k, k, k, 1);
+  if (!degradado) geo.userData.degradado = null;
+  else {
+    const deg = geo.userData.degradado?.length === C ? geo.userData.degradado : (geo.userData.degradado = new Float32Array(C));
+    for (let i = 0; i < C; i++) { const h = (P.getY(i) - y0) / u; deg[i] = 1 - degradado * 0.88 * suav(limitar((h - 0.8) / 10, 0, 1)); }
   }
-  col.needsUpdate = true;
+  aplicarColores(geo);
 }
 
 // ---------- Destellos: brillitos desenfocados que flotan en el aire (r5, r7, r8) ----------
@@ -987,7 +1007,7 @@ export class Escenario3D {
     if (cambioDeg || cambioGeo || cambioMat) {
       const fg = this.grupo.children.find(o => o.userData.fondo)?.geometry;
       if (fg) colorearFondo(fg, f.degradado, this.limites.piso, u);
-      const vc = f.degradado > 0;
+      const vc = f.degradado > 0 || !!this.tela;   // (la tela lleva la sombra de los valles en los colores)
       if (this.mats.fondo.vertexColors !== vc) { this.mats.fondo.vertexColors = vc; this.mats.fondo.needsUpdate = true; }
     }
     if (cambioLuz || cambioGeo) { this.limpiarGrupo('luz'); this.armarLuz(cfg, u, hu); }
@@ -1139,7 +1159,7 @@ export class Escenario3D {
       // el charco: un foco desde arriba, apenas adelante, del ancho de la pieza (o del par)
       // (sin mapa de sombras en el motor rápido: dejaba una sombra dura; en el trazador la sombra sale suave por el radio)
       // (más cálido, más ceñido y más fuerte: como en r2, un charco dorado justo bajo las piezas)
-      foco({ pos: V3(0, piso + 30 * u, 2.5 * u), mira: V3(0, piso, 0), E: 2.3 * k, radioCono: (1.7 * u + 1.15 * hu), radio: 2.2 * u, col: colorLuz(Math.min(1, l.calidez + 0.45)) });
+      foco({ pos: V3(0, piso + 30 * u, 2.5 * u), mira: V3(0, piso, 0), E: 2.3 * k, radioCono: (1.2 * u + 0.85 * hu), radio: 2.2 * u, col: colorLuz(Math.min(1, l.calidez + 0.45)) });
     } else if (esquema === 'alta-clave') {
       const L = Lp || V3(0, 1, 1);
       foco({ pos: V3(-L.x, Math.max(0.5, L.y), L.z).normalize().multiplyScalar(30 * u), mira: V3(0, 0, 0), E: 0.5 * k, radioCono: 22 * u, radio: 6 * u, pen: 1 });
