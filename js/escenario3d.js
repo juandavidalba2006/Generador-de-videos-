@@ -1248,7 +1248,7 @@ const SOMBREADOR_LIMPIEZA = {
       // clave baja el oro se veía martillado). Se limpia aparte, solo con vecinos de metal, cerca (σ ≈ 1,6 px) y con la
       // guía para no cruzar el filo de la pieza ni las bandas: el oro queda liso con sus bandas oscuras
       if ( mm > 0.001 ) {
-        vec3 sj = vec3( 0.0 ); float pj = 0.0, kcj = 0.5 / ( 4.8 * sigmaColor * sigmaColor ), kgj = 0.5 / ( 0.01 );
+        vec3 sj = vec3( 0.0 ); float pj = 0.0, kcj = 0.5 / ( 2.0 * sigmaColor * sigmaColor ), kgj = 0.5 / ( 0.01 );
         for ( int j = -3; j <= 3; j ++ ) for ( int i = -3; i <= 3; i ++ ) {
           vec2 d = vec2( i, j ), q = vUv + d * pixel;
           vec3 c = trazado( q ), dc = c - ref, dg = guiado( q ) - g0;

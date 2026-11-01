@@ -115,7 +115,7 @@ export const ESQUEMA = obj({
     }),
     elementos: obj({
       cambiar: { type: 'boolean', description: 'true = agrega, reemplaza o quita elementos; false = se ignora.' },
-      modo: { type: 'string', enum: ['agregar', 'reemplazar', 'quitar'], description: 'agregar = se suman a los que hay (uno de la misma forma se reemplaza); quitar con lista vacía = quita todos.' },
+      modo: { type: 'string', enum: ['agregar', 'reemplazar', 'quitar'], description: 'agregar = se suman a los que hay (uno de la misma forma se reemplaza); quitar con la lista de lo que se quita = quita solo esos («quita la cadena»: quitar [cadena]; «sin la cinta», «ya no quiero perlas»: igual); quitar con lista vacía = quita todos (solo «sin elementos», «quita todo»).' },
       lista: lista(obj({
         tipo: opcion(ELEMENTOS_IA),
         coreografia: { type: 'string', enum: COREOGRAFIAS_IDS, description: 'Cómo se mueven.' },

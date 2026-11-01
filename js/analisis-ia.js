@@ -64,7 +64,7 @@ export const ESQUEMA_ANALISIS = obj({
     descripcion: txt('Cómo es la joya, en una frase corta en español (forma, montura, piedras).'),
   }, 'La joya que aparece en el video.'),
   escena: obj({
-    id: opcion(IDS_ESCENA, 'La escena lista más parecida al video («ninguna» solo si el fondo es liso, sin superficie visible; saten-* si el fondo y el piso son una tela de satén con pliegues).'),
+    id: opcion(IDS_ESCENA, 'La escena lista más parecida al video («ninguna» solo si el fondo es liso, sin superficie visible y sin estuche, cajas ni elementos; saten-* si el fondo y el piso son una tela de satén con pliegues).'),
     superficie: obj({
       forma: opcion(Object.keys(FORMAS_SUPERFICIE)), material: opcion(Object.keys(MATERIALES_ESCENA)),
       color: txt('Color de la superficie donde se apoya la joya, en #RRGGBB (la parte iluminada, sin la sombra).'),

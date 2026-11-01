@@ -1,7 +1,7 @@
 // Asistente sin conexión: entiende pedidos sencillos en español («gira 2 vueltas y acércate a la piedra») y los convierte
 // en las mismas acciones que devuelve la IA (keyframes, cortes, escena, textos, sonidos y música). Aquí también se validan y se aplican
 // esas acciones al proyecto. Es puro (sin DOM): lo usan el chat, la función de Vercel (api/chat.js) y las pruebas en Node.
-import { PISTAS, CURVAS, MOVIMIENTOS, TRANSICIONES, evaluar, escalarTiempo, normalizarCortes, separarPlanos, unirPlanos, TOLERANCIA, DURACION_MIN, DURACION_MAX } from './proyecto.js';
+import { PISTAS, CURVAS, MOVIMIENTOS, TRANSICIONES, evaluar, valorEn, escalarTiempo, normalizarCortes, separarPlanos, unirPlanos, TOLERANCIA, DURACION_MIN, DURACION_MAX } from './proyecto.js';
 import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RANGOS, ESCENA_INICIAL, escenaDe, normalizarEscena } from './escenas.js';
 import { COLORES_MARCA, ESQUEMAS_LUZ, TIPOS_UTILERIA, POSICIONES_UTILERIA, ELEMENTOS_IA, COREOGRAFIAS_IDS, RECORRIDOS_CINTA_IDS, FORMAS_FONDO_V4, esEscenaConocida, escenaDeId, completarEscena, grupoElemento, nombreEscena as nombreEscenaLista } from './escena-marca.js';
 
@@ -301,7 +301,7 @@ export function resumenAcciones(acciones) {
     if (c.utileria) out.push(c.utileria.tipo === 'ninguna' ? '▢ Sin estuche' : `▣ ${TIPOS_UTILERIA[c.utileria.tipo]}`);
     if (c.flotar) out.push(c.flotar.activo ? '↑ Flota' : '↓ Apoyada');
     if (c.par) out.push(c.par.activo ? '◎ En par' : '○ Una sola');
-    if (c.elementos) out.push(c.elementos.modo === 'quitar' && !c.elementos.lista.length ? '✕ Sin elementos' : `● ${c.elementos.lista.map(g => (g.forma === 'cinta' ? 'Cinta' : g.forma === 'cadena' ? 'Cadena' : g.material === 'cristal' ? 'Cristal' : { perla: 'Perlas', esfera: 'Esferas', cuenta: 'Cuentas' }[g.forma] || 'Elemento')).join(', ')}`);
+    if (c.elementos) out.push(c.elementos.modo === 'quitar' && !c.elementos.lista.length ? '✕ Sin elementos' : `${c.elementos.modo === 'quitar' ? '✕ Sin' : '●'} ${c.elementos.lista.map(g => (g.forma === 'cinta' ? 'Cinta' : g.forma === 'cadena' ? 'Cadena' : g.material === 'cristal' ? 'Cristal' : { perla: 'Perlas', esfera: 'Esferas', cuenta: 'Cuentas' }[g.forma] || 'Elemento')).join(', ')}`);
   }
   return out;
 }
@@ -756,7 +756,11 @@ const COLOR_PUESTA = [
 ];
 const NOMBRE_MARCA = { ...NOMBRE_COLOR, ...Object.fromEntries(Object.values(COLORES_MARCA).map(c => [c.hex, c.nombre.toLowerCase()])) };
 const colorPuesta = txt => (txt ? COLOR_PUESTA.find(([, re]) => re.test(txt))?.[0] || colorDe(txt) : null);
-const HAY_PUESTA = /\b(?:estuche|cofre|caj(?:a|as|ita|on)|bandeja|regalo|abr\w*|cierr\w*|cerr\w*|tapa|par|pareja|flot\w*|levit\w*|aire|suspendid[oa]|saten|seda|clave|low\s*key|high\s*key|silueta\w*|perlas|esferas?|bolas?|bolitas|cuentas|cristal|vidrio|cinta|liston|cadena|elementos|adornos)\b/;
+const HAY_PUESTA = /\b(?:estuche|cofre|caj(?:a|as|ita|on)|bandeja|regalo|abr\w*|cierr\w*|cerr\w*|tapa|par|pareja|flot\w*|levit\w*|aire|suspendid[oa]|saten|seda|clave|low\s*key|high\s*key|silueta\w*|perlas?|esferas?|bolas?|bolitas|cuentas?|cristal|vidrio|cintas?|liston|cadenas?|elementos|adornos|joya)\b/;
+// cuántos: «tres esferas de cristal», «5 perlas» (null si no se dice)
+const cuantosDe = w => (!w ? null : /^\d+$/.test(w) ? Math.round(limitar(+w, 1, 48)) : PALABRAS[w] && PALABRAS[w] > 1 ? PALABRAS[w] : null);
+const CONTADOS = new WeakSet();   // los grupos con la cantidad que se pidió (la respuesta la repite: «agregué 3 esferas de cristal»)
+const conCantidad = (g, n) => { if (!g || !n) return g; const c = { ...g, cantidad: n }; CONTADOS.add(c); return c; };
 const COREO_PALABRAS = [
   ['caer-en-circulo', /\b(?:(?:caen?|cayendo|caigan)\s+(?:y\s+(?:forman|hacen)\s+)?(?:en\s+)?(?:un\s+)?(?:circulo|aro|anillo|rueda)|en\s+circulo|(?:forman|formen|hacen)\s+un\s+circulo)\b/],
   ['rodar', /\b(?:rued\w*|rod\w*)\b/], ['rebotar', /\b(?:rebot\w*|brinc\w*)\b/], ['fila-flotante', /\b(?:en\s+fila|en\s+linea|fila)\b/],
@@ -790,9 +794,15 @@ function analizarPuesta(k, r0) {
   const CUANDO_TAPA = '(?:\\s+(?:en\\s+el\\s+segundo|al\\s+segundo|a\\s+los|en\\s+el|en)\\s+(\\d+(?:\\.\\d+)?)(?:\\s+segundos?)?|\\s+(al\\s+(?:inicio|principio|comienzo)|al\\s+final))?';
   const ab = sacar(new RegExp(`\\b(?:abr\\w*|cierr\\w*|cerr\\w*)\\s+(?:(?:el|la|su)\\s+)?(estuche(?:\\s+de\\s+(?:anillo|aretes|collar|pulsera))?|caj(?:a|ita)(?:\\s+de\\s+regalo)?|cofre|tapa|cajon)\\b${CUANDO_TAPA}`))
     || sacar(new RegExp(`\\b(?:que\\s+)?(?:el|la)\\s+(estuche|caja(?:\\s+de\\s+regalo)?|cofre|tapa|cajon)\\s+se\\s+(?:abra|abre|cierre|cierra)\\b${CUANDO_TAPA}`))
+    // «ábrela», «ciérralo en el segundo 3» (la caja o el estuche que haya)
+    || sacar(new RegExp(`\\b(?:abre|abrir|cierra|cerrar)(?:la|lo)()\\b${CUANDO_TAPA}`))
     // «caja de regalo con cinta dorada que se abre en el segundo 2»: la caja se nombró antes
     || (/\b(?:estuche|caja|cajita|cofre|cajon)\b/.test(r) ? sacar(new RegExp(`\\bque\\s+se\\s+(?:abra|abre|cierre|cierra)()\\b${CUANDO_TAPA}`)) : null);
-  if (ab) p.abrir = { cerrar: /\b(?:cierr|cerr)|se\s+(?:cierre|cierra)/.test(ab[0]), t: ab[2] !== undefined ? +ab[2] : ab[3] ? (/final/.test(ab[3]) ? 'final' : 0) : null, que: ab[1] };
+  if (ab) p.abrir = { cerrar: /\b(?:cierr|cerr)|se\s+(?:cierre|cierra)/.test(ab[0]), t: ab[2] !== undefined ? +ab[2] : ab[3] ? (/final/.test(ab[3]) ? 'final' : 0) : null, que: ab[1] || undefined };
+  // la joya sale del estuche (sube sobre su asiento: pista «elevar» de 0 a 0.3): «que la joya salga del estuche», «sácala de
+  // la caja», «sube la joya», «eleva el anillo al final» (antes que el estuche: no es pedir otro estuche)
+  const el = sacar(new RegExp(`\\b(?:(?:que\\s+)?(?:la\\s+joya|el\\s+anillo|la\\s+argolla)\\s+(?:salga|sale|suba|sube|se\\s+eleve|se\\s+levante)(?:\\s+(?:del|de\\s+la|de\\s+su)\\s+(?:estuche|caja|cajita|cofre|cajon))?|(?:que\\s+)?la\\s+pieza\\s+(?:salga|sale)\\s+(?:del|de\\s+la|de\\s+su)\\s+(?:estuche|caja|cajita|cofre|cajon)|sac(?:a|ar)(?:la|lo)\\s+(?:del|de\\s+la|de\\s+su)\\s+(?:estuche|caja|cajita|cofre|cajon)|(?:sube|subir|eleva|elevar|levanta|levantar)\\s+(?:la\\s+joya|el\\s+anillo|la\\s+argolla)(?:\\s+(?:del|de\\s+la|de\\s+su|sobre\\s+el|sobre\\s+la)\\s+(?:estuche|caja|cajita|cofre|cajon))?|(?:elevala|elevalo|levantala|levantalo))\\b${CUANDO_TAPA}`));
+  if (el) p.elevar = { t: el[1] !== undefined ? +el[1] : el[2] ? (/final/.test(el[2]) ? 'final' : 0) : null };
   // estuche o caja: «ponla en un estuche negro», «caja de regalo con cinta dorada», «sin estuche»
   if (sacar(/\b(?:sin|quita\w*|saca\w*|borra\w*)\s+(?:el\s+|la\s+|los\s+|las\s+)?(?:estuches?|cajas?|cofre|cajon|bandeja)\b/)) p.utileria = { tipo: 'ninguna' };
   else {
@@ -815,18 +825,30 @@ function analizarPuesta(k, r0) {
     }
   }
   // elementos: «una esfera de cristal», «una cinta en corazón», «cuelga una cadena», «perlas que caen en círculo»
-  if (sacar(/\b(?:sin|quita\w*|saca\w*|borra\w*)\s+(?:los\s+|las\s+)?(?:elementos|adornos|perlas|esferas|bolas|cuentas|cintas?|cadenas?)\b/)) p.quitarElementos = true;
-  else {
-    if (sacar(/\b(?:(?:una|la|unas|las)\s+)?(?:esferas?|bolas?|burbujas?)\s+de\s+(?:cristal|vidrio)\b|\b(?:un\s+)?cristal\s+(?:redondo|transparente)\b/)) elementos.push(grupoElemento('cristal'));
+  // quitar: «quita la cadena», «sin la cinta», «ya no quiero perlas», «saca las esferas» (solo esa forma); «sin elementos» (todos)
+  const QUITA = '\\b(?:sin|quita\\w*|saca\\w*|borra\\w*|elimina\\w*|remueve|(?:ya\\s+)?no\\s+(?:quiero|pongas|me\\s+gusta)|ya\\s+no)\\s+(?:(?:el|la|los|las|esa|ese|esas|esos|una|un|unas|unos)\\s+)?';
+  for (let q, n = 0; n < 6 && (q = sacar(new RegExp(`${QUITA}(elementos|adornos|(?:esferas?|bolas?|burbujas?)\\s+de\\s+(?:cristal|vidrio)|cristal(?:es)?|perlas?|esferas?|bolas?|bolitas|cuentas?|cintas?|liston(?:es)?|cadenas?)\\b`))); n++) {
+    const f = q[1], quita = p.quitarElementos ||= [];
+    if (/^(?:elementos|adornos)$/.test(f)) { p.quitarElementos = 'todos'; break; }
+    if (/cristal|vidrio/.test(f)) quita.push(grupoElemento('cristal'));
+    else if (/perla/.test(f)) quita.push(grupoElemento('perlas'));
+    else if (/bolita|cuenta/.test(f)) quita.push(grupoElemento('cuentas'));
+    else if (/cinta|liston/.test(f)) quita.push(grupoElemento('cinta'));
+    else if (/cadena/.test(f)) quita.push(grupoElemento('cadena'));
+    else quita.push(grupoElemento('esferas'), grupoElemento('cristal'));   // «las esferas»: todas, también las de cristal
+  }
+  {
+    const cr = sacar(new RegExp(`\\b(?:(?:una|la|unas|las|(\\d+|${PAL}))\\s+)?(?:esferas?|bolas?|burbujas?)\\s+de\\s+(?:cristal|vidrio)\\b|\\b(?:un\\s+)?cristal\\s+(?:redondo|transparente)\\b`));
+    if (cr) elementos.push(conCantidad(grupoElemento('cristal'), cuantosDe(cr[1])));
     const ci = sacar(/\b(?:(?:una|la)\s+)?(?:cinta|liston)(?:\s+de\s+saten)?(?:\s+(?:en|que\s+(?:forme|dibuje|haga)|con\s+forma\s+de|como)\s+(?:un\s+|una\s+|de\s+)?(corazon|onda|ola|espiral|lazo|mono))?(\s+que\s+pase\s+por\s+(?:el\s+|la\s+)?(?:anillo|argolla|joya|aro))?\b/);
     if (ci) elementos.push(grupoElemento('cinta', { recorrido: Object.entries(RECORRIDO_PALABRAS).find(([, re]) => re.test(ci[1] || ''))?.[0] || 'corazon' }));
     if (sacar(/\b(?:(?:cuelg\w*|colg\w*|pon\w*|agrega\w*|con)\s+)?(?:(?:de\s+)?una\s+|la\s+)?cadena(?:\s+(?:fina|delgada|que\s+cuelgue))?\b/)) elementos.push(grupoElemento('cadena'));
-    const pe = r.match(/\b(?:(?:pon\w*|agrega\w*|anade|con|unas)\s+)?(?:\d+\s+)?(perlas|esferas|bolas|bolitas|cuentas)\b((?:\s+(?:que\s+)?[a-z]+){0,6})/);
+    const pe = r.match(new RegExp(`\\b(?:(?:pon\\w*|agrega\\w*|anade|con|unas)\\s+)?(?:(\\d+|${PAL})\\s+)?(perlas|esferas|bolas|bolitas|cuentas)\\b((?:\\s+(?:que\\s+)?[a-z]+){0,6})`));
     if (pe) {
       r = r.replace(pe[0], ' ');
-      const tipo = /perla/.test(pe[1]) ? 'perlas' : /bolita|cuenta/.test(pe[1]) ? 'cuentas' : 'esferas';
-      const coreografia = COREO_PALABRAS.find(([, re]) => re.test(pe[2] || ''))?.[0];
-      elementos.push(grupoElemento(tipo, { coreografia }));
+      const tipo = /perla/.test(pe[2]) ? 'perlas' : /bolita|cuenta/.test(pe[2]) ? 'cuentas' : 'esferas';
+      const coreografia = COREO_PALABRAS.find(([, re]) => re.test(pe[3] || ''))?.[0];
+      elementos.push(conCantidad(grupoElemento(tipo, { coreografia }), cuantosDe(pe[1])));
     }
   }
   // flotar y par (después de los elementos: «perlas que flotan en fila» no hace flotar la joya)
@@ -1604,8 +1626,12 @@ function interpretarSinRed(texto, proyecto, info) {
 
   // ----- puesta en escena (v4): satén, luz, flotar, par, estuche o caja, elementos y la tapa que se abre -----
   // (si el «cuándo» de la tapa quedó en otra cláusula, «…que se abra | al final», viene en k.t)
-  const pedPuesta = cls.filter(k => k.puesta).map(k => (k.puesta.abrir && k.puesta.abrir.t === null && k.t?.algo
-    ? { ...k.puesta, abrir: { ...k.puesta.abrir, t: k.t.final || k.t.ultimos ? 'final' : esNum(k.t.a) ? k.t.a : 0 } } : k.puesta));
+  const cuandoK = k => (k.t.final || k.t.ultimos ? 'final' : esNum(k.t.a) ? k.t.a : 0);
+  const pedPuesta = cls.filter(k => k.puesta).map(k => ({
+    ...k.puesta,
+    ...(k.puesta.abrir && k.puesta.abrir.t === null && k.t?.algo ? { abrir: { ...k.puesta.abrir, t: cuandoK(k) } } : {}),
+    ...(k.puesta.elevar && k.puesta.elevar.t === null && k.t?.algo ? { elevar: { t: cuandoK(k) } } : {}),
+  }));
   if (pedPuesta.length) {
     const Q = {}, nuevos = [];
     for (const q of pedPuesta) for (const [c, v] of Object.entries(q)) { if (c === 'elementos') nuevos.push(...v); else Q[c] = v; }
@@ -1625,11 +1651,25 @@ function interpretarSinRed(texto, proyecto, info) {
     }
     if (Q.flotar !== undefined) { cambios.flotar = { activo: Q.flotar }; fr.push(Q.flotar ? 'la joya flota en el aire' : 'la joya ya no flota: queda apoyada'); }
     if (Q.par !== undefined) { cambios.par = { activo: Q.par }; fr.push(Q.par ? 'se ven las dos piezas del par, lado a lado' : 'se ve una sola pieza'); }
-    if (Q.quitarElementos) { cambios.elementos = { modo: 'quitar', lista: [] }; fr.push('quité los elementos'); }
-    else if (nuevos.length) {
-      cambios.elementos = { modo: 'agregar', lista: nuevos };
-      const NOMBRE_EL = g => (g.forma === 'cinta' ? `una cinta de satén en ${g.recorrido === 'corazon' ? 'corazón' : g.recorrido}` : g.forma === 'cadena' ? 'una cadena que cuelga de la joya' : g.material === 'cristal' ? 'una esfera de cristal'
-        : `${{ perla: 'perlas', esfera: 'esferas', cuenta: 'cuentas' }[g.forma]} que ${{ 'caer-en-circulo': 'caen y forman un círculo', rodar: 'ruedan y frenan', rebotar: 'caen y rebotan', 'fila-flotante': 'flotan en fila', orbitar: 'orbitan alrededor', lluvia: 'caen como lluvia', volar: 'vuelan', quieto: 'quedan quietas', entrar: 'entran' }[g.coreografia] || 'se mueven'}`);
+    // quitar: todos («sin elementos») o solo los de esa forma («quita la cadena»); con algo nuevo en la misma frase, se reemplaza
+    const NOMBRE_QUITA = g => (g.forma === 'cinta' ? 'la cinta' : g.forma === 'cadena' ? 'la cadena' : g.material === 'cristal' ? 'la esfera de cristal' : { perla: 'las perlas', esfera: 'las esferas', cuenta: 'las cuentas' }[g.forma] || 'ese elemento');
+    const mismo = (x, y) => x.forma === y.forma && (x.material === 'cristal') === (y.material === 'cristal');
+    const sabe = esObj(actual), hayEl = Array.isArray(ahora?.elementos) ? ahora.elementos.filter(esObj) : [];
+    const quita = Q.quitarElementos === 'todos' ? 'todos' : Array.isArray(Q.quitarElementos) ? Q.quitarElementos.filter(Boolean) : [];
+    if (quita === 'todos') { cambios.elementos = { modo: 'quitar', lista: [] }; fr.push(hayEl.length || !sabe ? 'quité los elementos' : 'no hay elementos que quitar'); }
+    else if (quita.length) {
+      const hay = sabe ? quita.filter(g => hayEl.some(n => mismo(g, n))) : quita, nombres = [...new Set((hay.length ? hay : quita).map(NOMBRE_QUITA))];
+      const lista = nombres.length > 1 && nombres.includes('las esferas') ? nombres.filter(x => x !== 'la esfera de cristal') : nombres;
+      const y = l => (l.length === 1 ? l[0] : `${l.slice(0, -1).join(', ')} y ${l.at(-1)}`);
+      cambios.elementos = nuevos.length ? { modo: 'reemplazar', lista: [...hayEl.filter(g => !quita.some(n => mismo(g, n))), ...nuevos] } : { modo: 'quitar', lista: quita };
+      fr.push(hay.length ? `quité ${y(lista)}` : `no hay ${y(lista).replace(/^(?:la|las)\s+/, '').replace(/^esfera/, 'esferas')} que quitar`);
+    }
+    if (nuevos.length) {
+      if (quita === 'todos') cambios.elementos = { modo: 'reemplazar', lista: nuevos };
+      else if (!quita.length) cambios.elementos = { modo: 'agregar', lista: nuevos };
+      const n = g => (CONTADOS.has(g) ? `${g.cantidad} ` : '');
+      const NOMBRE_EL = g => (g.forma === 'cinta' ? `una cinta de satén en ${g.recorrido === 'corazon' ? 'corazón' : g.recorrido}` : g.forma === 'cadena' ? 'una cadena que cuelga de la joya' : g.material === 'cristal' ? (CONTADOS.has(g) && g.cantidad > 1 ? `${g.cantidad} esferas de cristal` : 'una esfera de cristal')
+        : `${n(g)}${{ perla: 'perlas', esfera: 'esferas', cuenta: 'cuentas' }[g.forma]} que ${{ 'caer-en-circulo': 'caen y forman un círculo', rodar: 'ruedan y frenan', rebotar: 'caen y rebotan', 'fila-flotante': 'flotan en fila', orbitar: 'orbitan alrededor', lluvia: 'caen como lluvia', volar: 'vuelan', quieto: 'quedan quietas', entrar: 'entran' }[g.coreografia] || 'se mueven'}`);
       fr.push('agregué ' + nuevos.map(NOMBRE_EL).join(' y '));
     }
     if (Q.saten) fr.unshift(`puse el fondo de ${(nombreEscenaLista(Q.saten) || 'satén').replace(/^Satén/, 'satén')}`);
@@ -1645,9 +1685,28 @@ function interpretarSinRed(texto, proyecto, info) {
     if (Q.abrir && PISTAS.apertura) {
       const t = Q.abrir.t === 'final' ? D - 1.4 : esNum(Q.abrir.t) ? Q.abrir.t : 0.5;
       const t0 = r4(aCuadro(limitar(t, 0, Math.max(0, D - 0.4)))), t1 = r4(aCuadro(Math.min(D, t0 + 1.2)));
-      const [de0, a1] = Q.abrir.cerrar ? [1, 0] : [0, 1];
-      salidaPistas.set('apertura', [...(t0 > 0 ? [{ t: 0, v: de0, curva: 'lineal' }] : []), { t: t0, v: de0, curva: 'suave' }, { t: t1, v: a1, curva: 'lineal' }]);
+      const a1 = Q.abrir.cerrar ? 0 : 1;
+      // si la pista ya tenía claves («…que se abre en el segundo 3» y luego «ciérrala al final»), quedan las de antes y el tramo
+      // nuevo sale del valor que tenga la tapa en ese momento; si no tenía, la tapa empieza en el estado contrario
+      const previas = (salidaPistas.get('apertura') || base.apertura || []).filter(esObj);
+      const de0 = previas.length ? valorEn({ duracion: D, pistas: { apertura: previas } }, 'apertura', t0) : 1 - a1;
+      const antes = previas.filter(c => c.t < t0 - 1e-6).map(c => ({ ...c }));
+      salidaPistas.set('apertura', [...antes, ...(t0 > 0 && !antes.length ? [{ t: 0, v: de0, curva: 'lineal' }] : []), { t: t0, v: de0, curva: 'suave' }, { t: t1, v: a1, curva: 'lineal' }]);
       frasesEscena.push(`la tapa se ${Q.abrir.cerrar ? 'cierra' : 'abre'} ${t0 > 0 ? `en el ${seg(t0)}` : 'al empezar'}`);
+    }
+    // la joya sale del estuche (o sube sobre el piso): keys en la pista «elevar», de donde esté a 0.3 altos de la joya
+    if (Q.elevar && PISTAS.elevar) {
+      // sin «cuándo»: cuando la tapa termina de abrirse (si se abre), o hacia la mitad del video
+      const ab = (salidaPistas.get('apertura') || base.apertura || []).filter(esObj), finAbre = ab.find((c, i) => i > 0 && c.t > 0 && c.v >= 0.99 && ab[i - 1].v < 0.99)?.t ?? null;
+      const t = Q.elevar.t === 'final' ? D - 1.6 : esNum(Q.elevar.t) ? Q.elevar.t : finAbre ?? D * 0.45;
+      const t0 = r4(aCuadro(limitar(t, 0, Math.max(0, D - 0.4)))), t1 = r4(aCuadro(Math.min(D, t0 + 1.4)));
+      const previas = (salidaPistas.get('elevar') || base.elevar || []).filter(esObj);
+      const de0 = previas.length ? valorEn({ duracion: D, pistas: { elevar: previas } }, 'elevar', t0) : 0;
+      const a1 = Math.max(0.3, r2(de0 + 0.3 * (de0 >= 0.3 ? 1 : 0)));
+      const antes = previas.filter(c => c.t < t0 - 1e-6).map(c => ({ ...c }));
+      salidaPistas.set('elevar', [...antes, ...(t0 > 0 && !antes.length ? [{ t: 0, v: de0, curva: 'lineal' }] : []), { t: t0, v: de0, curva: 'suave' }, { t: t1, v: Math.min(PISTAS.elevar.max, a1), curva: 'lineal' }]);
+      const tipoU = cambios.utileria?.tipo || ahora?.utileria?.tipo, conEstuche = !!tipoU && tipoU !== 'ninguna' && tipoU !== 'pila-cajas';
+      frasesEscena.push(`la joya ${conEstuche ? 'sale del estuche' : 'sube'} ${t0 > 0 ? `desde el ${seg(t0)}` : 'al empezar'}`);
     }
   }
 

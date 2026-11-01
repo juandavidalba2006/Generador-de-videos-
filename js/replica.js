@@ -410,12 +410,26 @@ function esquemaDe(ia, escena, paleta) {
  * modo 'marca': cada color pasa al de la marca que hace su papel (marcaMasCercana); 'video': los colores tal como se vieron.
  * → { escena (config para estudio.ponerEscena) | null, muestras: [{ rol, nombre, original, hex, marca }] }
  */
+// Un fondo liso pero con estuche, elementos, par, joya flotando o un esquema de luz: el fondo liso de marca (2D) no los
+// muestra, así que va en 3D: fondo curvo y la joya directo en el piso, todo del color del fondo que se vio.
+function fondoLiso3D(ia, paleta) {
+  const e = esObj(ia?.escena) ? ia.escena : {}, f = esObj(e.fondo) ? e.fondo : {}, l = esObj(e.luz) ? e.luz : {};
+  const F = hex6(f.color) || hex6(paleta?.fondo) || COLORES_MARCA.perla.hex;
+  const base = ESCENAS['marmol-blanco'] ? 'marmol-blanco' : undefined;
+  return completarEscena({
+    id: base, superficie: { forma: 'piso', material: 'yeso', color: F },
+    fondo: { forma: 'curva', material: 'yeso', color: F, ...(claridad(F) < 0.4 ? { degradado: 0.45 } : {}) },
+    luz: { ...l, gobo: 'ninguno' }, ambiente: claridad(F) < 0.4 ? 0.7 : 0.95,
+  });
+}
+
 function escenaDelPlan(ia, paleta, modo = 'video') {
   let escena = ia ? configEscenaIA(ia) : null;
   if (!escena) escena = escenaLocal(paleta);
-  if (!escena || escena.id === 'ninguna') return { escena, muestras: [] };
   const u = ia && esObj(ia.utileria) && Object.hasOwn(TIPOS_UTILERIA, ia.utileria.tipo) && ia.utileria.tipo !== 'ninguna' ? ia.utileria : null;
   const elementos = ia && Array.isArray(ia.elementos) ? ia.elementos.filter(x => esObj(x) && Object.hasOwn(ELEMENTOS_IA, x.tipo)) : [];
+  if (escena?.id === 'ninguna' && (u || elementos.length || ia?.par || ia?.flotando || (ia?.luz_esquema && ia.luz_esquema !== 'ventana'))) escena = fondoLiso3D(ia, paleta);
+  if (!escena || escena.id === 'ninguna') return { escena, muestras: [] };
   const hayCinta = !!u?.cinta || u?.tipo === 'caja-regalo' || elementos.some(x => x.tipo === 'cinta');
   // los colores del video (o los de un estuche de la marca si la IA no dijo el suyo)
   const orig = { fondo: escena.fondo.color, superficie: escena.superficie.color, caja: u ? hex6(u.color) : null, cinta: hayCinta ? hex6(u?.cinta) : null };
@@ -425,7 +439,9 @@ function escenaDelPlan(ia, paleta, modo = 'video') {
     if (marca || !o) { const id = o ? marcaMasCercana(o, rol) : rol === 'caja' ? 'tinta' : rol === 'cinta' ? 'oro' : 'perla'; return { hex: COLORES_MARCA[id].hex, marca: id }; }
     return { hex: o, marca: idMarca(o) };
   };
-  const roles = ['fondo', 'superficie', ...(u ? ['caja'] : []), ...(hayCinta ? ['cinta'] : [])];
+  // directo en el piso (o en satén) no hay superficie aparte: el piso es el mismo fondo, así que no lleva su propia muestra
+  const sinSuperficie = esTela(escena) || escena.superficie?.forma === 'piso';
+  const roles = ['fondo', ...(sinSuperficie ? [] : ['superficie']), ...(u ? ['caja'] : []), ...(hayCinta ? ['cinta'] : [])];
   const muestras = roles.map(rol => ({ rol, nombre: NOMBRE_ROL[rol], original: orig[rol], ...elegir(rol) }));
   // una cinta del mismo color que su caja no se ve: en la marca va en oro (o perla sobre una caja dorada)
   const mc = muestras.find(m => m.rol === 'caja'), mt = muestras.find(m => m.rol === 'cinta');
@@ -442,7 +458,7 @@ function escenaDelPlan(ia, paleta, modo = 'video') {
   const flota = !!ia?.flotando, debajo = u?.posicion === 'al-lado' && flota;
   const cfg = {
     ...escena,
-    superficie: { ...escena.superficie, color: tela ? col.fondo : col.superficie },
+    superficie: { ...escena.superficie, color: tela || sinSuperficie ? col.fondo : col.superficie },
     fondo: { ...escena.fondo, color: col.fondo, ...(ia?.destellos ? { destellos: 0.35, degradado: Math.max(num(escena.fondo.degradado, 0), 0.45) } : {}) },
     luz: { ...escena.luz, esquema },
   };
@@ -467,13 +483,14 @@ function escenaDelPlan(ia, paleta, modo = 'video') {
 
 /**
  * La escena con otros colores en sus partes (lo que la joyera cambia en las muestras antes de aplicar).
- * cambios: { fondo, superficie, caja, cinta } en #RRGGBB (los que falten no cambian). En satén, la tela es fondo y piso.
+ * cambios: { fondo, superficie, caja, cinta } en #RRGGBB (los que falten no cambian). En satén o directo en el piso, el fondo es
+ * también el piso.
  */
 export function recolorearEscena(escena, cambios = {}) {
   if (!esObj(escena) || escena.id === 'ninguna') return escena;
   const c = Object.fromEntries(Object.entries(esObj(cambios) ? cambios : {}).map(([k, v]) => [k, hex6(v)]).filter(([, v]) => v));
   const e = JSON.parse(JSON.stringify(escena)), tela = esTela(e);
-  if (c.fondo) { e.fondo.color = c.fondo; if (tela && !c.superficie) e.superficie.color = c.fondo; }
+  if (c.fondo) { e.fondo.color = c.fondo; if ((tela || e.superficie?.forma === 'piso') && !c.superficie) e.superficie.color = c.fondo; }
   if (c.superficie) e.superficie.color = c.superficie;
   if (esObj(e.utileria) && e.utileria.tipo !== 'ninguna') {
     if (c.caja) { e.utileria.color = c.caja; e.utileria.interior = claridad(c.caja) < 0.5 ? COLORES_MARCA.perla.hex : COLORES_MARCA.tinta.hex; }

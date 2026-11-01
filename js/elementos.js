@@ -710,7 +710,8 @@ function infoForma(forma, d, piezas) {
     const x = p.solido[i], y = p.solido[i + 1], z = p.solido[i + 2];
     rb = Math.max(rb, Math.hypot(x, y, z)); rEje = Math.max(rEje, Math.hypot(x, z));
   }
-  return { rb, rRueda: rEje, modo: MODO_RODAR[forma] || 'deslizar', bola: MODO_RODAR[forma] === 'bola' };
+  // (nunca 0: con un STL sin tamaño las vueltas = distancia / radio daban NaN en las matrices)
+  return { rb: Math.max(rb, 1e-6), rRueda: Math.max(rEje, 1e-6), modo: MODO_RODAR[forma] || 'deslizar', bola: MODO_RODAR[forma] === 'bola' };
 }
 // Lo más bajo de la forma girada por q (respecto de su centro): con esto se apoya exacta en el piso
 // (solo la fila y de la rotación: es la altura de cada vértice girado)
@@ -736,9 +737,17 @@ function reposo(forma, F, r) {
 // Se guarda por el contenido (el mismo archivo da el mismo id: al abrir un proyecto se vuelve a registrar igual)
 const STLS = new Map();
 function hashBytes(u8) { let h = 0x811C9DC5; for (let i = 0; i < u8.length; i++) { h ^= u8[i]; h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36); }
+// Lo más que se acepta de un STL subido (triángulos de una copia) y de todas las copias de STL de una escena juntas: más
+// que eso congela la página varios segundos y el trazado de rayos no alcanza
+export const MAX_TRIANGULOS_STL = 250000, MAX_TRIANGULOS_ESCENA = 1500000;
+const MENSAJE_PESADO = n => `El STL tiene ${n >= 1e6 ? (n / 1e6).toFixed(1).replace('.', ',') + ' millones de' : Math.round(n / 1000) + ' mil'} triángulos y el máximo es ${MAX_TRIANGULOS_STL / 1000} mil: simplifícalo antes de subirlo (en tu programa de diseño, «Reducir malla» o «Decimate» a un 10–20 %, o expórtalo con menos resolución).`;
 export function registrarSTL(datos, nombre = 'mi-stl.stl') {
   const u8 = datos instanceof ArrayBuffer ? new Uint8Array(datos) : ArrayBuffer.isView(datos) ? new Uint8Array(datos.buffer, datos.byteOffset, datos.byteLength) : null;
   if (!u8 || u8.length < 15) throw new Error('El archivo STL está vacío.');
+  // antes de leerlo: un STL binario dice cuántos triángulos trae (y uno de texto ocupa unos 260 bytes por triángulo)
+  const binario = u8.length >= 84 && 84 + 50 * new DataView(u8.buffer, u8.byteOffset, u8.byteLength).getUint32(80, true) === u8.length;
+  const estimados = binario ? (u8.length - 84) / 50 : u8.length / 260;
+  if (estimados > MAX_TRIANGULOS_STL) throw new Error(MENSAJE_PESADO(estimados));
   const id = 'stl-' + hashBytes(u8) + '-' + u8.length.toString(36);
   if (!STLS.has(id)) {
     let geo;
@@ -747,7 +756,14 @@ export function registrarSTL(datos, nombre = 'mi-stl.stl') {
     for (const k of Object.keys(geo.attributes)) if (k !== 'position') geo.deleteAttribute(k);
     const p = geo.attributes.position;
     if (!p || p.count < 3) throw new Error('El STL no tiene triángulos.');
+    if (p.count / 3 > MAX_TRIANGULOS_STL) throw new Error(MENSAJE_PESADO(p.count / 3));
     for (let i = 0; i < p.array.length; i++) if (!Number.isFinite(p.array[i])) throw new Error('El STL tiene coordenadas inválidas.');
+    // tamaño: en mm, ni un punto ni una línea (todo igual o en fila) ni coordenadas enormes (dejaban NaN en las matrices)
+    geo.computeBoundingBox();
+    const t0 = geo.boundingBox.getSize(V()), lados = [t0.x, t0.y, t0.z].sort((x, y) => y - x);
+    if (!lados.every(Number.isFinite) || lados[0] > 1e5) throw new Error('El STL es demasiado grande (más de 100 metros): revisa que esté en milímetros.');
+    if (lados[0] < 1e-3) throw new Error('El STL no tiene tamaño (todos sus puntos están en el mismo lugar).');
+    if (lados[1] < 1e-6 * lados[0] + 1e-6) throw new Error('El STL es solo una línea (no tiene ancho ni alto): revisa el archivo.');
     // los programas de joyería guardan el STL con Z hacia arriba (igual que la joya: estudio.cargar)
     geo.rotateX(-Math.PI / 2);
     geo.computeBoundingBox();
@@ -1045,8 +1061,10 @@ function recorridoLocal(tipo, wl) {
   for (let t = 0.3; t < 2; t += 0.002) { const y = F(t).y; if (y > yTope) { yTope = y; tTope = t; } }
   const Fc = t => F(t).multiplyScalar(1 / yTope);   // de la punta (y = 0) a lo alto de los lóbulos (y = 1)
   const rc = Math.max(0.055, 1.3 * wl), dz = Math.max(0.9 * wl, 0.03), C = [0, Fc(0).y - 1.7 * rc];
-  const der = [];
-  for (let k = 0; k <= 22; k++) der.push(Fc(Math.PI - 0.05 - (Math.PI - 0.67) * k / 22));
+  // (los dos extremos abajo quedan separados: en la punta del corazón clásico los lados se juntan en un solo punto y la
+  // cinta se atravesaba a sí misma)
+  const der = [V(Math.max(0.035, 0.8 * wl), 0, 0)];
+  for (let k = 0; k <= 21; k++) der.push(Fc(Math.PI - 0.42 - (Math.PI - 0.42 - 0.67) * k / 21));
   const ctrl = der.slice();
   ctrl.push(V(C[0] - 0.866 * rc, C[1] + 0.5 * rc, 0));
   // la vuelta: de 240° a 480° de rumbo, en sentido antihorario (el centro queda a la izquierda de la marcha)
@@ -1171,13 +1189,14 @@ function planCinta(g, J, ctx) {
   // índice del agujero en el remuestreo
   const iH = puntos.reduce((b, p, i) => (p.distanceTo(Ph) < puntos[b].distanceTo(Ph) ? i : b), 0);
   const plano = g.recorrido === 'espiral' ? null : nE.clone();
+  // marcos: el transporte paralelo, sin torsión; la media vuelta de los lados (giro) se pone al armar la cinta
   const giro = loc.giros ? perfilGiro(puntos.length, loc.giros) : null;
-  const marcos = torcer(marcosParalelos(puntos, nE.clone().cross(tangentes(puntos)[0]), plano), giro);
+  const marcos = marcosParalelos(puntos, nE.clone().cross(tangentes(puntos)[0]), plano);
   // revisar contra los triángulos de la joya (los cantos y el medio de la cinta); si algo roza, otro intento con más tramo recto
   const rej = tri ? rejillaDe(tri, R) : null;
   let juego = Infinity;
   if (rej) {
-    const lado = esquinasCinta(puntos, marcos.N, marcos.B, w, e);
+    const mt = torcer({ T: marcos.T, N: marcos.N.slice(), B: marcos.B.slice() }, giro), lado = esquinasCinta(puntos, mt.N, mt.B, w, e);
     for (const c of lado) for (let m = 0; m < 4; m++) for (let s = 0; s < 3; s++) juego = Math.min(juego, distanciaJoya(rej, c[m].clone().lerp(c[(m + 1) % 4], s / 3), 4 * holgura));
   }
   return { tipo: 'cinta', g, puntos, marcos, giro, plano, ancho: w, espesor: e, ag, iH, tramo, juego, holgura, avisos, abajo: loc.abajo, ancla: !!ancla };
@@ -1402,6 +1421,15 @@ export function puntaCorazon(lista, op = {}) {
 export function planearElementos(lista, op = {}) {
   if (!esObj(op)) op = {};
   const grupos = normalizarElementos(lista), J = describirJoya(op), avisos = [], planes = [];
+  // copias de STL: entre todas, no más de MAX_TRIANGULOS_ESCENA triángulos (cada grupo se queda con menos copias)
+  let quedan = MAX_TRIANGULOS_ESCENA;
+  for (const g of grupos) {
+    if (g.forma !== 'stl') continue;
+    const tri = STLS.get(g.stl?.id)?.triangulos || 0; if (!tri) continue;
+    const caben = Math.max(0, Math.floor(quedan / tri));
+    if (caben < g.cantidad) { avisos.push(`«${g.stl.nombre || 'STL'}» es muy pesado para ${g.cantidad} copias: van ${caben}. Simplifica el STL para poner más.`); g.cantidad = caben; }
+    quedan -= g.cantidad * tri;
+  }
   const ocupados = [];   // lo que queda quieto en el piso (para acomodar los grupos siguientes)
   for (const [indice, g] of grupos.entries()) {
     if (g.forma === 'cinta') { const c = planCinta(g, J, op); avisos.push(...c.avisos); planes.push({ g, camino: c, instancias: [], marco: 'joya' }); continue; }
@@ -1678,7 +1706,7 @@ export class Elementos {
     }
   }
   armarCinta(pl) {
-    const c = pl.camino, g = pl.g, fr = c.marcos;
+    const c = pl.camino, g = pl.g, fr = torcer({ T: c.marcos.T, N: c.marcos.N.slice(), B: c.marcos.B.slice() }, c.giro);
     const geo = cintaGeometria(c.puntos, fr.N, fr.B, fr.T, c.ancho, c.espesor, { uLargo: c.ancho * 6 });
     geo.userData.tapas = true;
     const mat = materialElemento(g.material, g.color);
@@ -1778,14 +1806,15 @@ export class Elementos {
     if (movio) this.ptSucio = true;
     return movio;
   }
-  // Solo dan sombra (motor rápido) los elementos que están en el cuadro o a punto de entrar: uno que cae desde arriba,
+  // Solo dan sombra (motor rápido) los elementos que están en el cuadro: uno que cae desde arriba,
   // todavía fuera de la imagen, dejaba una mancha oscura flotando en la pared de satén
   sombrasEnCuadro(camara) {
     const fr = this._fr || (this._fr = new THREE.Frustum()), esf = this._esf || (this._esf = new THREE.Sphere());
     fr.setFromProjectionMatrix(_m4.multiplyMatrices(camara.projectionMatrix, camara.matrixWorldInverse));
     for (const m of this.mallas) {
       if (!m.ins || !m.rapido.visible) continue;
-      esf.center.copy(m.rapido.position).applyMatrix4(m.rapido.parent.matrixWorld); esf.radius = 1.1 * m.ins.rb * Math.max(m.rapido.scale.x, 1e-3);
+      // (el centro adentro del cuadro: la sombra aparece cuando el elemento ya se ve, no antes)
+      esf.center.copy(m.rapido.position).applyMatrix4(m.rapido.parent.matrixWorld); esf.radius = 0;
       const ve = fr.intersectsSphere(esf);
       if (m.rapido.userData.sombra !== ve) { m.rapido.userData.sombra = ve; m.rapido.traverse(o => { if (o.isMesh) o.castShadow = ve; }); }
     }

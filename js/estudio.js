@@ -191,8 +191,8 @@ export function hdrEsquema(esquema, W = 1024, H = 512, suave = false) {
         q.copy(d).multiplyScalar(t).sub(p.pos);
         const ex = Math.abs(q.dot(p.der)) / (p.w / 2), ey = Math.abs(q.dot(p.arr)) / (p.h / 2);
         if (ex <= 1 && ey <= 1) {
-          // borde difuso en el del trazador (el último 30 % del panel se funde con la cúpula)
-          const f = suave ? Math.min(1, (1 - ex) / 0.3, (1 - ey) / 0.3) : 1, s2 = f * f * (3 - 2 * f);
+          // borde difuso en el del trazador (el último 15 % del panel se funde con la cúpula)
+          const f = suave ? Math.min(1, (1 - ex) / 0.15, (1 - ey) / 0.15) : 1, s2 = f * f * (3 - 2 * f);
           cerca = t; r = c.r + (p.color.r - c.r) * s2; g = c.g + (p.color.g - c.g) * s2; b = c.b + (p.color.b - c.b) * s2;
         }
       }

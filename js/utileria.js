@@ -1254,8 +1254,11 @@ export class Utileria {
       // del satén en los cantos y apenas metal. El color va un poco más claro y menos saturado: con metal 0,45, rugosidad
       // 1,05 sobre el mapa y el oro hondo de la marca salía un naranja mate de plástico
       const cc = new THREE.Color(n.cinta), hsl = cc.getHSL({});
-      M.cinta = crearMaterial('saten', '#' + cc.setHSL(hsl.h, Math.min(hsl.s, 0.55), limitar(hsl.l * 1.12, 0.12, 0.8)).getHexString());
-      Object.assign(M.cinta, { metalness: 0.12, roughness: HAY_DOM ? 1.25 : 0.38, sheen: 1, sheenRoughness: 0.32, specularIntensity: 1 });
+      // (los dorados se corren apenas hacia el amarillo: bajo la luz cálida se iban al naranja; el velo es suave porque en la
+      // tapa gigante, vista a ras, lo cubría todo de un tono plano)
+      const dorado = hsl.h > 0.06 && hsl.h < 0.17 && hsl.s > 0.3;
+      M.cinta = crearMaterial('saten', '#' + cc.setHSL(dorado ? Math.min(hsl.h + 0.012, 0.15) : hsl.h, Math.min(hsl.s, 0.62), limitar(hsl.l, 0.12, 0.8)).getHexString());
+      Object.assign(M.cinta, { metalness: 0.35, roughness: HAY_DOM ? 1.15 : 0.35, sheen: 0.45, sheenRoughness: 0.4, specularIntensity: 1 });
       M.oro = new THREE.MeshPhysicalMaterial({ color: 0xF1C46B, metalness: 1, roughness: 0.2 });
     }
     if (foil || colores || !M.foils) {

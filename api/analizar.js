@@ -83,8 +83,9 @@ ${Object.entries({ ...ESCENAS_SATEN, ...ESCENAS }).map(([k, e]) => `  ${k} = ${e
    proyecta sombras con forma (ventana, persiana, arco, círculo de foco; si son hojas o plantas, elige la ventana) o es suave sin sombras, si son duras o difusas, si
    es cálida o fría. En escena.id va la escena lista más parecida, y en superficie, fondo y luz lo que de verdad se ve (los colores
    en #RRGGBB tal como se ven en la parte iluminada; los de <analisis_local> son una medida automática y pueden incluir sombras).
-   «ninguna» solo si el fondo es liso y no se ve ninguna superficie. Si el fondo y el piso son una tela de satén o seda con pliegues
-   suaves, fondo.forma = tela, superficie.forma = piso y escena.id la saten-* del tono más parecido (noche = azul o negro, esmeralda =
+   «ninguna» solo si el fondo es liso, no se ve ninguna superficie y tampoco hay estuche, cajas ni elementos (con un fondo liso
+   y una caja, una cinta, perlas o una cadena: fondo curva, superficie piso y escena.id la más parecida de color). Si el fondo y
+   el piso son una tela de satén o seda con pliegues suaves, fondo.forma = tela, superficie.forma = piso y escena.id la saten-* del tono más parecido (noche = azul o negro, esmeralda =
    verde o verde azulado, granate = rojo o vino, perla = claro). Los colores son los del video tal cual: el estudio los lleva después a
    los colores de la marca.
    La puesta en escena: luz_esquema (clave-baja si la imagen es oscura y el metal brilla con reflejos fuertes; contraluz si el fondo
