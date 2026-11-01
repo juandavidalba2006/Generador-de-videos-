@@ -5,240 +5,25 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DISMET Mobiliario</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="DISMET Distribuciones fabrica mobiliario de oficina, escolar, almacenamiento y sillas en planta propia en Villavicencio. Catálogo con 126 referencias.">
+<meta name="description" content="DISMET Distribuciones fabrica mobiliario de oficina, escolar, almacenamiento y sillas en planta propia en Villavicencio.">
 <link rel="icon" type="image/png" href="img/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Montserrat:wght@400;500;600;700&display=swap">
-<style>
-/* Layout: encabezado blanco, franjas de color que imitan las barras del catálogo impreso, rejilla de fichas con su código de referencia.
-   Paleta y tipografías tomadas del Manual de identidad DISMET (sección 04 y 05). Página solo en tema claro: el manual pide blanco como fondo principal. */
-:root{
-  --verde:#07823B;        /* Verde corporativo */
-  --azul:#062B50;         /* Azul premium */
-  --acento:#70C51B;       /* Verde acento: solo detalles pequeños */
-  --gris:#F3F6F5;         /* Gris claro: fondos secundarios */
-  --blanco:#FFFFFF;
-  --tinta:#062B50;
-  --tinta-suave:#41566b;
-  --linea:#d9e1df;
-  --franja:linear-gradient(90deg,#07823B 0%,#0a5a49 45%,#062B50 100%);
-  --f-titulo:"Montserrat","Helvetica Neue",Arial,sans-serif;
-  --f-texto:"Inter","Helvetica Neue",Arial,sans-serif;
-  --ancho:1200px;
-  --gutter-l:max(16px, env(safe-area-inset-left, 0px));
-  --gutter-r:max(16px, env(safe-area-inset-right, 0px));
-  color-scheme:light;
-}
-*,*::before,*::after{box-sizing:border-box}
-[hidden]{display:none!important}
-html{scroll-behavior:smooth;scroll-padding-top:calc(var(--alto-encabezado,90px) + 12px)}
-body{margin:0;background:var(--blanco);color:var(--tinta);font-family:var(--f-texto);font-size:16px;line-height:1.6}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--blanco)}
-img{max-width:100%;display:block}
-h1,h2,h3{font-family:var(--f-titulo);font-weight:700;line-height:1.15;margin:0;text-wrap:balance}
-p{margin:0}
-a{color:inherit}
-button{font:inherit;color:inherit;cursor:pointer}
-:focus-visible{outline:3px solid var(--acento);outline-offset:2px}
-.envoltura{max-width:var(--ancho);margin:0 auto;padding-left:var(--gutter-l);padding-right:var(--gutter-r)}
-.etiqueta{font-family:var(--f-titulo);font-weight:600;font-size:.75rem;letter-spacing:.28em;text-transform:uppercase}
-.boton{display:inline-flex;align-items:center;gap:.5rem;border:0;border-radius:4px;padding:.8rem 1.3rem;font-family:var(--f-titulo);font-weight:600;font-size:.92rem;text-decoration:none;transition:background .2s,transform .2s}
-.boton:hover{transform:translateY(-1px)}
-.boton-verde{background:var(--verde);color:var(--blanco)}
-.boton-verde:hover{background:#066d32}
-.boton-azul{background:var(--azul);color:var(--blanco)}
-.boton-borde{background:transparent;color:var(--azul);box-shadow:inset 0 0 0 1.5px var(--azul)}
-.boton-borde:hover{background:var(--gris)}
-
-/* Encabezado */
-.encabezado{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:var(--blanco);border-bottom:1px solid var(--linea)}
-.encabezado .envoltura{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding-block:.7rem}
-.logo{display:block;flex:none;padding:6px 0}
-.logo img{width:220px;height:auto}
-.menu{display:flex;align-items:center;gap:1.6rem}
-.menu a{font-family:var(--f-titulo);font-weight:500;font-size:.9rem;text-decoration:none;color:var(--azul)}
-.menu a:not(.boton):hover{color:var(--verde)}
-.menu a.boton{color:var(--blanco)}
-.menu-boton{display:none;background:none;border:1px solid var(--linea);border-radius:4px;padding:.45rem .7rem;font-family:var(--f-titulo);font-weight:600;font-size:.85rem}
-
-/* Portada */
-.portada{padding-block:clamp(2.5rem,6vw,5rem) clamp(2rem,5vw,4rem)}
-.portada .envoltura{display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(1.5rem,4vw,3.5rem);align-items:center}
-.portada-texto{display:grid;gap:1.3rem;min-width:0}
-.portada .etiqueta{color:var(--verde)}
-.portada h1{font-size:clamp(2.1rem,4.6vw,3.5rem);letter-spacing:-.01em}
-.portada h1 span{color:var(--verde)}
-.portada p.lead{font-size:1.1rem;color:var(--tinta-suave);max-width:34rem}
-.acciones{display:flex;flex-wrap:wrap;gap:.75rem}
-.portada-foto{position:relative;min-width:0}
-.portada-foto img{width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;border-radius:6px}
-.portada-foto .ficha{position:absolute;left:-14px;bottom:22px;background:var(--blanco);border-radius:4px;box-shadow:0 10px 30px rgba(6,43,80,.16);padding:.75rem 1rem;display:grid;gap:.1rem}
-.ficha b{font-family:var(--f-titulo);font-size:1.7rem;line-height:1;color:var(--azul)}
-.ficha small{font-size:.8rem;color:var(--tinta-suave)}
-.procesos{background:var(--azul);color:var(--blanco)}
-.procesos ul{list-style:none;margin:0;display:grid;grid-template-columns:repeat(5,1fr);gap:0;padding-block:0}
-.procesos li{padding:1.1rem .9rem;font-family:var(--f-titulo);font-weight:500;font-size:.88rem;display:flex;align-items:center;gap:.6rem;border-left:1px solid rgba(255,255,255,.14)}
-.procesos li:first-child{border-left:0}
-.procesos li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--acento);flex:none}
-
-/* Secciones */
-.seccion{padding-block:clamp(3rem,7vw,5.5rem)}
-.seccion-gris{background:var(--gris)}
-.cabeza{display:grid;gap:.8rem;margin-bottom:2.2rem;max-width:44rem}
-.cabeza .etiqueta{color:var(--verde)}
-.cabeza h2{font-size:clamp(1.7rem,3.2vw,2.4rem)}
-.cabeza p{color:var(--tinta-suave)}
-
-/* Líneas de producto */
-.lineas{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem}
-.linea{position:relative;display:flex;flex-direction:column;background:var(--blanco);border:1px solid var(--linea);border-radius:6px;overflow:hidden;text-align:left;padding:0;transition:box-shadow .25s,transform .25s}
-.linea:hover{box-shadow:0 14px 34px rgba(6,43,80,.14);transform:translateY(-3px)}
-.linea img{width:100%;aspect-ratio:4/5;object-fit:cover}
-.linea div{padding:.9rem 1rem 1.1rem;display:grid;gap:.15rem}
-.linea .num{font-family:var(--f-titulo);font-weight:700;color:var(--verde);font-size:.85rem}
-.linea h3{font-size:1rem}
-.linea small{color:var(--tinta-suave);font-size:.82rem}
-
-/* Catálogo */
-.filtros{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--alto-encabezado,90px));z-index:30;background:var(--blanco);padding-block:.9rem;border-bottom:1px solid var(--linea);margin-bottom:2rem}
-.filtros-fila{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:space-between}
-.chips{display:flex;gap:.45rem;overflow-x:auto;scrollbar-width:none;min-width:0;flex:1 1 auto;padding-bottom:2px}
-.chips::-webkit-scrollbar{display:none}
-.chip{flex:none;border:1px solid var(--linea);background:var(--blanco);border-radius:999px;padding:.45rem .95rem;font-family:var(--f-titulo);font-weight:500;font-size:.83rem;white-space:nowrap}
-.chip[aria-pressed="true"]{background:var(--azul);border-color:var(--azul);color:var(--blanco)}
-.buscador{position:relative;flex:0 1 270px;min-width:0}
-.buscador input{width:100%;border:1px solid var(--linea);border-radius:4px;padding:.6rem .8rem .6rem 2.2rem;font:inherit;font-size:.92rem;color:var(--tinta);background:var(--gris)}
-.buscador svg{position:absolute;left:.7rem;top:50%;transform:translateY(-50%);width:16px;height:16px;stroke:var(--tinta-suave)}
-.resultado{font-size:.85rem;color:var(--tinta-suave);margin-top:.55rem}
-.grupo{margin-bottom:2.6rem}
-.franja{display:flex;align-items:center;justify-content:space-between;gap:1rem;background:var(--franja);color:var(--blanco);padding:.55rem 1rem;border-radius:3px;margin-bottom:1rem}
-.franja h3{font-size:.74rem;font-weight:600;letter-spacing:.24em;text-transform:uppercase}
-.franja span{font-family:var(--f-titulo);font-size:.75rem;opacity:.8;white-space:nowrap}
-.rejilla{display:grid;grid-template-columns:repeat(var(--cols,4),minmax(0,1fr));gap:1rem}
-.producto{display:flex;flex-direction:column;border:1px solid var(--linea);border-radius:4px;background:var(--blanco);overflow:hidden;transition:border-color .2s,box-shadow .2s}
-.producto:hover{border-color:#b9c7c3;box-shadow:0 8px 22px rgba(6,43,80,.09)}
-.producto-foto{background:var(--blanco);border:0;padding:.9rem;aspect-ratio:1/1;width:100%;display:block;cursor:zoom-in}
-.producto-foto img{width:100%;height:100%;object-fit:contain}
-.producto-pie{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.6rem .8rem;border-top:1px solid var(--linea)}
-.codigo{font-family:var(--f-titulo);font-weight:700;font-size:.85rem;letter-spacing:.06em;font-variant-numeric:tabular-nums}
-.agregar{border:1px solid var(--verde);background:var(--blanco);color:var(--verde);border-radius:4px;padding:.3rem .6rem;font-family:var(--f-titulo);font-weight:600;font-size:.75rem;white-space:nowrap}
-.agregar[aria-pressed="true"]{background:var(--verde);color:var(--blanco)}
-.vacio{padding:3rem 1rem;text-align:center;color:var(--tinta-suave);border:1px dashed var(--linea);border-radius:6px}
-
-/* Nosotros */
-.nosotros{display:grid;grid-template-columns:1fr 1fr;gap:clamp(1.5rem,5vw,4rem);align-items:center}
-.nosotros>*{min-width:0}
-.nosotros img{width:100%;height:auto;border-radius:6px;aspect-ratio:4/5;object-fit:cover}
-.nosotros-texto{display:grid;gap:1.1rem}
-.nosotros-texto p{color:var(--tinta-suave)}
-.valores{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:.6rem}
-.valor{border-top:3px solid var(--verde);padding-top:.7rem;display:grid;gap:.2rem}
-.valor h3{font-size:.9rem;letter-spacing:.14em;text-transform:uppercase}
-.valor p{font-size:.92rem}
-
-/* Proyectos */
-.galeria{columns:3 260px;column-gap:1rem}
-.galeria button{display:block;width:100%;border:0;padding:0;margin:0 0 1rem;break-inside:avoid;background:none;border-radius:4px;overflow:hidden;cursor:zoom-in}
-.galeria img{width:100%;transition:transform .4s}
-.galeria button:hover img{transform:scale(1.03)}
-
-/* Ubicación */
-.contacto{display:grid;grid-template-columns:1.2fr 1fr;gap:clamp(1.5rem,4vw,3rem);align-items:start}
-.contacto>*{min-width:0}
-.mapa{border:1px solid var(--linea);border-radius:6px;overflow:hidden;background:var(--blanco)}
-.mapa-pie{background:var(--franja);color:var(--blanco);text-align:center;padding:.7rem 1rem}
-.datos{display:grid;gap:1.1rem}
-.dato{display:grid;gap:.2rem;padding-bottom:1rem;border-bottom:1px solid var(--linea)}
-.dato .etiqueta{color:var(--verde);font-size:.7rem}
-.dato p{font-family:var(--f-titulo);font-weight:600;font-size:1.05rem;overflow-wrap:anywhere}
-.dato-fila{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
-.copiar{border:1px solid var(--linea);background:var(--blanco);border-radius:4px;padding:.25rem .6rem;font-size:.78rem}
-
-/* Pie */
-.pie{background:var(--gris);border-top:1px solid var(--linea)}
-.pie .envoltura{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:1.5rem;padding-block:2.2rem}
-.pie img{width:260px;height:auto}
-.pie p{font-size:.88rem;color:var(--tinta-suave)}
-.pie-barra{background:var(--azul);color:var(--blanco);font-size:.78rem}
-.pie-barra .envoltura{padding-block:.8rem;display:flex;flex-wrap:wrap;justify-content:space-between;gap:.5rem}
-
-/* Cotización */
-.boton-cotizacion{position:fixed;right:calc(18px + env(safe-area-inset-right,0px));bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:40;box-shadow:0 10px 26px rgba(6,43,80,.28)}
-.boton-cotizacion .contador{background:var(--acento);color:var(--azul);border-radius:999px;min-width:1.5rem;padding:0 .4rem;text-align:center;font-size:.8rem}
-.panel{position:fixed;inset:0;z-index:70;display:flex;justify-content:flex-end;background:rgba(6,43,80,.45)}
-.panel-caja{width:min(420px,100%);height:100%;background:var(--blanco);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-.panel-cabeza{background:var(--franja);color:var(--blanco);display:flex;justify-content:space-between;align-items:center;padding:1rem 1.2rem}
-.panel-cabeza h2{font-size:1.05rem}
-.cerrar{background:none;border:0;color:inherit;font-size:1.6rem;line-height:1;padding:.2rem .4rem}
-.panel-lista{flex:1;overflow-y:auto;padding:1rem 1.2rem;display:grid;align-content:start;gap:.7rem}
-.item{display:grid;grid-template-columns:56px 1fr auto;gap:.75rem;align-items:center;border-bottom:1px solid var(--linea);padding-bottom:.7rem}
-.item img{width:56px;height:56px;object-fit:contain;border:1px solid var(--linea);border-radius:3px;background:var(--blanco)}
-.item div{min-width:0}
-.item small{display:block;color:var(--tinta-suave);font-size:.78rem;overflow-wrap:anywhere}
-.cantidad{display:flex;align-items:center;gap:.3rem}
-.cantidad input{width:3.4rem;border:1px solid var(--linea);border-radius:4px;padding:.3rem;text-align:center;font:inherit}
-.quitar{background:none;border:0;color:var(--tinta-suave);font-size:.78rem;text-decoration:underline;padding:0}
-.panel-pie{border-top:1px solid var(--linea);padding:1rem 1.2rem;display:grid;gap:.7rem}
-.panel-pie label{font-size:.8rem;font-weight:500;display:grid;gap:.3rem}
-.panel-pie input{border:1px solid var(--linea);border-radius:4px;padding:.55rem .7rem;font:inherit}
-.panel-pie .boton{justify-content:center}
-.nota{font-size:.78rem;color:var(--tinta-suave)}
-
-/* Visor */
-.visor{position:fixed;inset:0;z-index:80;background:rgba(4,22,40,.9);display:grid;place-items:center;padding:calc(16px + env(safe-area-inset-top,0px)) var(--gutter-r) calc(16px + env(safe-area-inset-bottom,0px)) var(--gutter-l)}
-.visor-caja{background:var(--blanco);border-radius:6px;width:min(860px,100%);max-height:100%;display:flex;flex-direction:column;overflow:hidden}
-.visor-foto{flex:1;min-height:0;display:grid;place-items:center;padding:1.2rem;background:var(--blanco)}
-.visor-foto img{max-height:68vh;width:auto;object-fit:contain}
-.visor-pie{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.8rem;padding:.9rem 1.2rem;border-top:1px solid var(--linea)}
-.visor-pie h3{font-size:1.05rem}
-.visor-pie small{color:var(--tinta-suave)}
-.visor-nav{display:flex;gap:.5rem}
-.visor .flecha{border:1px solid var(--linea);background:var(--blanco);border-radius:4px;width:2.4rem;height:2.4rem;font-size:1.1rem}
-.visor-cerrar{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));right:calc(14px + env(safe-area-inset-right,0px));color:var(--blanco);font-size:2rem}
-
-@media (max-width:980px){
-  .lineas{grid-template-columns:repeat(3,1fr)}
-  .procesos ul{grid-template-columns:repeat(2,1fr)}
-  .procesos li{border-left:0;border-top:1px solid rgba(255,255,255,.14)}
-}
-@media (max-width:820px){
-  .menu-boton{display:inline-block}
-  .menu{display:none;position:absolute;top:100%;left:0;right:0;background:var(--blanco);flex-direction:column;align-items:stretch;gap:0;border-bottom:1px solid var(--linea);padding:.4rem var(--gutter-r) 1rem var(--gutter-l)}
-  .menu.abierto{display:flex}
-  .menu a{padding:.75rem 0;border-bottom:1px solid var(--gris)}
-  .menu .boton{margin-top:.6rem;justify-content:center}
-  .portada .envoltura,.nosotros,.contacto{grid-template-columns:1fr}
-  .portada-foto .ficha{left:12px}
-  .buscador{flex:1 1 100%}
-}
-@media (max-width:560px){
-  .lineas{grid-template-columns:repeat(2,1fr)}
-  .logo img{width:180px}
-  .linea:last-child{grid-column:1 / -1}
-  .linea:last-child img{aspect-ratio:16/9}
-  .galeria{columns:2;column-gap:.6rem}
-  .galeria button{margin-bottom:.6rem}
-  .rejilla{--cols:2!important;gap:.6rem}
-  .producto-pie{flex-direction:column;align-items:stretch;gap:.4rem;padding:.55rem}
-  .agregar{text-align:center}
-  .valores{grid-template-columns:1fr}
-  .procesos ul{grid-template-columns:1fr}
-}
-@media (prefers-reduced-motion:reduce){
-  *{transition:none!important;scroll-behavior:auto!important}
-}
-</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Montserrat:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="css/estilos.css">
 </head>
-<body>
+<body data-pagina="inicio">
 
 <header class="encabezado">
   <div class="envoltura">
-    <a class="logo" href="#inicio" aria-label="DISMET, ir al inicio"><img src="img/logo-dismet.png" alt="DISMET Innovaciones Industriales S.A.S. · Soluciones inmobiliarias" width="1000" height="268"></a>
+    <a class="logo" href="index.html" aria-label="DISMET, ir al inicio"><img src="img/logo-dismet.png" alt="DISMET Innovaciones Industriales S.A.S. · Soluciones inmobiliarias" width="1000" height="268"></a>
     <button class="menu-boton" id="menu-boton" aria-expanded="false" aria-controls="menu">Menú</button>
     <nav class="menu" id="menu" aria-label="Principal">
-      <a href="#lineas">Productos</a>
-      <a href="#catalogo">Catálogo</a>
+      <a href="index.html" aria-current="page">Inicio</a>
+      <details>
+        <summary>Productos</summary>
+        <div class="submenu" id="submenu"></div>
+      </details>
       <a href="#nosotros">Nosotros</a>
       <a href="#proyectos">Proyectos</a>
       <a href="#contacto">Contacto</a>
@@ -255,7 +40,7 @@ button{font:inherit;color:inherit;cursor:pointer}
         <h1>Mobiliario de oficina y escolar hecho en <span>planta propia</span></h1>
         <p class="lead">Fabricamos, personalizamos y mantenemos escritorios, sillas, lockers, estanterías y muebles especiales para empresas, colegios, droguerías y supermercados.</p>
         <div class="acciones">
-          <a class="boton boton-azul" href="#catalogo">Ver catálogo</a>
+          <a class="boton boton-azul" href="#fabricamos">Ver qué fabricamos</a>
           <a class="boton boton-borde" href="https://wa.me/573016349734?text=Hola%20DISMET%2C%20quiero%20una%20cotizaci%C3%B3n." target="_blank" rel="noopener">Escribir por WhatsApp</a>
         </div>
       </div>
@@ -276,42 +61,18 @@ button{font:inherit;color:inherit;cursor:pointer}
     </ul>
   </div>
 
-  <section class="seccion" id="lineas">
+  <section class="seccion" id="fabricamos">
     <div class="envoltura">
       <div class="cabeza">
-        <p class="etiqueta">Productos</p>
+        <p class="etiqueta">Qué fabricamos</p>
         <h2>Cinco líneas para equipar cualquier espacio</h2>
-        <p>Elige una línea para ver todas sus referencias en el catálogo.</p>
+        <p>Cada línea tiene su propia página con todos sus tipos de producto y referencias.</p>
       </div>
       <div class="lineas" id="lista-lineas"></div>
     </div>
   </section>
 
-  <section class="seccion seccion-gris" id="catalogo">
-    <div class="envoltura">
-      <div class="cabeza">
-        <p class="etiqueta">Catálogo</p>
-        <h2>Encuentra la referencia que necesitas</h2>
-        <p>Cada producto tiene un código. Agrégalo a tu cotización y envíanos la lista por WhatsApp con las cantidades.</p>
-      </div>
-    </div>
-    <div class="filtros">
-      <div class="envoltura">
-        <div class="filtros-fila">
-          <div class="chips" id="chips" role="group" aria-label="Filtrar por línea"></div>
-          <label class="buscador">
-            <span class="etiqueta" hidden>Buscar</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-            <input id="buscar" type="search" placeholder="Buscar: silla, locker, DSE 01…" aria-label="Buscar por nombre o código" autocomplete="off">
-          </label>
-        </div>
-        <p class="resultado" id="resultado" aria-live="polite"></p>
-      </div>
-    </div>
-    <div class="envoltura" id="productos"></div>
-  </section>
-
-  <section class="seccion" id="nosotros">
+  <section class="seccion seccion-gris" id="nosotros">
     <div class="envoltura nosotros">
       <img src="img/fotos/p02_0.webp" alt="Equipo de DISMET frente a la planta de producción" loading="lazy">
       <div class="nosotros-texto">
@@ -330,7 +91,7 @@ button{font:inherit;color:inherit;cursor:pointer}
     </div>
   </section>
 
-  <section class="seccion seccion-gris" id="proyectos">
+  <section class="seccion" id="proyectos">
     <div class="envoltura">
       <div class="cabeza">
         <p class="etiqueta">Proyectos realizados</p>
@@ -341,7 +102,7 @@ button{font:inherit;color:inherit;cursor:pointer}
     </div>
   </section>
 
-  <section class="seccion" id="contacto">
+  <section class="seccion seccion-gris" id="contacto">
     <div class="envoltura">
       <div class="cabeza">
         <p class="etiqueta">Ubicación y contacto</p>
@@ -415,259 +176,8 @@ button{font:inherit;color:inherit;cursor:pointer}
   </div>
 </div>
 
-<script>
-(function(){
-  "use strict";
-  var WA = "573016349734";
-  /* Líneas y referencias tal como aparecen en el catálogo DISMET (páginas 5 a 50). */
-  var LINEAS = [
-    {id:"escritorios", n:".01", nombre:"Escritorios y mesas", foto:"p05_0", grupos:[
-      ["Escritorio lineal","DEL",[1,2,3,4,5,6]],
-      ["Escritorio credenza","DEC",[1,2]],
-      ["Escritorios ejecutivos en L","DEE",[1,2,3,4,5,6]],
-      ["Islas de trabajo","DIT",[1,2,3,4]],
-      ["Divisiones de oficina","DDO",[1,2,3]],
-      ["Mesas de juntas","DMJ",[1,2,3,4]],
-      ["Mesas para docentes","DMD",[1,2,3,4]],
-      ["Mesas escolares","DME",[1,2,3,4]]]},
-    {id:"especiales", n:".02", nombre:"Muebles especiales", foto:"p16_0", grupos:[
-      ["Modulares","DM",[1,2,3]],
-      ["Accesorios y partes · bases, pantallas, canaletas","DAP",[1,2,3]],
-      ["Recepciones","DR",[1,2,3,4]],
-      ["Escritorios para consultorio","DC",[1,2,3,4]]]},
-    {id:"almacenamiento", n:".03", nombre:"Almacenamiento", foto:"p21_0", grupos:[
-      ["Lockers","DL",[1,2,3,4,5,6,7,8,9]],
-      ["Archivadores","DA",[1,2,3]],
-      ["Cajoneras","DAC",[1,2,3]],
-      ["Folderama","DF",[1,2,3]],
-      ["Farmacia","DFAR",[1,2,3]],
-      ["Archivo rodante","DAR",[1,2]],
-      ["Escalerillas y estantes","DE",[1,2,3]],
-      ["Estantería pesada","DEP",[4,5,6]]]},
-    {id:"otros", n:".04", nombre:"Otros muebles", foto:"p32_0", grupos:[
-      ["Biombos y cabinas insonorizadas","DBC",[1,2]],
-      ["Puntos ecológicos","DPE",[1,2]],
-      ["Tableros","DT",[1,2]],
-      ["Deportivos","DD",[1,2]],
-      ["Porta CPU, reposapiés y ruedas para silla","DP",[1,2,3,4]],
-      ["Biblioteca de oficina","DBO",[1,2,3]],
-      ["Camarotes","DCM",[1,2]]]},
-    {id:"sillas", n:".05", nombre:"Sillas", foto:"p40_0", grupos:[
-      ["Sillas ejecutivas","DSE",[1,2,3]],
-      ["Sillas gerenciales","DSG",[1,2,3]],
-      ["Sillas sin brazos","DS",[1,2,3]],
-      ["Sillas fijas e interlocutoras","DSF",[1,2,3,4,5,6]],
-      ["Sillas universitarias","DSU",[1,2,3,4,5,6]],
-      ["Butacos","DB",[1,2,3]],
-      ["Sillas de diseño","DSD",[1,2,3]],
-      ["Sillas para sala de espera","DSSE",[1,2,3]],
-      ["Sillas para teatro","DST",[1,2,3]]]}
-  ];
-  var PROYECTOS = ["p51_0","p51_1","p51_2","p52_0","p52_1","p52_2","p52_3","p53_0","p53_1","p53_2","p53_3","p54_0","p54_1","p54_2","p54_3"];
-
-  var productos = [];
-  LINEAS.forEach(function(l){
-    l.total = 0;
-    l.grupos.forEach(function(g){
-      g[2].forEach(function(num){
-        var nn = (num<10?"0":"")+num;
-        productos.push({codigo:g[1]+" "+nn, archivo:"img/productos/"+(g[1]+nn).toLowerCase()+".webp", grupo:g[0], linea:l});
-        l.total++;
-      });
-    });
-  });
-
-  var $ = function(id){return document.getElementById(id);};
-  function quitarTildes(s){return s.normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();}
-  function el(tag, attrs, hijos){
-    var e = document.createElement(tag);
-    for (var k in attrs){ if(k==="text") e.textContent=attrs[k]; else e.setAttribute(k, attrs[k]); }
-    (hijos||[]).forEach(function(h){ e.appendChild(h); });
-    return e;
-  }
-
-  /* Almacenamiento local: solo comodidad, la página funciona sin él. */
-  var cotizacion = {};
-  try { cotizacion = JSON.parse(localStorage.getItem("dismet-cotizacion")||"{}") || {}; } catch(e){ cotizacion = {}; }
-  function guardar(){ try { localStorage.setItem("dismet-cotizacion", JSON.stringify(cotizacion)); } catch(e){} }
-
-  $("total-ref").textContent = productos.length;
-
-  /* Tarjetas de líneas */
-  LINEAS.forEach(function(l){
-    var b = el("button",{type:"button","class":"linea"},[
-      el("img",{src:"img/fotos/"+l.foto+".webp", alt:"", loading:"lazy"}),
-      el("div",{},[el("span",{"class":"num",text:l.n}), el("h3",{text:l.nombre}), el("small",{text:l.total+" referencias"})])
-    ]);
-    b.addEventListener("click", function(){ filtrar(l.id); $("catalogo").scrollIntoView(); });
-    $("lista-lineas").appendChild(b);
-  });
-
-  /* Filtros */
-  var lineaActiva = "todas";
-  var opciones = [{id:"todas", nombre:"Todas"}].concat(LINEAS);
-  opciones.forEach(function(o){
-    var c = el("button",{type:"button","class":"chip","aria-pressed":"false","data-linea":o.id, text:o.nombre});
-    c.addEventListener("click", function(){ filtrar(o.id); });
-    $("chips").appendChild(c);
-  });
-  $("buscar").addEventListener("input", pintar);
-  function filtrar(id){ lineaActiva = id; pintar(); }
-
-  var visibles = [];
-  function pintar(){
-    Array.prototype.forEach.call($("chips").children, function(c){ c.setAttribute("aria-pressed", String(c.getAttribute("data-linea")===lineaActiva)); });
-    var q = quitarTildes($("buscar").value.trim()).replace(/\s+/g," ");
-    var qSinEsp = q.replace(/\s/g,"");
-    visibles = productos.filter(function(p){
-      if (lineaActiva!=="todas" && p.linea.id!==lineaActiva) return false;
-      if (!q) return true;
-      var texto = quitarTildes(p.grupo+" "+p.linea.nombre);
-      return texto.indexOf(q)>-1 || p.codigo.toLowerCase().replace(/\s/g,"").indexOf(qSinEsp)>-1 ||
-        q.split(" ").every(function(w){ return texto.indexOf(w)>-1; });
-    });
-    var cont = $("productos"); cont.textContent = "";
-    if (!visibles.length){
-      cont.appendChild(el("p",{"class":"vacio",text:"No hay productos que coincidan con «"+$("buscar").value+"». Prueba con otra palabra o un código como DL 04."}));
-    }
-    var grupoActual = null, rejilla;
-    visibles.forEach(function(p, i){
-      if (p.grupo !== grupoActual){
-        grupoActual = p.grupo;
-        var cuenta = visibles.filter(function(x){return x.grupo===p.grupo;}).length;
-        var g = el("div",{"class":"grupo"},[
-          el("div",{"class":"franja"},[el("h3",{text:p.grupo}), el("span",{text:p.linea.n+" "+p.linea.nombre+" · "+cuenta})])
-        ]);
-        var cols = (cuenta%4===0 || cuenta<=2) ? 4 : (cuenta%3===0 ? 3 : 4);
-        rejilla = el("div",{"class":"rejilla",style:"--cols:"+cols});
-        g.appendChild(rejilla); cont.appendChild(g);
-      }
-      var foto = el("button",{type:"button","class":"producto-foto","aria-label":"Ver "+p.grupo+" "+p.codigo},[
-        el("img",{src:p.archivo, alt:p.grupo+", referencia "+p.codigo, loading:"lazy"})
-      ]);
-      foto.addEventListener("click", function(){ abrirVisor(i); });
-      var boton = el("button",{type:"button","class":"agregar","data-codigo":p.codigo});
-      marcarBoton(boton, p.codigo);
-      boton.addEventListener("click", function(){ alternar(p.codigo); });
-      rejilla.appendChild(el("article",{"class":"producto"},[foto, el("div",{"class":"producto-pie"},[el("span",{"class":"codigo",text:p.codigo}), boton])]));
-    });
-    var linea = lineaActiva==="todas" ? "todas las líneas" : LINEAS.filter(function(l){return l.id===lineaActiva;})[0].nombre;
-    $("resultado").textContent = visibles.length+" "+(visibles.length===1?"referencia":"referencias")+" · "+linea;
-  }
-
-  /* Cotización */
-  function marcarBoton(b, codigo){
-    var esta = !!cotizacion[codigo];
-    b.setAttribute("aria-pressed", String(esta));
-    b.textContent = esta ? "✓ Agregado" : "+ Cotizar";
-  }
-  function alternar(codigo){
-    if (cotizacion[codigo]) delete cotizacion[codigo]; else cotizacion[codigo] = 1;
-    guardar(); actualizar();
-  }
-  function textoCotizacion(){
-    var nombre = $("nombre").value.trim();
-    var lineas = Object.keys(cotizacion).map(function(c){
-      var p = productos.filter(function(x){return x.codigo===c;})[0];
-      return "• "+c+" ("+(p?p.grupo:"")+") x "+cotizacion[c];
-    });
-    return "Hola DISMET, quiero cotizar"+(nombre?" para "+nombre:"")+":\n"+lineas.join("\n");
-  }
-  function actualizar(){
-    var codigos = Object.keys(cotizacion);
-    $("contador").textContent = codigos.length;
-    document.querySelectorAll(".agregar[data-codigo]").forEach(function(b){ marcarBoton(b, b.getAttribute("data-codigo")); });
-    var lista = $("panel-lista"); lista.textContent = "";
-    if (!codigos.length){
-      lista.appendChild(el("p",{"class":"vacio",text:"Aún no has agregado productos. Usa «+ Cotizar» en cualquier referencia del catálogo."}));
-    }
-    codigos.forEach(function(c){
-      var p = productos.filter(function(x){return x.codigo===c;})[0]; if(!p) return;
-      var input = el("input",{type:"number",min:"1",value:String(cotizacion[c]),id:"cant-"+c.replace(" ","-"),"aria-label":"Cantidad de "+c});
-      input.addEventListener("change", function(){ var v = Math.max(1, parseInt(input.value,10)||1); input.value=v; cotizacion[c]=v; guardar(); enlace(); });
-      var quitar = el("button",{type:"button","class":"quitar",text:"Quitar"});
-      quitar.addEventListener("click", function(){ alternar(c); });
-      lista.appendChild(el("div",{"class":"item"},[
-        el("img",{src:p.archivo, alt:""}),
-        el("div",{},[el("span",{"class":"codigo",text:c}), el("small",{text:p.grupo}), quitar]),
-        el("div",{"class":"cantidad"},[input])
-      ]));
-    });
-    if (visorIndice>-1) marcarVisor();
-    enlace();
-  }
-  function enlace(){
-    var vacio = !Object.keys(cotizacion).length;
-    $("enviar").href = vacio ? "#" : "https://wa.me/"+WA+"?text="+encodeURIComponent(textoCotizacion());
-    $("enviar").setAttribute("aria-disabled", String(vacio));
-    $("enviar").style.opacity = vacio ? ".5" : "1";
-  }
-  $("enviar").addEventListener("click", function(e){ if (!Object.keys(cotizacion).length) e.preventDefault(); });
-  $("nombre").addEventListener("input", enlace);
-  $("abrir-cotizacion").addEventListener("click", function(){ $("panel").hidden = false; $("cerrar-panel").focus(); });
-  $("cerrar-panel").addEventListener("click", function(){ $("panel").hidden = true; });
-  $("panel").addEventListener("click", function(e){ if (e.target===$("panel")) $("panel").hidden = true; });
-
-  function copiar(texto, boton){
-    var original = boton.textContent;
-    function listo(){ boton.textContent = "Copiado"; setTimeout(function(){ boton.textContent = original; }, 1600); }
-    try {
-      navigator.clipboard.writeText(texto).then(listo, function(){ boton.textContent = "No se pudo copiar"; });
-    } catch(e){ boton.textContent = "No se pudo copiar"; }
-  }
-  $("copiar-lista").addEventListener("click", function(){ copiar(textoCotizacion(), this); });
-  document.querySelectorAll("[data-copiar]").forEach(function(b){ b.addEventListener("click", function(){ copiar(b.getAttribute("data-copiar"), b); }); });
-
-  /* Visor de productos y proyectos */
-  var visorIndice = -1, visorLista = [];
-  function abrirVisor(i, lista){
-    visorLista = lista || visibles; visorIndice = i; mostrar(); $("visor").hidden = false; $("cerrar-visor").focus();
-  }
-  function mostrar(){
-    var p = visorLista[visorIndice];
-    $("visor-img").src = p.archivo; $("visor-img").alt = p.alt || (p.grupo+", referencia "+p.codigo);
-    $("visor-titulo").textContent = p.codigo || "Proyecto realizado";
-    $("visor-sub").textContent = p.grupo ? p.grupo+" · "+p.linea.nombre : (visorIndice+1)+" de "+visorLista.length;
-    $("visor-agregar").hidden = !p.codigo;
-    marcarVisor();
-  }
-  function marcarVisor(){
-    var p = visorLista[visorIndice]; if (!p || !p.codigo) return;
-    var esta = !!cotizacion[p.codigo];
-    $("visor-agregar").setAttribute("aria-pressed", String(esta));
-    $("visor-agregar").textContent = esta ? "✓ En la cotización" : "Agregar a cotización";
-  }
-  function mover(d){ visorIndice = (visorIndice + d + visorLista.length) % visorLista.length; mostrar(); }
-  function cerrarVisor(){ $("visor").hidden = true; visorIndice = -1; }
-  $("anterior").addEventListener("click", function(){ mover(-1); });
-  $("siguiente").addEventListener("click", function(){ mover(1); });
-  $("visor-agregar").addEventListener("click", function(){ alternar(visorLista[visorIndice].codigo); });
-  $("cerrar-visor").addEventListener("click", cerrarVisor);
-  $("visor").addEventListener("click", function(e){ if (e.target===$("visor")) cerrarVisor(); });
-  document.addEventListener("keydown", function(e){
-    if (e.key==="Escape"){ cerrarVisor(); $("panel").hidden = true; }
-    if (!$("visor").hidden && e.key==="ArrowRight") mover(1);
-    if (!$("visor").hidden && e.key==="ArrowLeft") mover(-1);
-  });
-
-  var listaProyectos = PROYECTOS.map(function(f){ return {archivo:"img/fotos/"+f+".webp", alt:"Proyecto realizado por DISMET"}; });
-  listaProyectos.forEach(function(p, i){
-    var b = el("button",{type:"button","aria-label":"Ver foto de proyecto "+(i+1)},[el("img",{src:p.archivo, alt:p.alt, loading:"lazy"})]);
-    b.addEventListener("click", function(){ abrirVisor(i, listaProyectos); });
-    $("galeria").appendChild(b);
-  });
-
-  /* Menú en celular */
-  $("menu-boton").addEventListener("click", function(){
-    var abierto = $("menu").classList.toggle("abierto");
-    this.setAttribute("aria-expanded", String(abierto));
-  });
-  $("menu").addEventListener("click", function(e){ if (e.target.tagName==="A"){ $("menu").classList.remove("abierto"); $("menu-boton").setAttribute("aria-expanded","false"); } });
-
-  function medirEncabezado(){ document.documentElement.style.setProperty("--alto-encabezado", document.querySelector(".encabezado").offsetHeight+"px"); }
-  window.addEventListener("resize", medirEncabezado); medirEncabezado();
-  pintar(); actualizar();
-})();
-</script>
+<script src="js/datos.js"></script>
+<script src="js/comun.js"></script>
+<script src="js/inicio.js"></script>
 </body>
 </html>

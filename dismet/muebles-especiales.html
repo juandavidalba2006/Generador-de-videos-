@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Muebles especiales · DISMET</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Muebles especiales: tipos de producto y referencias del catálogo DISMET, con cotización por WhatsApp.">
+<link rel="icon" type="image/png" href="img/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Montserrat:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body data-linea="especiales">
+
+<header class="encabezado">
+  <div class="envoltura">
+    <a class="logo" href="index.html" aria-label="DISMET, ir al inicio"><img src="img/logo-dismet.png" alt="DISMET Innovaciones Industriales S.A.S. · Soluciones inmobiliarias" width="1000" height="268"></a>
+    <button class="menu-boton" id="menu-boton" aria-expanded="false" aria-controls="menu">Menú</button>
+    <nav class="menu" id="menu" aria-label="Principal">
+      <a href="index.html">Inicio</a>
+      <details>
+        <summary class="actual">Productos</summary>
+        <div class="submenu" id="submenu"></div>
+      </details>
+      <a href="index.html#nosotros">Nosotros</a>
+      <a href="index.html#proyectos">Proyectos</a>
+      <a href="index.html#contacto">Contacto</a>
+      <a class="boton boton-verde" href="https://wa.me/573016349734?text=Hola%20DISMET%2C%20quiero%20una%20cotizaci%C3%B3n." target="_blank" rel="noopener">Cotizar</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="envoltura"><nav class="migas" aria-label="Ruta"><a href="index.html">Inicio</a><span>/</span><a href="index.html#fabricamos">Productos</a><span>/</span><span id="migas-nombre">Muebles especiales</span></nav></div>
+  <section class="linea-portada">
+    <div class="envoltura">
+      <div>
+        <span class="num" id="linea-n"></span>
+        <h1 id="linea-nombre">Muebles especiales</h1>
+        <p id="linea-texto"></p>
+        <div class="resumen">
+          <div><b id="linea-ref"></b><small>referencias</small></div>
+          <div><b id="linea-tipos"></b><small>tipos de producto</small></div>
+        </div>
+      </div>
+      <img id="linea-foto" src="" alt="">
+    </div>
+  </section>
+
+  <section class="seccion-gris" id="catalogo" style="padding-bottom:clamp(2.5rem,6vw,4rem)">
+    <div class="filtros">
+      <div class="envoltura">
+        <div class="filtros-fila">
+          <div class="chips" id="chips" role="group" aria-label="Filtrar por tipo de producto"></div>
+          <label class="buscador">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="buscar" type="search" placeholder="Buscar por tipo o código" aria-label="Buscar por tipo o código" autocomplete="off">
+          </label>
+        </div>
+        <p class="resultado" id="resultado" aria-live="polite"></p>
+      </div>
+    </div>
+    <div class="envoltura" id="productos"></div>
+  </section>
+
+  <section class="seccion">
+    <div class="envoltura">
+      <div class="cabeza"><p class="etiqueta">Más productos</p><h2>Otras líneas DISMET</h2></div>
+      <div class="otras" id="otras"></div>
+    </div>
+  </section>
+
+  <section class="llamado">
+    <div class="envoltura">
+      <div><h2>¿Necesitas medidas o acabados especiales?</h2><p>Fabricamos a la medida en nuestra planta de Villavicencio.</p></div>
+      <a class="boton boton-verde" href="https://wa.me/573016349734?text=Hola%20DISMET%2C%20quiero%20una%20cotizaci%C3%B3n." target="_blank" rel="noopener">Escribir por WhatsApp</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="pie">
+    <div class="envoltura">
+      <img src="img/logo-dismet.png" alt="DISMET Innovaciones Industriales S.A.S. · Soluciones inmobiliarias" loading="lazy" width="1000" height="268">
+      <p>Mobiliario de oficina, escolar y almacenamiento.<br>Servicio de pintura electrostática.</p>
+    </div>
+  </div>
+  <div class="pie-barra">
+    <div class="envoltura"><span>DISMET Distribuciones · Innovaciones Industriales S.A.S.</span><span>Villavicencio, Meta · Colombia</span></div>
+  </div>
+</footer>
+
+<button class="boton boton-azul boton-cotizacion" id="abrir-cotizacion">Mi cotización <span class="contador" id="contador">0</span></button>
+
+<div class="panel" id="panel" hidden>
+  <div class="panel-caja" role="dialog" aria-modal="true" aria-labelledby="panel-titulo">
+    <div class="panel-cabeza"><h2 id="panel-titulo">Mi cotización</h2><button class="cerrar" id="cerrar-panel" aria-label="Cerrar">×</button></div>
+    <div class="panel-lista" id="panel-lista"></div>
+    <div class="panel-pie">
+      <label for="nombre">Nombre o empresa<input id="nombre" type="text" placeholder="Ej. Colegio San José" autocomplete="organization"></label>
+      <a class="boton boton-verde" id="enviar" href="#" target="_blank" rel="noopener">Enviar por WhatsApp</a>
+      <button class="boton boton-borde" id="copiar-lista" style="justify-content:center">Copiar lista</button>
+      <p class="nota">Se abre WhatsApp con tu lista, lista para enviarla al +57 301 634 9734.</p>
+    </div>
+  </div>
+</div>
+
+<div class="visor" id="visor" hidden>
+  <button class="cerrar visor-cerrar" id="cerrar-visor" aria-label="Cerrar">×</button>
+  <div class="visor-caja" role="dialog" aria-modal="true" aria-labelledby="visor-titulo">
+    <div class="visor-foto"><img id="visor-img" src="" alt=""></div>
+    <div class="visor-pie">
+      <div><h3 id="visor-titulo"></h3><small id="visor-sub"></small></div>
+      <div class="visor-nav">
+        <button class="flecha" id="anterior" aria-label="Anterior">‹</button>
+        <button class="flecha" id="siguiente" aria-label="Siguiente">›</button>
+        <button class="agregar" id="visor-agregar" style="padding:.5rem .9rem">Agregar a cotización</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/datos.js"></script>
+<script src="js/comun.js"></script>
+<script src="js/linea.js"></script>
+</body>
+</html>
