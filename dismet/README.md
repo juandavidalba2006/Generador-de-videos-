@@ -9,12 +9,13 @@ Página web de DISMET Distribuciones (Innovaciones Industriales S.A.S.) hecha a 
 - **Cotización:** cada producto tiene el botón «+ Cotizar». La lista se envía por WhatsApp al +57 301 634 9734
   con los códigos y las cantidades.
 - **Marca:** colores, tipografías y proporciones del manual (azul `#062B50`, verde `#07823B`, verde acento `#70C51B`,
-  gris `#F3F6F5` y blanco; Montserrat para títulos e Inter para textos). Se usa el isotipo del manual (la D con
-  edificios) sin modificar, sobre fondo blanco o gris claro.
+  gris `#F3F6F5` y blanco; Montserrat para títulos e Inter para textos). Se usa el logotipo completo del manual en el
+  encabezado y el pie, y el isotipo (la D con edificios) como icono de la pestaña, sin modificar y sobre
+  fondo blanco o gris claro.
 
 ## Archivos
 
 - `index.html`: la página completa (estilos y código incluidos).
 - `img/productos/`: una foto por referencia, nombrada con su código (`del01.webp`, `dsu04.webp`, …).
 - `img/fotos/`: portadas de cada línea, proyectos realizados y mapa.
-- `img/isotipo-dismet.png` y `img/favicon.png`: isotipo recuperado del Manual de marca.
+- `img/logo-dismet.png`, `img/isotipo-dismet.png` y `img/favicon.png`: logotipo e isotipo del Manual de marca.
