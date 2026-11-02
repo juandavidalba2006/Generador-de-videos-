@@ -437,7 +437,8 @@ export class Estudio {
     else this.cajaJoyas = c;
   }
   // Lo que encuadra la cámara con zoom 1: la joya (o el par), el estuche y dónde quedan los elementos (sin pasar de 1,7 veces
-  // lo demás: una lluvia de perlas no aleja la cámara)
+  // lo demás: una lluvia de perlas no aleja la cámara). Si los elementos llegan más lejos (una cadena que cruza el cuadro),
+  // igual entra lo que queda quieto junto a la joya, hasta 3 veces (r8: la esfera de cristal; antes quedaba fuera del cuadro)
   medirEncuadre(ru, re) {
     const c = this.cajaJoyas ? this.cajaJoyas.clone() : (this.caja?.clone() || new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)));
     // la pila de cajas (r7): la joya y las cimas de las torres (de donde cuelga la cadena); las torres salen del cuadro
@@ -448,7 +449,10 @@ export class Estudio {
     let esfera = c.getBoundingSphere(new THREE.Sphere());
     if (re?.limites) {
       const mas = c.clone().union(re.limites), e2 = mas.getBoundingSphere(new THREE.Sphere());
-      if (e2.radius <= esfera.radius * 1.7) esfera = e2; else { esfera.radius *= 1.25; }
+      const e3 = re.limitesQuietos ? c.clone().union(re.limitesQuietos).getBoundingSphere(new THREE.Sphere()) : null;
+      if (e2.radius <= esfera.radius * 1.7) esfera = e2;
+      else if (e3 && e3.radius > esfera.radius * 1.25 && e3.radius <= esfera.radius * 3) esfera = e3;
+      else { esfera.radius *= 1.25; }
     }
     const radio = Math.max(this.radio, esfera.radius);
     return { centro: esfera.center.clone(), radio };

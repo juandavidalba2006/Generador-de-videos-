@@ -1648,7 +1648,7 @@ export class Elementos {
     this.joya = new THREE.Group(); this.joya.name = 'elementos-joya'; this.grupo.add(this.joya);                       // quieto (con la joya)
     this.grupoPT = new THREE.Group(); this.grupoPT.name = 'elementosPT';         // trazador: en estudio.escenaPT (quieto)
     this.grupoJoyaPT = new THREE.Group(); this.grupoJoyaPT.name = 'elementosJoyaPT';   // trazador: dentro de estudio.tornamesaPT
-    this.plan = null; this.clave = null; this.mallas = []; this.t = null; this.ptSucio = false; this.limites = null; this.avisos = [];
+    this.plan = null; this.clave = null; this.mallas = []; this.t = null; this.ptSucio = false; this.limites = null; this.limitesQuietos = null; this.avisos = [];
   }
   get vacio() { return !this.plan || !this.plan.planes.length; }
 
@@ -1671,16 +1671,17 @@ export class Elementos {
         this.escenario.add(rapido); this.grupoPT.add(pt);
         const mancha = ins.aire ? null : this.mancha(ins.rb);
         if (mancha) this.escenario.add(mancha);
-        this.mallas.push({ ins, rapido, pt, mancha, mats, J });
+        this.mallas.push({ ins, rapido, pt, mancha, mats, J, quieto: g.coreografia === 'quieto' && !ins.aire });
       }
       if (pl.estela) this.armarEstela(pl);
     }
     this.t = null; this.actualizar(0);
     this.ptSucio = true;
     this.limites = this.calcularLimites();
+    this.limitesQuietos = this.calcularLimites(m => m.quieto);
     return this.resultado();
   }
-  resultado() { return { grupo: this.grupo, grupoPT: this.grupoPT, grupoJoyaPT: this.grupoJoyaPT, limites: this.limites, avisos: this.avisos, plan: this.plan }; }
+  resultado() { return { grupo: this.grupo, grupoPT: this.grupoPT, grupoJoyaPT: this.grupoJoyaPT, limites: this.limites, limitesQuietos: this.limitesQuietos, avisos: this.avisos, plan: this.plan }; }
 
   // mancha de contacto bajo cada elemento del piso (solo motor rápido; el trazador hace la suya sola)
   mancha(rb) {
@@ -1822,9 +1823,11 @@ export class Elementos {
   // Mismo giro de tornamesa que Escenario3D.girar: la utilería del piso gira con la cámara (motor rápido)
   girar(az) { if (this.escenario.rotation.y !== az) { this.escenario.rotation.y = az; this.escenario.updateMatrixWorld(true); } }
 
-  calcularLimites() {
+  // solo: qué mallas cuentan (los elementos quietos junto a la joya, para el encuadre de la cámara)
+  calcularLimites(solo = null) {
     const c = new THREE.Box3(), fin = this.plan.tFin, p = V(), q = Q();
     for (const m of this.mallas) {
+      if (solo && !solo(m)) continue;
       if (m.ins) { m.ins.en(fin, p, q); c.expandByPoint(p.clone().addScalar(m.ins.rb)); c.expandByPoint(p.clone().addScalar(-m.ins.rb)); }
       else if (m.cinta || m.cadena || m.fijo) { m.geo.computeBoundingBox(); if (!m.geo.boundingBox.isEmpty()) c.union(m.geo.boundingBox); }
     }
@@ -1842,7 +1845,7 @@ export class Elementos {
     }
     for (const x of mats) x.dispose();
     for (const x of geos) x.dispose();
-    this.mallas = []; this.plan = null; this.clave = null; this.limites = null;
+    this.mallas = []; this.plan = null; this.clave = null; this.limites = null; this.limitesQuietos = null;
   }
   vaciar() { this.limpiar(); this.t = null; this.ptSucio = true; }
 }

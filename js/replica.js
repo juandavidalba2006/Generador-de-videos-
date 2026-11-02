@@ -26,6 +26,12 @@ const PISTAS_CAMARA = ['giro', 'inclinacion', 'zoom', 'altura', 'lateral', 'foco
 const PISTAS_DE_ESCENA = ['apertura', 'elevar', 'luz'];
 // Encuadre → zoom de la app (el «macro/detalle» además mira la piedra)
 const RANGO_ENCUADRE = { macro: [2.6, 3.5], detalle: [2, 2.8], medio: [1.1, 1.7], general: [0.85, 1.1] };
+// Con una composición (r8: la joya junto a una esfera de cristal quieta, con la cadena que la cruza) el reel encuadra la esfera
+// y la cadena, no la piedra. El estudio ya encuadra con zoom 1 la joya junto con lo que queda quieto a su lado: el «detalle» o el
+// «macro» del reel son un plano medio de la composición (con los zooms de la joya solo se veía un anillo gigante)
+const RANGO_COMPOSICION = { macro: [1.3, 1.5], detalle: [1.15, 1.4], medio: [1, 1.25], general: [0.85, 1] };
+// en la composición la pieza no se corre más que esto: lo que el flujo ve moverse es la cadena que se mece, no la cámara
+const CORRER_COMPOSICION = 0.12;
 
 const esObj = x => !!x && typeof x === 'object' && !Array.isArray(x);
 const esNum = x => typeof x === 'number' && Number.isFinite(x);
@@ -97,6 +103,12 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
   const limites = [0, ...cortes.map(c => c.t), D];
   const lista = planosA.length ? planosA : [{ indice: 0, inicio: 0, fin: durVideo, movimiento: null, pasos: [] }];
   const planos = [];
+  // escena: la que vio la IA; sin IA, la lista más parecida a los colores del video, con esos colores y la luz que se midió.
+  // Con colores «de mi marca», cada parte (fondo, superficie, caja, cinta) pasa al color de la marca que hace su papel.
+  // (Antes de los planos: con una composición, como la esfera de cristal de r8, cambia el encuadre)
+  const modoColor = opciones.colores === 'marca' ? 'marca' : 'video';
+  const { escena, muestras } = escenaDelPlan(conIA ? ia : null, a.paleta, modoColor);
+  const compuesto = esComposicion(escena);
   const pistas = Object.fromEntries(Object.keys(PISTAS).map(id => [id, []]));
   let previo = null, alterna = 1, hayMacro = false;
   for (let j = 0; j + 1 < limites.length; j++) {
@@ -104,7 +116,7 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
     const t0 = limites[j], t1 = limites[j + 1];
     const pa = planoQueCubre(lista, t0 / k, t1 / k) || lista[Math.min(j, lista.length - 1)];
     const pi = iaDe(pa.indice ?? j);
-    let v = valoresPlano(pa, pi, previo, alterna, avisos);
+    let v = valoresPlano(pa, pi, previo, alterna, avisos, compuesto);
     if (v.salto) alterna = -alterna;
     const ta = r4(j === 0 ? 0 : t0), tb = r4(j + 1 < limites.length - 1 ? t1 - CUADRO : D);
     // un macro que se aleja sin parar (r1) o un alejamiento que baja la cámara para revelar lo de abajo (r5, r7): keys como
@@ -126,10 +138,6 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
   }
   if (!hayMacro) pistas.desenfoque = [];
 
-  // escena: la que vio la IA; sin IA, la lista más parecida a los colores del video, con esos colores y la luz que se midió.
-  // Con colores «de mi marca», cada parte (fondo, superficie, caja, cinta) pasa al color de la marca que hace su papel.
-  const modoColor = opciones.colores === 'marca' ? 'marca' : 'video';
-  const { escena, muestras } = escenaDelPlan(conIA ? ia : null, a.paleta, modoColor);
   // la tapa del estuche se abre cuando la IA lo vio (keys en la pista «apertura»)
   const ab = conIA && esObj(ia.abre_estuche) && ia.abre_estuche.abre && escena?.utileria && escena.utileria.tipo !== 'ninguna' ? ia.abre_estuche : null;
   if (ab) {
@@ -153,6 +161,13 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
   return { duracion: D, bucle: false, cortes, pistas, escena, materiales, joya, textos, sonidos, musica, resumen, avisos, planos, conIA: !!conIA, duracionVideo: r2(durVideo), colores: { modo: modoColor, muestras } };
 }
 
+// ¿La escena es una composición? La joya junto a algo grande que queda quieto (la esfera de cristal de r8): el estudio los
+// encuadra juntos (Estudio.medirEncuadre), así que la cámara no debe ir a la piedra
+function esComposicion(escena) {
+  return !!escena && escena.id !== 'ninguna' && Array.isArray(escena.elementos)
+    && escena.elementos.some(g => esObj(g) && g.coreografia === 'quieto' && g.forma !== 'cinta' && g.forma !== 'cadena');
+}
+
 // El plano analizado que más se solapa con [a, b) (en segundos del video)
 function planoQueCubre(lista, a, b) {
   let mejor = null, dm = 0;
@@ -163,8 +178,9 @@ function planoQueCubre(lista, a, b) {
   return mejor;
 }
 
-// Valores de inicio y fin de cada pista en un plano, mezclando el flujo y la IA
-function valoresPlano(pa, pi, previo, alterna, avisos) {
+// Valores de inicio y fin de cada pista en un plano, mezclando el flujo y la IA. compuesto: la escena es una composición
+// (la joya junto a algo grande y quieto): el zoom es el de la composición y la mira, su centro (no la piedra)
+function valoresPlano(pa, pi, previo, alterna, avisos, compuesto = false) {
   const m = esObj(pa.movimiento) ? pa.movimiento : null;
   const conf = x => num(x?.confianza, 0);
   // giro: el del flujo; la IA lo afina si van hacia el mismo lado, o lo pone si el flujo no vio nada
@@ -187,7 +203,7 @@ function valoresPlano(pa, pi, previo, alterna, avisos) {
   let encuadre = pi?.encuadre && RANGO_ENCUADRE[pi.encuadre] ? pi.encuadre : null;
   if (!encuadre) encuadre = m?.zoom?.desde >= 2.55 || pa.objeto?.inicio?.llena ? 'macro' : Math.max(z0, z0 * factor) >= 1.6 ? 'detalle' : Math.max(z0, z0 * factor) >= 1.15 ? 'medio' : 'general';
   // el encuadre pone el zoom en su rango (conservando el acercamiento del plano)
-  const [lo, hi] = RANGO_ENCUADRE[encuadre];
+  const [lo, hi] = (compuesto ? RANGO_COMPOSICION : RANGO_ENCUADRE)[encuadre];
   let z1 = z0 * factor;
   const mayor = Math.max(z0, z1);
   if (mayor < lo || mayor > hi) { const s = limitar(mayor, lo, hi) / mayor; z0 *= s; z1 *= s; }
@@ -206,13 +222,14 @@ function valoresPlano(pa, pi, previo, alterna, avisos) {
   // Un macro va centrado: la pieza llena el cuadro y su «centro» medido no es la piedra. Si la cámara recorrió la pieza de
   // lado o de arriba abajo, el recorrido se conserva (en la app «lateral» y «altura» corren la mira: es el mismo paneo)
   // repartido a los dos lados del centro, así la piedra no se sale; antes quedaba «Plano quieto».
-  const macro = encuadre === 'macro';
+  const macro = encuadre === 'macro' && !compuesto;
   const centrado = pista => {
     const d = num(pista?.delta, num(pista?.hasta, 0) - num(pista?.desde, 0)), dd = Math.abs(d) >= 0.04 ? limitar(d, -0.6, 0.6) : 0;
     return dd ? [-dd / 2, dd / 2] : [0, 0];
   };
-  const [l0, l1] = macro ? centrado(m?.lateral) : [limitar(num(m?.lateral?.desde, 0), -0.35, 0.35), limitar(num(m?.lateral?.hasta, num(m?.lateral?.desde, 0)), -0.35, 0.35)];
-  const [a0, a1] = macro ? centrado(m?.altura) : [limitar(num(m?.altura?.desde, 0), -0.35, 0.35), limitar(num(m?.altura?.hasta, num(m?.altura?.desde, 0)), -0.35, 0.35)];
+  const cl = compuesto ? CORRER_COMPOSICION : 0.35;
+  const [l0, l1] = macro ? centrado(m?.lateral) : [limitar(num(m?.lateral?.desde, 0), -cl, cl), limitar(num(m?.lateral?.hasta, num(m?.lateral?.desde, 0)), -cl, cl)];
+  const [a0, a1] = macro ? centrado(m?.altura) : [limitar(num(m?.altura?.desde, 0), -cl, cl), limitar(num(m?.altura?.hasta, num(m?.altura?.desde, 0)), -cl, cl)];
   // roll: el ladeo con que empieza lo dice la IA (absoluto); el cambio, el flujo
   // un ladeo de más de 50° no es un plano holandés: es el flujo confundido por una órbita o un giro de la pieza
   const rF0 = num(m?.rodar?.grados, 0), rF = Math.abs(rF0) > 50 ? 0 : rF0;
@@ -228,7 +245,7 @@ function valoresPlano(pa, pi, previo, alterna, avisos) {
   }
   const curva = m?.curva && Object.hasOwn(CURVAS, m.curva) ? m.curva : pi?.curva && Object.hasOwn(CURVAS, pi.curva) ? pi.curva : 'suave';
   const confianza = r2(Math.max(conf(m?.giro), conf(m?.zoom), conf(m?.inclinacion), conf(m?.lateral), conf(m?.altura), conf(m?.rodar)));
-  return { g0: r2(g0), g1: r2(g0 + giro), z0: r3(z0), z1: r3(z1), i0: r2(i0), i1: r2(i1), l0: r3(l0), l1: r3(l1), a0: r3(a0), a1: r3(a1), r0: r2(r0), r1: r2(r1), encuadre, curva, salto, confianza, desenfoque: macro ? 0.35 : encuadre === 'detalle' ? 0.2 : 0 };
+  return { g0: r2(g0), g1: r2(g0 + giro), z0: r3(z0), z1: r3(z1), i0: r2(i0), i1: r2(i1), l0: r3(l0), l1: r3(l1), a0: r3(a0), a1: r3(a1), r0: r2(r0), r1: r2(r1), encuadre, curva, salto, confianza, desenfoque: compuesto ? 0 : macro ? 0.35 : encuadre === 'detalle' ? 0.2 : 0, ...(compuesto ? { compuesto, zTope: hi } : {}) };
 }
 
 // foco (0 = el centro de la pieza, 1 = la piedra): sube con el zoom, como en un primer plano de la piedra
@@ -237,13 +254,17 @@ const focoDe = z => r2(limitar((z - 1.3) / 1.5, 0, 0.95));
 // Keyframes de un plano: al empezar (ta) y un cuadro antes del corte siguiente (tb); en medio, si el perfil de
 // velocidad lo pide (un movimiento que va y vuelve, o que no sigue ninguna curva sencilla)
 function poner(pistas, ta, tb, v, pa, k) {
-  const ext = { giro: [v.g0, v.g1], inclinacion: [v.i0, v.i1], zoom: [v.z0, v.z1], lateral: [v.l0, v.l1], altura: [v.a0, v.a1], rodar: [v.r0, v.r1], foco: [focoDe(v.z0), focoDe(v.z1)], desenfoque: [v.desenfoque, v.desenfoque] };
+  const foco = z => (v.compuesto ? 0 : focoDe(z));
+  const ext = { giro: [v.g0, v.g1], inclinacion: [v.i0, v.i1], zoom: [v.z0, v.z1], lateral: [v.l0, v.l1], altura: [v.a0, v.a1], rodar: [v.r0, v.r1], foco: [foco(v.z0), foco(v.z1)], desenfoque: [v.desenfoque, v.desenfoque] };
   const quieto = id => Math.abs(ext[id][1] - ext[id][0]) < (id === 'zoom' ? 0.01 : id === 'giro' || id === 'inclinacion' || id === 'rodar' ? 0.5 : 0.005);
   const medios = tb - ta > 0.6 ? clavesMedias(pa, v, ta, tb, k) : {};
   for (const id of [...PISTAS_CAMARA, 'desenfoque']) {
     const [x0, x1] = ext[id], P = PISTAS[id];
     const cv = quieto(id) ? 'lineal' : v.curva;
-    const lim = x => (id === 'giro' ? r4(x) : r4(limitar(x, P.min, P.max)));
+    // (en una composición, la clave del medio tampoco se acerca más que su encuadre ni corre la pieza más de la cuenta)
+    const tope = v.compuesto && id === 'zoom' ? Math.min(P.max, v.zTope) : v.compuesto && (id === 'lateral' || id === 'altura') ? CORRER_COMPOSICION : P.max;
+    const piso = v.compuesto && (id === 'lateral' || id === 'altura') ? -CORRER_COMPOSICION : P.min;
+    const lim = x => (id === 'giro' ? r4(x) : r4(limitar(x, piso, tope)));
     const claves = pistas[id];
     if (medios[id]) {
       const mm = medios[id];
@@ -476,6 +497,9 @@ function escenaDelPlan(ia, paleta, modo = 'video') {
     }
     if (elementos.length) {
       cfg.elementos = elementos.map((x, i) => grupoElemento(x.tipo, { coreografia: x.coreografia, recorrido: x.recorrido, id: `el-${i + 1}`, color: x.tipo === 'cinta' ? col.cinta : null })).filter(Boolean);
+      // r8: la cadena cruza por delante de la esfera de cristal (suelta entre dos puntos, apoyada en ella), no cuelga de la joya
+      const esfera = cfg.elementos.find(g => g.material === 'cristal'), cadena = cfg.elementos.find(g => g.forma === 'cadena');
+      if (esfera && cadena) Object.assign(cadena, { colgar: 'libre', sobre: esfera.id });
     }
   }
   return { escena: completarEscena(cfg), muestras };
