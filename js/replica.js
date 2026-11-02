@@ -497,9 +497,10 @@ function escenaDelPlan(ia, paleta, modo = 'video') {
     }
     if (elementos.length) {
       cfg.elementos = elementos.map((x, i) => grupoElemento(x.tipo, { coreografia: x.coreografia, recorrido: x.recorrido, id: `el-${i + 1}`, color: x.tipo === 'cinta' ? col.cinta : null })).filter(Boolean);
-      // r8: la cadena cruza por delante de la esfera de cristal (suelta entre dos puntos, apoyada en ella), no cuelga de la joya
+      // r8: una cadena gruesa cruza por delante de la esfera de cristal, curvándose sobre su frente (suelta entre dos puntos,
+      // con holgura, apoyada en la esfera), en vez de colgar de la joya
       const esfera = cfg.elementos.find(g => g.material === 'cristal'), cadena = cfg.elementos.find(g => g.forma === 'cadena');
-      if (esfera && cadena) Object.assign(cadena, { colgar: 'libre', sobre: esfera.id });
+      if (esfera && cadena) Object.assign(cadena, { colgar: 'libre', sobre: esfera.id, holgura: 0.5, tamano: 1.6 });
     }
   }
   return { escena: completarEscena(cfg), muestras };

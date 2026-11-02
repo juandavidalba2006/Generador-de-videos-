@@ -367,8 +367,14 @@ export class Estudio {
     const huella = Math.max(this.huella, huellaJoyas, ru?.huella || 0);
     // el escenario crece si el encuadre es mucho más grande que la joya (una pila de cajas, un par muy separado)
     const radioEnc = this.medirEncuadre(ru, null).radio, ext = Math.min(4, Math.max(1, radioEnc / this.radio / 1.6));
-    const cambio = this.escenario.armar(cfg, { radio: this.radio, base: piso, huella, joya: this.joyas, version: this.versionModelo, renderer: this.renderer, flotando: flota || !!ru, ext });
-    if (cambio) { this.ptSucio = true; this.escena.background = new THREE.Color(cfg.fondo.color); }
+    // lo que queda quieto junto a la joya (la esfera de cristal de r8) se apoya en el pedestal: el pedestal crece hasta su
+    // huella (antes la esfera quedaba en el aire, medio fuera del bloque). Los elementos se arman sobre el pedestal ya puesto:
+    // la huella se recuerda de la vez anterior y, si cambió, el pedestal se vuelve a armar
+    const conPedestal = cfg.superficie.forma !== 'piso' && !ru?.escenario;
+    const claveApoyo = JSON.stringify([cfg.elementos || [], caja.min.toArray(), caja.max.toArray(), this.versionModelo, piso]);
+    const apoyo = conPedestal && this.apoyo?.clave === claveApoyo ? this.apoyo.huella : 0;
+    const armarEscenario = h => this.escenario.armar(cfg, { radio: this.radio, base: piso, huella: Math.max(huella, h), joya: this.joyas, version: this.versionModelo, renderer: this.renderer, flotando: flota || !!ru, ext });
+    let cambio = armarEscenario(apoyo);
     // los elementos
     const L = cfg.elementos || [];
     let re = null;
@@ -381,6 +387,11 @@ export class Estudio {
       for (const [e, g] of [[this.escena, this.elementos.grupo], [this.escenaPT, this.elementos.grupoPT], [this.tornamesaPT, this.elementos.grupoJoyaPT]]) if (g.parent !== e) e.add(g);
       this.elementos.t = null;
     } else this.quitarElementos();
+    const lq = conPedestal ? re?.limitesQuietos : null;
+    const hq = lq ? Math.max(...[lq.min, lq.max].flatMap(a => [lq.min, lq.max].map(b => Math.hypot(a.x, b.z)))) : 0;
+    this.apoyo = { clave: claveApoyo, huella: hq };
+    if (hq !== apoyo) cambio = armarEscenario(hq) || cambio;
+    if (cambio) { this.ptSucio = true; this.escena.background = new THREE.Color(cfg.fondo.color); }
     this.resultadoElementos = re;
     this.encuadre = this.medirEncuadre(ru, re);
     this.frente = this.frenteDeEscena(re);
