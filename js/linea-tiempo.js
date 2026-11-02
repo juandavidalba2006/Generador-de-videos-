@@ -453,7 +453,8 @@ export class LineaTiempo {
     for (const [k, P] of Object.entries(PISTAS)) {
       const v = this.valor(k, t), { r, n, b } = this.ctl[k];
       if (this.gesto?.pista !== k) r.value = v;
-      if (activo !== n) n.value = v.toFixed(decimales(P.paso));
+      // (un valor apenas negativo, como −0,004 en el giro, no se muestra «-0»)
+      if (activo !== n) { const dec = decimales(P.paso); n.value = (+v.toFixed(dec) || 0).toFixed(dec); }
       const hay = String(!!claveEn(p, k, t));
       if (b.getAttribute('aria-pressed') !== hay) {
         b.setAttribute('aria-pressed', hay);
