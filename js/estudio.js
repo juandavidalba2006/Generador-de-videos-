@@ -961,7 +961,7 @@ export class Estudio {
       if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
     }
     await enCurso;
-    if (limpiar) this.limpiador.aplicar(this.renderer, pt.target.texture, pt.samples);
+    if (limpiar) this.limpiador.aplicar(this.renderer, pt.target.texture, pt.samples, { metal: this.escena3D.luz?.esquema === 'clave-baja' });
     this.dibujarDestellosEncima();
     alAvanzar?.(1);
   }

@@ -1215,14 +1215,14 @@ export class Escenario3D {
 // así no se borran las vetas, el grano de la arena ni el borde de las sombras. La joya (su silueta, con el borde suave)
 // queda tal cual, con todos sus destellos, y sus píxeles no entran en el promedio del fondo.
 const SOMBREADOR_LIMPIEZA = {
-  uniforms: { mapaPT: { value: null }, guia: { value: null }, mascara: { value: null }, pixel: { value: new THREE.Vector2() }, salto: { value: 1 }, sigmaColor: { value: 0.1 }, sigmaGuia: { value: 0.035 } },
+  uniforms: { mapaPT: { value: null }, guia: { value: null }, mascara: { value: null }, pixel: { value: new THREE.Vector2() }, salto: { value: 1 }, sigmaColor: { value: 0.1 }, sigmaGuia: { value: 0.035 }, limpiarMetal: { value: 0 } },
   vertexShader: /* glsl */`
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`,
   fragmentShader: /* glsl */`
     uniform sampler2D mapaPT, guia, mascara;
     uniform vec2 pixel;
-    uniform float salto, sigmaColor, sigmaGuia;
+    uniform float salto, sigmaColor, sigmaGuia, limpiarMetal;
     varying vec2 vUv;
     // a valores de pantalla (con la exposición y el tono del estudio): el ruido y los bordes se miden como se ven
     vec3 pantalla( vec3 c ) {
@@ -1246,8 +1246,9 @@ const SOMBREADOR_LIMPIEZA = {
       vec3 g0 = guiado( vUv ), joya = c0;
       // el metal también tiene grano: refleja la tela y las tiras finas del estudio, que el trazador junta despacio (con
       // clave baja el oro se veía martillado). Se limpia aparte, solo con vecinos de metal, cerca (σ ≈ 1,6 px) y con la
-      // guía para no cruzar el filo de la pieza ni las bandas: el oro queda liso con sus bandas oscuras
-      if ( mm > 0.001 ) {
+      // guía para no cruzar el filo de la pieza ni las bandas: el oro queda liso con sus bandas oscuras. Solo con clave baja
+      // (limpiarMetal): con las otras luces el metal converge bien y la joya queda tal cual sale del trazador
+      if ( limpiarMetal > 0.5 && mm > 0.001 ) {
         vec3 sj = vec3( 0.0 ); float pj = 0.0, kcj = 0.5 / ( 2.0 * sigmaColor * sigmaColor ), kgj = 0.5 / ( 0.01 );
         for ( int j = -3; j <= 3; j ++ ) for ( int i = -3; i <= 3; i ++ ) {
           vec2 d = vec2( i, j ), q = vUv + d * pixel;
@@ -1279,9 +1280,11 @@ export class LimpiadorPT {
     this.quad = new FullScreenQuad(new THREE.ShaderMaterial({ ...SOMBREADOR_LIMPIEZA, uniforms: THREE.UniformsUtils.clone(SOMBREADOR_LIMPIEZA.uniforms), depthTest: false, depthWrite: false, blending: THREE.NoBlending }));
   }
   tamano(w, h) { for (const t of [this.guia, this.mascara]) if (t.width !== w || t.height !== h) t.setSize(w, h); }
-  // Dibuja en el lienzo el cuadro del trazador (textura lineal) ya limpio; muestras: las que lleva (fija la fuerza)
-  aplicar(renderer, textura, muestras) {
+  // Dibuja en el lienzo el cuadro del trazador (textura lineal) ya limpio; muestras: las que lleva (fija la fuerza);
+  // metal: limpiar también el metal de la joya (clave baja)
+  aplicar(renderer, textura, muestras, { metal = false } = {}) {
     const u = this.quad.material.uniforms, w = this.guia.width, h = this.guia.height;
+    u.limpiarMetal.value = metal ? 1 : 0;
     u.mapaPT.value = textura; u.guia.value = this.guia.texture; u.mascara.value = this.mascara.texture;
     u.pixel.value.set(1 / w, 1 / h);
     // el grano no depende del tamaño del cuadro: en un video grande el promedio toma vecinos más separados (mismo costo)
