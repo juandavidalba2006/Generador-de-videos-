@@ -171,6 +171,45 @@
 .lt-musica::after{content:'';position:absolute;right:0;top:0;bottom:0;width:calc(100% * var(--fundido, 0));background:linear-gradient(90deg, transparent, var(--papel));pointer-events:none}
 .lt-musica.sel{box-shadow:inset 0 0 0 1.5px var(--gra)}
 
+/* cortes: marcas con tijeras encima de la cámara y una línea que cruza todos los carriles */
+.lt-tijera{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.btn .lt-tijera{margin-right:6px;vertical-align:-2px}
+.lt-et-cortes{font-size:12.5px;color:var(--tinta);gap:6px;border-top:1px solid var(--linea)}
+.lt-et-cortes .lt-tijera{color:var(--tinta2)}
+.lt-et-cortes small{margin-left:auto;font-size:11px;color:var(--tinta2);font-variant-numeric:tabular-nums}
+.lt-carril.lt-carril-cortes{height:32px;border-top:1px solid var(--linea);background-color:var(--papel)}
+.lt-carril-cortes:hover{background-color:color-mix(in srgb, var(--papel) 85%, var(--oro-suave))}
+.lt-corte{all:unset;box-sizing:border-box;position:absolute;top:50%;left:calc(var(--lt-m) + (100% - 2 * var(--lt-m)) * var(--p));height:22px;min-width:22px;padding:0 5px;margin-top:-11px;
+  transform:translateX(-50%);display:inline-flex;align-items:center;justify-content:center;gap:3px;border-radius:6px;background:var(--tinta);color:var(--papel);
+  box-shadow:0 1px 2px rgba(30,27,21,.3);cursor:grab;z-index:1;touch-action:none;transition:box-shadow .12s,background-color .12s,color .12s}
+.lt-corte::before{content:'';position:absolute;inset:-6px -5px}
+.lt-corte svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.lt-corte b{font-size:10px;line-height:1;font-weight:600}
+.lt-corte.t-flash b{color:var(--oro-vivo)}
+.lt-corte.t-negro{background:#0B0A08;color:#F4F1EA}
+.lt-corte.t-barrido b{letter-spacing:-.08em}
+.lt-corte:hover{box-shadow:0 0 0 3px color-mix(in srgb, var(--oro-vivo) 25%, transparent),0 1px 2px rgba(30,27,21,.3)}
+.lt-corte.en-cabezal{box-shadow:0 0 0 3px color-mix(in srgb, var(--gra) 28%, transparent)}
+.lt-corte[aria-pressed=true]{background:var(--oro-vivo);color:#17150F;box-shadow:0 0 0 3px color-mix(in srgb, var(--oro-vivo) 30%, transparent),0 1px 3px rgba(30,27,21,.35);z-index:2}
+.lt-corte[aria-pressed=true] b{color:#17150F}
+.lt-corte:focus-visible{outline:2px solid var(--oro);outline-offset:3px}
+.lt-lineas-corte{position:absolute;inset:30px 0 0 0;pointer-events:none}
+.lt-linea-corte{position:absolute;top:0;bottom:0;left:calc(var(--lt-et) + var(--lt-m) + (100% - var(--lt-et) - 2 * var(--lt-m)) * var(--p));width:0;margin-left:-.75px;
+  border-left:1.5px dashed color-mix(in srgb, var(--tinta) 42%, transparent)}
+.lt-linea-corte.sel{border-left-style:solid;border-left-color:var(--oro-vivo)}
+
+/* lo elegido: un corte (transiciones como fichas) */
+.lt-transiciones{display:inline-flex;flex-wrap:wrap;gap:6px}
+.lt-chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--linea);background:var(--papel);
+  color:var(--tinta);font-size:12.5px;font-weight:500;cursor:pointer;white-space:nowrap;transition:border-color .15s,background-color .15s,color .15s}
+.lt-chip b{font-size:11px;color:var(--oro)}
+.lt-chip:hover{border-color:var(--oro)}
+.lt-chip.activa{background:var(--tinta);border-color:var(--tinta);color:var(--papel)}
+.lt-chip.activa b{color:var(--oro-vivo)}
+.lt-chip:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.lt-sel-corte .lt-sel-tit .lt-tijera{color:var(--tinta2)}
+.lt-sel-corte .lt-sel-nota{flex:1 1 320px}
+
 /* resumen de un grupo plegado */
 .lt-punto{position:absolute;top:50%;left:calc(var(--lt-m) + (100% - 2 * var(--lt-m)) * var(--p));width:7px;height:7px;margin:-3.5px 0 0 -3.5px;transform:rotate(45deg);background:var(--oro-vivo);border-radius:1px;pointer-events:none}
 .lt-punto.esm{background:var(--esm);border-radius:50%;transform:none}
@@ -209,10 +248,17 @@
   .lt-mini-curva select{flex:1}
   .lt-curva-campo{flex:1}
   .lt-et-capa > svg,.lt-et-capa > .lt-ico-texto{display:none}
+  .lt-et-cortes .lt-tijera{display:none}
+  .lt-transiciones{grid-column:1/-1}
+  .lt-chip{flex:1 1 auto;justify-content:center;height:34px}
+  .lt-sel-corte .lt-mini{grid-column:1/-1}
 }
 
 @media (prefers-color-scheme: dark){
   .lt{--lt-reja:color-mix(in srgb, var(--tinta) 6%, transparent)}
+  .lt-corte{box-shadow:0 1px 2px rgba(0,0,0,.6)}
+  .lt-corte.t-negro{background:#050504;color:#F4F1EA;box-shadow:inset 0 0 0 1px #4A453A}
+  .lt-chip.activa{color:#17150F}
   .lt-clave{box-shadow:0 1px 2px rgba(0,0,0,.6)}
   .lt-texto.sel,.lt-clip.sel{color:#17150F}
   .lt-texto{color:var(--tinta)}

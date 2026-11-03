@@ -6,12 +6,16 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WebGLPathTracer, PhysicalCamera } from 'three-gpu-pathtracer';
 import { separarPiedras } from './piedras.js';
+import { METALES, PIEDRAS, ACABADOS } from './catalogo.js';
+import { Escenario3D, LimpiadorPT } from './escenario3d.js';
+import { normalizarEscena, escenaOscura, usarNormalizadores, joyaFlota, utileriaQueAbre } from './escenas.js';
+import { Utileria, normalizarUtileria } from './utileria.js';
+import { Elementos, normalizarElementos, puntaCorazon } from './elementos.js';
+export { METALES, PIEDRAS, ACABADOS };
+// la escena valida su estuche y sus elementos con los validadores completos (escenas.js no importa three.js)
+usarNormalizadores({ utileria: normalizarUtileria, elementos: normalizarElementos });
 
-// ---------- Metales y piedras (mismos valores que el visor 3D de la página) ----------
-export const METALES = ['Oro amarillo 18k', 'Oro amarillo 14k', 'Oro rosa 18k', 'Oro blanco 18k', 'Plata 925', 'Platino 950'];
-export const PIEDRAS = ['Diamante', 'Diamante laboratorio', 'Moissanita', 'Circón', 'Esmeralda', 'Rubí', 'Zafiro', 'Amatista', 'Espinela', 'Topacio', 'Citrino', 'Aguamarina', 'Granate', 'Perla'];
-export const ACABADOS = { 'Pulido espejo': 0.45, 'Pulido': 1, 'Satinado': 2.6, 'Arenado (mate)': 4 };
-
+// ---------- Metales y piedras (mismos valores que el visor 3D de la página; las listas viven en catalogo.js) ----------
 export function aleacion(n) {
   n = String(n || '').toLowerCase();
   if (/plata/.test(n)) return { color: 0xEDEFF1, rugosidad: 0.16, brillo: 1.25 };
@@ -43,9 +47,21 @@ export function gema(n) {
 // equirectangular de alto rango: sirve igual para el motor rápido y para el trazado de rayos.
 // los valores de la cúpula y los paneles se toman tal cual (sin pasar de sRGB a lineal), igual que en el visor de la página
 const lineal = hex => new THREE.Color().setHex(hex, THREE.LinearSRGBColorSpace);
-function paneles(oscuro) {
+function paneles(oscuro, sala = false) {
   const P = [];
   const panel = (w, h, intensidad, pos, color = 0xffffff) => P.push({ w, h, pos: new THREE.Vector3(...pos), color: lineal(color).multiplyScalar(intensidad) });
+  if (sala) {
+    // sala de las escenas 3D: la luz principal (con su ventana) la pone la escena; aquí solo un relleno parejo de la sala y
+    // los mismos puntitos de luz del estudio, más suaves, para que el metal y las piedras sigan centelleando.
+    // Nada bajo el horizonte: ahí está el piso (en el motor rápido, una luz ahí se vería reflejada en el frente del pedestal)
+    panel(10, 3, 1.6, [0, 9, 3]);
+    panel(2.4, 8, 2.2, [-10, 4.5, 3]); panel(2.4, 8, 1.8, [10, 4.5, -3]);
+    panel(1.2, 1.2, 9, [-4, 6, 8]);
+    for (let i = 0; i < 26; i++) {
+      const t = i * 2.399963, y = 1 - (i + 0.5) / 26 * 2, rr = Math.sqrt(1 - y * y);
+      if (y > 0.12) panel(0.9, 0.9, 6 + (i % 3) * 4, [Math.cos(t) * rr * 13, y * 13, Math.sin(t) * rr * 13], i % 4 === 0 ? 0xfff0d8 : 0xffffff);
+    }
+  } else {
   panel(10, 3, 9, [0, 9, 3]);              // caja de luz superior
   panel(2.4, 11, 6, [-10, 1, 3]);          // tira izquierda
   panel(2.4, 11, 4.5, [10, 0, -3]);        // tira derecha
@@ -66,6 +82,7 @@ function paneles(oscuro) {
     const t = i * 2.399963 + 0.4, y = -0.05 - (i + 0.5) / 36 * 0.9, rr = Math.sqrt(1 - y * y);
     panel(2, 2, 8 + (i % 3) * 6, [Math.cos(t) * rr * 12, y * 12, Math.sin(t) * rr * 12], i % 4 === 1 ? 0xfff0d8 : 0xffffff);
   }
+  }
   for (const p of P) {   // ejes del panel, que mira hacia el centro
     p.n = p.pos.clone().normalize(); p.dist = p.pos.length();
     const ref = Math.abs(p.n.y) > 0.99 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
@@ -74,10 +91,12 @@ function paneles(oscuro) {
   }
   return P;
 }
-export function hdrEstudio(oscuro = false, W = 1024, H = 512) {
-  const datos = new Float32Array(W * H * 4), P = paneles(oscuro);
-  // cúpula con degradado: claro arriba, oscuro abajo (da contraste a las facetas y volumen al metal)
-  const arriba = lineal(oscuro ? 0x2a2622 : 0x9a948a), medio = lineal(oscuro ? 0x0b0a08 : 0x2c2822), abajo = lineal(oscuro ? 0x000000 : 0x050505);
+export function hdrEstudio(oscuro = false, W = 1024, H = 512, sala = false) {
+  const datos = new Float32Array(W * H * 4), P = paneles(oscuro, sala);
+  // cúpula con degradado: claro arriba, oscuro abajo (da contraste a las facetas y volumen al metal).
+  // En la sala de las escenas es más pareja y cálida: es la luz que rebota en las paredes de un estudio de fotografía
+  // (abajo, en la sala, es el piso iluminado: con el trazador no se ve nunca porque lo tapa el piso de verdad)
+  const arriba = sala ? lineal(0x7a7266) : lineal(oscuro ? 0x2a2622 : 0x9a948a), medio = sala ? lineal(0x5a5248) : lineal(oscuro ? 0x0b0a08 : 0x2c2822), abajo = sala ? lineal(0x4a443c) : lineal(oscuro ? 0x000000 : 0x050505);
   const d = new THREE.Vector3(), q = new THREE.Vector3(), c = new THREE.Color();
   for (let j = 0; j < H; j++) {
     const th = ((j + 0.5) / H - 0.5) * Math.PI, y = Math.sin(th), ct = Math.cos(th);
@@ -103,6 +122,95 @@ export function hdrEstudio(oscuro = false, W = 1024, H = 512) {
   return tex;
 }
 
+// ---------- Estudios de los esquemas de luz (lo que se refleja en el metal y rellena la escena) ----------
+// Mismo dibujo que hdrEstudio (cúpula + cajas de luz rectangulares que miran al centro); +z es el lado de la cámara.
+//  · clave baja (los reels de lujo): casi negro, una caja cálida adelante y arriba, una tira arriba y dos tiras finas a los
+//    lados para el filo del oro; el oro queda como espejo con bandas oscuras y los diamantes centellean con puntitos
+//  · clave alta: una sala clara y pareja con cajas grandes
+//  · contraluz: oscuro adelante y claro atrás, con dos tiras de borde detrás de la pieza
+// suave (el del trazador): las tiras finas y los puntitos más anchos y con menos intensidad (la misma luz) y los bordes
+// difusos. Con las tiras de 1,4 y los puntitos de 0,75 el trazador tarda mucho en juntarlos y el oro salía granulado
+function panelesEsquema(esquema, suave = false) {
+  const P = [];
+  const panel = (w, h, intensidad, pos, color = 0xffffff) => {
+    let k = 1;
+    if (suave && Math.max(w, h) < 2 * Math.min(w, h)) { w *= 1.6; h *= 1.6; k = 1 / 2.56; }   // puntitos
+    else if (suave) { const a = Math.max(1, 2.4 / Math.min(w, h)); if (w < h) w *= a; else h *= a; k = 1 / a; }   // tiras
+    P.push({ w, h, pos: new THREE.Vector3(...pos), color: lineal(color).multiplyScalar(intensidad * k) });
+  };
+  // (puntitos para que las piedras centelleen: no muy chicos ni muy fuertes, si no el trazador los convierte en grano en el oro)
+  const puntitos = (n, base, extra, desde = 0.15) => { for (let i = 0; i < n; i++) { const t = i * 2.399963 + 0.7, y = 1 - (i + 0.5) / n * (1 - desde), rr = Math.sqrt(1 - y * y); panel(0.75, 0.75, base + (i % 3) * extra, [Math.cos(t) * rr * 12.5, y * 12.5, Math.sin(t) * rr * 12.5], i % 4 === 0 ? 0xfff0d8 : 0xffffff); } };
+  if (esquema === 'clave-baja') {
+    panel(6.5, 3.5, 12, [-2, 7.5, 10], 0xfff0dc);   // la caja de la luz principal (apenas cálida), adelante y arriba
+    panel(12, 2.4, 9, [0, 12.5, 1]);                // tira de arriba
+    panel(2.2, 12, 11, [-11.5, 2.5, 3]);            // tiras a los lados: el filo del oro
+    panel(2.2, 12, 9, [11.5, 2.5, -1]);
+    panel(1.4, 9, 7, [-6, 1.5, 10.5]); panel(1.4, 9, 6, [7, 1.5, 9.5]);   // dos tiras finas adelante (bandas claras en el frente del oro)
+    panel(8, 1.2, 4, [0, 6, -12]);                  // un toque detrás
+    puntitos(24, 13, 4);
+  } else if (esquema === 'alta-clave') {
+    panel(12, 4, 5.5, [0, 10, 2]); panel(9, 4.5, 4, [0, 2.5, 11]);
+    panel(2.4, 10, 4.6, [-11, 2, 2]); panel(2.4, 10, 3.8, [11, 2, -2]);
+    puntitos(24, 5, 2);
+  } else {   // contraluz
+    panel(16, 9, 3.2, [0, 3, -12]);                 // la pared clara detrás
+    panel(1.2, 10, 9, [-8.5, 3, -8.5]); panel(1.2, 10, 9, [8.5, 3, -8.5]);   // tiras de borde
+    panel(8, 1.2, 4, [0, 11, -5]);
+    panel(6, 4, 0.5, [0, 3, 11], 0xffe7c4);         // un relleno apenas adelante
+    puntitos(14, 7, 3, 0.3);
+  }
+  for (const p of P) {
+    p.n = p.pos.clone().normalize(); p.dist = p.pos.length();
+    const ref = Math.abs(p.n.y) > 0.99 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+    p.der = new THREE.Vector3().crossVectors(ref, p.n).normalize();
+    p.arr = new THREE.Vector3().crossVectors(p.n, p.der).normalize();
+  }
+  return P;
+}
+export function hdrEsquema(esquema, W = 1024, H = 512, suave = false) {
+  const datos = new Float32Array(W * H * 4), P = panelesEsquema(esquema, suave);
+  const C = {
+    'clave-baja': [lineal(0x0e0c09), lineal(0x040404), lineal(0x000000)],
+    'alta-clave': [lineal(0x8a847a), lineal(0x4a4640), lineal(0x2a2724)],
+    contraluz: [lineal(0x141210), lineal(0x060606), lineal(0x000000)],
+  }[esquema] || [lineal(0x7a7266), lineal(0x5a5248), lineal(0x4a443c)];
+  const [arriba, medio, abajo] = C, atras = lineal(0x8c867c);
+  const d = new THREE.Vector3(), q = new THREE.Vector3(), c = new THREE.Color();
+  for (let j = 0; j < H; j++) {
+    const th = ((j + 0.5) / H - 0.5) * Math.PI, y = Math.sin(th), ct = Math.cos(th);
+    for (let i = 0; i < W; i++) {
+      const ph = ((i + 0.5) / W - 0.5) * 2 * Math.PI;
+      d.set(ct * Math.cos(ph), y, ct * Math.sin(ph));
+      if (y > 0) c.copy(medio).lerp(arriba, Math.pow(y, 0.8)); else c.copy(medio).lerp(abajo, Math.min(1, -y * 1.6));
+      // contraluz: la cúpula se aclara hacia atrás (detrás de la pieza está la pared encendida)
+      if (esquema === 'contraluz' && d.z < 0) c.lerp(atras, Math.pow(-d.z, 1.5) * (y > -0.1 ? 1 : 0.3));
+      let r = c.r, g = c.g, b = c.b, cerca = Infinity;
+      for (const p of P) {
+        const dn = d.dot(p.n); if (dn <= 0) continue;
+        const t = p.dist / dn; if (t >= cerca) continue;
+        q.copy(d).multiplyScalar(t).sub(p.pos);
+        const ex = Math.abs(q.dot(p.der)) / (p.w / 2), ey = Math.abs(q.dot(p.arr)) / (p.h / 2);
+        if (ex <= 1 && ey <= 1) {
+          // borde difuso en el del trazador (el último 15 % del panel se funde con la cúpula)
+          const f = suave ? Math.min(1, (1 - ex) / 0.15, (1 - ey) / 0.15) : 1, s2 = f * f * (3 - 2 * f);
+          cerca = t; r = c.r + (p.color.r - c.r) * s2; g = c.g + (p.color.g - c.g) * s2; b = c.b + (p.color.b - c.b) * s2;
+        }
+      }
+      const k = 4 * (j * W + i); datos[k] = r; datos[k + 1] = g; datos[k + 2] = b; datos[k + 3] = 1;
+    }
+  }
+  const tex = new THREE.DataTexture(datos, W, H, THREE.RGBAFormat, THREE.FloatType);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.LinearSRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+}
+// cuánto rinde el estudio de cada esquema en el trazador (la sala de la ventana usa gananciaSalaPT): en el trazador el relleno
+// de la escena (ambiente) también apaga lo que la joya refleja; en el motor rápido no. Las telas oscuras casi no reflejan el
+// estudio, así que la ganancia aviva el oro sin aclarar el fondo
+const GANANCIA_ESQUEMA_PT = { 'clave-baja': 1.35, 'alta-clave': 1.15, contraluz: 1.25 };
+
 const leerSTL = async archivo => {
   const g = new STLLoader().parse(await archivo.arrayBuffer());
   return g.index ? g.toNonIndexed() : g;
@@ -117,6 +225,8 @@ export class Estudio {
     r.toneMapping = THREE.NeutralToneMapping;   // tono neutro de Khronos: pensado para fotografía de producto, respeta el color del oro
     r.toneMappingExposure = 1.15;
     r.outputColorSpace = THREE.SRGBColorSpace;
+    // sombras del motor rápido: solo las da la luz de la escena 3D (sin escena no hay luces con sombra y no cuesta nada)
+    r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFShadowMap;
 
     this.envMetal = hdrEstudio(false);
     this.envPiedras = hdrEstudio(true, 1024, 512);
@@ -128,7 +238,11 @@ export class Estudio {
     // escena del motor rápido
     this.escena = new THREE.Scene();
     this.escena.environment = this.pmMetal;
-    this.pivote = new THREE.Group(); this.escena.add(this.pivote);
+    // la joya: joyas (sube con «elevar» y el vaivén de flotar) → ladoA (pivote, la pieza) y ladoB (gemelo: la del par, en espejo)
+    this.joyas = new THREE.Group(); this.joyas.name = 'joyas'; this.escena.add(this.joyas);
+    this.ladoA = new THREE.Group(); this.ladoB = new THREE.Group(); this.joyas.add(this.ladoA);
+    this.pivote = new THREE.Group(); this.ladoA.add(this.pivote);
+    this.gemelo = new THREE.Group(); this.ladoB.add(this.gemelo);
     this.luces = new THREE.Group(); this.escena.add(this.luces);    // las luces giran con la cámara, como el mapa de entorno
     this.luces.add(new THREE.HemisphereLight(0xfff6e8, 0x2a2118, 0.25));
     const l1 = new THREE.DirectionalLight(0xfff1d6, 0.9); l1.position.set(3, 5, 4); this.luces.add(l1);
@@ -138,10 +252,17 @@ export class Estudio {
     this.escenaPT = new THREE.Scene();
     this.escenaPT.environment = this.envMetal;
     this.escenaPT.background = null;   // fondo transparente: el fondo de marca se compone después
-    this.pivotePT = new THREE.Group(); this.escenaPT.add(this.pivotePT);
+    // tornamesa del trazador: con una escena 3D, en vez de girar el escenario con la cámara gira la joya (la imagen es la
+    // misma). Así el fondo y el pedestal, que son grandes, quedan quietos y el BVH del trazador no se deforma cuadro a cuadro
+    this.tornamesaPT = new THREE.Group(); this.escenaPT.add(this.tornamesaPT);
+    this.joyasPT = new THREE.Group(); this.tornamesaPT.add(this.joyasPT);
+    this.ladoAPT = new THREE.Group(); this.ladoBPT = new THREE.Group(); this.joyasPT.add(this.ladoAPT);
+    this.pivotePT = new THREE.Group(); this.ladoAPT.add(this.pivotePT);
+    this.gemeloPT = new THREE.Group(); this.ladoBPT.add(this.gemeloPT);
 
     this.camara = new PhysicalCamera(30, 9 / 16, 0.1, 1000);
     this.camara.apertureBlades = 7;
+    this.camaraPT = new PhysicalCamera(30, 9 / 16, 0.1, 1000);   // la del trazador: la misma, girada con la tornamesa
     this.pt = null; this.ptSucio = true;
 
     this.mat = new THREE.MeshPhysicalMaterial({ side: THREE.DoubleSide, metalness: 1, roughness: 0.12, clearcoat: 0.35, clearcoatRoughness: 0.08 });
@@ -150,11 +271,247 @@ export class Estudio {
     this.matP2 = new THREE.MeshPhysicalMaterial({ side: THREE.FrontSide, transparent: true, metalness: 1, roughness: 0, flatShading: true, envMap: this.pmPiedras, depthWrite: false, iridescenceIOR: 1.9, iridescenceThicknessRange: [120, 480] });
     this.matPPT = new THREE.MeshPhysicalMaterial({ metalness: 0, roughness: 0, transmission: 1, thickness: 1, ior: 2.42, flatShading: true });
     this.matMascara = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    // solo profundidad (la utilería, el escenario y los elementos tapan la silueta de la joya en la máscara)
+    this.matProfundidad = new THREE.MeshBasicMaterial({ colorWrite: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
 
     // el movimiento, el zoom, la exposición y el desenfoque ya no viven aquí: los da el proyecto (keyframes) en cada cuadro
     this.ajustes = { metal: METALES[0], acabado: 'Pulido', piedra: 'Diamante' };
     this.radio = 1; this.base = 0; this.huella = 1;
     this.rotacionHDRI = 0;   // la pone texturas.js cuando hay un HDRI girado (radianes)
+
+    // escena 3D (superficie, fondo y luz con gobo): sin escena ('ninguna') todo queda como siempre
+    this.escenario = new Escenario3D();
+    this.escena3D = { id: 'ninguna' };
+    this.versionModelo = 0;
+    this.costosPT = [];   // ms de cada actualización del BVH por el giro del escenario (para medir)
+    this.limpiezaPT = true;   // con escena, el grano del yeso se limpia al final de cada cuadro realista (ver LimpiadorPT)
+    this.gananciaSalaPT = 1.5;   // brillo de la sala en el trazador (ver poseEscena)
+    this.rebotesEscenaPT = 5;   // rebotes del trazador con escena (ver prepararPT)
+    // v4: el estuche o la caja y los elementos que se mueven alrededor de la joya
+    this.utileria = new Utileria({ alCambiarPT: () => { this.ptSucio = true; } });
+    this.elementos = new Elementos();
+    this.t = 0; this.par = null; this.encuadre = null; this.alturaJoya = 1;
+    this.pmEsquemas = new Map(); this.envEsquemas = new Map();
+  }
+
+  // ---------- Escena 3D ----------
+  // (hasta que haya una joya el escenario no existe —sus medidas salen de la pieza— y se compone como sin escena)
+  get escenaActiva() { return this.escena3D.id !== 'ninguna' && !!this.escenario.limites; }
+  // con escena: ¿los textos van claros? (sin escena manda el fondo de marca: null)
+  get oscuro() { return this.escenaActiva ? escenaOscura(this.escena3D) : null; }
+
+  // cfg: id de una escena lista o su configuración (se valida con normalizarEscena). Devuelve la escena que quedó
+  ponerEscena(cfg) {
+    const n = normalizarEscena(cfg), antes = this.escenaActiva;
+    this.escena3D = n;
+    const grupos = [[this.escena, this.escenario.grupo], [this.escena, this.escenario.contacto], [this.escenaPT, this.escenario.grupoPT]];
+    if (n.id === 'ninguna') {
+      for (const [e, g] of grupos) e.remove(g);
+      this.escenario.vaciar();
+      this.quitarUtileria(); this.quitarElementos(); this.ponerPar(null); this.encuadre = null; this.frente = 0;
+      this.moverJoya(0);
+      this.escena.background = null; this.escenaPT.background = null; this.luces.visible = true;
+      if (antes) { this.restaurarEntornoPT(); this.ptSucio = true; }
+      return n;
+    }
+    for (const [e, g] of grupos) if (g.parent !== e) e.add(g);
+    this.armarEscenario();
+    return n;
+  }
+  // arma o ajusta el escenario a la joya de ahora (tamaño, base y orientación), con el par, el estuche y los elementos.
+  // Orden: el par (cuánto ocupa la joya) → si flota, a qué altura queda el piso → el estuche (su base es el piso nuevo)
+  // → el escenario (su superficie va a esa altura y el pedestal crece hasta la huella del estuche) → los elementos
+  // (sobre el piso del escenario) → el encuadre de la cámara (la joya, el par, el estuche y dónde terminan los elementos)
+  armarEscenario() {
+    if (this.escena3D.id === 'ninguna' || !this.tieneModelo) return;
+    const cfg = this.escena3D, ant = this.joyas.position.y;
+    this.ponerPar(cfg.par?.activo ? cfg.par : null);
+    this.moverJoya(0);   // las medidas se toman con la joya en su lugar (sin elevar ni el vaivén)
+    const caja = this.cajaJoyas, alto = Math.max(1e-6, caja.max.y - caja.min.y), U = cfg.utileria;
+    // r5: la cinta en corazón que sale del moño de una caja de regalo al lado. La joya sube sola (flota aunque no se haya
+    // pedido) hasta donde el corazón cabe a su tamaño, y la caja se corre bajo la punta del corazón: con la altura de
+    // flotar de siempre el corazón quedaba aplastado en una «S» o torcido en un gancho
+    const r5 = U?.tipo === 'caja-regalo' && U.posicion === 'al-lado' && U.mono !== false && !this.par
+      ? puntaCorazon(cfg.elementos || [], { joya: { caja, mmPorUnidad: 1, objeto: this.joyas }, version: this.versionModelo }) : null;
+    const flota = joyaFlota(cfg) || !!r5;
+    this.alturaJoya = alto;
+    const suelo = flota ? this.base - (cfg.flotar?.activo ? cfg.flotar.altura : 0.35) * alto : null;
+    // el estuche
+    let ru = null;
+    if (U && U.tipo !== 'ninguna') {
+      const pos = U.posicion, joya = { caja, mmPorUnidad: 1, objeto: this.joyas, par: this.par ? { separacion: this.par.d } : null };
+      let sueloU = pos === 'asiento' ? (U.tipo === 'pila-cajas' && flota ? suelo : undefined) : (suelo ?? this.base), desplazar = null;
+      // la joya que flota sobre una caja «al lado» (r5: el anillo sobre la caja de regalo): la altura se mide desde lo alto
+      // de la caja, así la caja cabe debajo. Primero se mide la caja (con el piso bien abajo) y después se baja el piso
+      if (pos === 'al-lado' && flota) {
+        const lejos = suelo - 12 * alto, r0 = this.utileria.armar(U, { joya, version: this.versionModelo, suelo: lejos });
+        if (r0?.limitesCerrado && r0.limites) sueloU = suelo - (Math.max(r0.limitesCerrado.max.y, r0.limites.max.y) - r0.base);
+        const mono = r0?.anclas?.mono?.local;
+        if (r5 && mono) {
+          // el moño en la punta del corazón (más abajo si la altura de flotar pide más: el corazón crece), en la recta que
+          // va de la joya a la punta
+          const yMono = Math.min(r5.punta.y, sueloU + mono.y - lejos), f = (r5.joya.y - yMono) / Math.max(1e-6, r5.joya.y - r5.punta.y);
+          const meta = r5.joya.clone().lerp(r5.punta, f);
+          sueloU = yMono - (mono.y - lejos); desplazar = { x: meta.x - mono.x, z: meta.z - mono.z };
+        }
+      }
+      this.sueloFlota = sueloU;
+      ru = this.utileria.armar(U, { joya, version: this.versionModelo, suelo: sueloU, desplazar });
+      for (const [e, g] of [[this.escena, this.utileria.grupo], [this.escenaPT, this.utileria.grupoPT]]) if (g.parent !== e) e.add(g);
+    } else this.quitarUtileria();
+    this.resultadoUtileria = ru;
+    if (!ru) this.sueloFlota = null;
+    // el escenario: su superficie al piso (el de la joya que flota, o la base del estuche)
+    const piso = ru ? (U.posicion === 'escenario' ? ru.base : Math.min(ru.base, this.sueloFlota ?? suelo ?? this.base)) : (suelo ?? this.base);
+    const huellaJoyas = Math.max(Math.abs(caja.min.x), Math.abs(caja.max.x), Math.abs(caja.min.z), Math.abs(caja.max.z));
+    const huella = Math.max(this.huella, huellaJoyas, ru?.huella || 0);
+    // el escenario crece si el encuadre es mucho más grande que la joya (una pila de cajas, un par muy separado)
+    const radioEnc = this.medirEncuadre(ru, null).radio, ext = Math.min(4, Math.max(1, radioEnc / this.radio / 1.6));
+    // lo que queda quieto junto a la joya (la esfera de cristal de r8) se apoya en el pedestal: el pedestal crece hasta su
+    // huella (antes la esfera quedaba en el aire, medio fuera del bloque). Los elementos se arman sobre el pedestal ya puesto:
+    // la huella se recuerda de la vez anterior y, si cambió, el pedestal se vuelve a armar
+    const conPedestal = cfg.superficie.forma !== 'piso' && !ru?.escenario;
+    const claveApoyo = JSON.stringify([cfg.elementos || [], caja.min.toArray(), caja.max.toArray(), this.versionModelo, piso]);
+    const apoyo = conPedestal && this.apoyo?.clave === claveApoyo ? this.apoyo.huella : 0;
+    const armarEscenario = h => this.escenario.armar(cfg, { radio: this.radio, base: piso, huella: Math.max(huella, h), joya: this.joyas, version: this.versionModelo, renderer: this.renderer, flotando: flota || !!ru, ext });
+    let cambio = armarEscenario(apoyo);
+    // los elementos
+    const L = cfg.elementos || [];
+    let re = null;
+    if (L.length) {
+      const an = ru?.anclas || {}, local = a => (a ? { punto: a.local, direccion: a.direccionLocal } : undefined);
+      re = this.elementos.armar(L, {
+        joya: { caja, mmPorUnidad: 1, objeto: this.joyas }, suelo: ru?.escenario ? ru.suelo : this.escenario.limites.tope, version: this.versionModelo, metal: this.ajustes.metal,
+        ancla: local(an.mono), anclasCadena: an.izquierda && an.derecha ? { izquierda: an.izquierda.local, derecha: an.derecha.local } : undefined,
+      });
+      for (const [e, g] of [[this.escena, this.elementos.grupo], [this.escenaPT, this.elementos.grupoPT], [this.tornamesaPT, this.elementos.grupoJoyaPT]]) if (g.parent !== e) e.add(g);
+      this.elementos.t = null;
+    } else this.quitarElementos();
+    const lq = conPedestal ? re?.limitesQuietos : null;
+    const hq = lq ? Math.max(...[lq.min, lq.max].flatMap(a => [lq.min, lq.max].map(b => Math.hypot(a.x, b.z)))) : 0;
+    this.apoyo = { clave: claveApoyo, huella: hq };
+    if (hq !== apoyo) cambio = armarEscenario(hq) || cambio;
+    if (cambio) { this.ptSucio = true; this.escena.background = new THREE.Color(cfg.fondo.color); }
+    this.resultadoElementos = re;
+    this.encuadre = this.medirEncuadre(ru, re);
+    this.frente = this.frenteDeEscena(re);
+    this.moverJoya(ant);
+    this.ptSucio = true;
+  }
+  // Con qué joya se arman el estuche y los elementos (para bajar su STL igual a lo que se ve). Sin joya: el anillo de ejemplo
+  opcionesUtileria() {
+    if (!this.tieneModelo) return { joya: undefined, suelo: undefined };
+    const cfg = this.escena3D, caja = this.cajaJoyas || this.caja, flota = joyaFlota(cfg), U = cfg.utileria;
+    const suelo = flota ? this.base - cfg.flotar.altura * (caja.max.y - caja.min.y) : null;
+    return { joya: { caja, mmPorUnidad: 1, objeto: this.joyas, par: this.par ? { separacion: this.par.d } : null }, suelo: this.sueloFlota ?? (!U || U.posicion === 'asiento' ? (U?.tipo === 'pila-cajas' && flota ? suelo : undefined) : (suelo ?? this.base)) };
+  }
+  opcionesElementos() {
+    if (!this.tieneModelo) return {};
+    const ru = this.resultadoUtileria, an = ru?.anclas || {};
+    return {
+      joya: { caja: this.cajaJoyas || this.caja, mmPorUnidad: 1, objeto: this.joyas }, suelo: ru?.escenario ? ru.suelo : this.escenario.limites?.tope ?? this.base,
+      version: this.versionModelo, metal: this.ajustes.metal, ancla: an.mono ? { punto: an.mono.local, direccion: an.mono.direccionLocal } : undefined,
+      anclasCadena: an.izquierda && an.derecha ? { izquierda: an.izquierda.local, derecha: an.derecha.local } : undefined,
+    };
+  }
+  // El frente de la escena (radianes que se suman al giro de la cámara): con una cinta que pasa por el agujero de la joya, el
+  // corazón (o la onda) queda en el plano del eje del agujero; si ese eje mira a la cámara, la cinta se vería de canto. El
+  // frente gira hasta mirar el corazón de frente (como en r5: la argolla de costado y el corazón de frente). Con el par, no
+  frenteDeEscena(re) {
+    if (!re?.plan || this.par) return 0;
+    const pl = re.plan.planes.find(x => x.camino?.tipo === 'cinta' && x.camino.ag && x.camino.plano);
+    if (!pl) return 0;
+    const P = pl.camino.puntos, n = new THREE.Vector3();
+    for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; n.x += (a.y - b.y) * (a.z + b.z); n.y += (a.z - b.z) * (a.x + b.x); n.z += (a.x - b.x) * (a.y + b.y); }
+    if (n.lengthSq() < 1e-12) return 0;
+    n.normalize();
+    if (Math.abs(n.y) > 0.6 || Math.abs(n.z) > 0.94) return 0;   // acostada, o ya de frente
+    if (n.x < 0) n.negate();
+    return Math.atan2(n.x, n.z);
+  }
+  quitarUtileria() { this.utileria.vaciar(); this.utileria.grupo.removeFromParent(); this.utileria.grupoPT.removeFromParent(); this.resultadoUtileria = null; }
+  quitarElementos() { this.elementos.vaciar(); for (const g of [this.elementos.grupo, this.elementos.grupoPT, this.elementos.grupoJoyaPT]) g.removeFromParent(); this.resultadoElementos = null; }
+
+  // El par: una segunda pieza en espejo, al lado (separación en anchos de la joya). Los dos lados se corren medio par.
+  ponerPar(par) {
+    const ancho = this.caja ? this.caja.max.x - this.caja.min.x : 2 * this.radio;
+    this.par = par ? { d: ancho * (1 + par.separacion), separacion: par.separacion } : null;
+    const d = this.par?.d || 0;
+    for (const [a, b, raiz] of [[this.ladoA, this.ladoB, this.joyas], [this.ladoAPT, this.ladoBPT, this.joyasPT]]) {
+      a.position.x = -d / 2; b.position.x = d / 2;
+      if (this.par && b.parent !== raiz) raiz.add(b); else if (!this.par && b.parent) b.removeFromParent();
+      raiz.updateMatrixWorld(true);
+    }
+    // caja de las dos piezas (en el marco de la joya, sin elevar)
+    const c = this.caja ? this.caja.clone() : new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+    if (this.par) { const a = c.clone().translate(new THREE.Vector3(-d / 2, 0, 0)), b = new THREE.Box3(new THREE.Vector3(-c.max.x + d / 2, c.min.y, c.min.z), new THREE.Vector3(-c.min.x + d / 2, c.max.y, c.max.z)); this.cajaJoyas = a.union(b); }
+    else this.cajaJoyas = c;
+  }
+  // Lo que encuadra la cámara con zoom 1: la joya (o el par), el estuche y dónde quedan los elementos (sin pasar de 1,7 veces
+  // lo demás: una lluvia de perlas no aleja la cámara). Si los elementos llegan más lejos (una cadena que cruza el cuadro),
+  // igual entra lo que queda quieto junto a la joya, hasta 3 veces (r8: la esfera de cristal; antes quedaba fuera del cuadro)
+  medirEncuadre(ru, re) {
+    const c = this.cajaJoyas ? this.cajaJoyas.clone() : (this.caja?.clone() || new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)));
+    // la pila de cajas (r7): la joya y las cimas de las torres (de donde cuelga la cadena); las torres salen del cuadro
+    // por abajo y por los lados, como en el reel (con la pila entera la joya quedaba diminuta)
+    const an = ru?.anclas || {};
+    if (ru?.tipo === 'pila-cajas' && an.izquierda && an.derecha) c.expandByPoint(an.izquierda.local).expandByPoint(an.derecha.local);
+    else if (ru?.limites && !ru.escenario) c.union(ru.limites);
+    let esfera = c.getBoundingSphere(new THREE.Sphere());
+    if (re?.limites) {
+      const mas = c.clone().union(re.limites), e2 = mas.getBoundingSphere(new THREE.Sphere());
+      const e3 = re.limitesQuietos ? c.clone().union(re.limitesQuietos).getBoundingSphere(new THREE.Sphere()) : null;
+      if (e2.radius <= esfera.radius * 1.7) esfera = e2;
+      else if (e3 && e3.radius > esfera.radius * 1.25 && e3.radius <= esfera.radius * 3) esfera = e3;
+      else { esfera.radius *= 1.25; }
+    }
+    const radio = Math.max(this.radio, esfera.radius);
+    return { centro: esfera.center.clone(), radio };
+  }
+  // Sube la joya (y lo que va pegado a ella: la cinta y la cadena del dije) dy unidades. true si se movió
+  moverJoya(dy) {
+    if (this.joyas.position.y === dy) return false;
+    for (const g of [this.joyas, this.joyasPT, this.elementos.joya, this.elementos.grupoJoyaPT]) { g.position.y = dy; g.updateMatrixWorld(true); }
+    return true;
+  }
+  // La segunda pieza del par: la misma pieza en espejo (x → −x). Es una copia de la geometría ya reflejada (con el orden de
+  // los vértices corregido) y no una escala negativa: el trazador, al actualizar cuadro a cuadro una malla con escala
+  // negativa, vuelve a dar vuelta sus triángulos y la pieza salía negra en cuadros alternos. Comparte los materiales
+  armarGemelo() {
+    for (const g of this.gemelosGeo || []) g.dispose();
+    this.gemelosGeo = [];
+    const espejos = new Map();
+    const espejo = geo => {
+      if (espejos.has(geo)) return espejos.get(geo);
+      const e = geo.clone(); e.scale(-1, 1, 1);
+      if (e.index) { const ix = e.index.array; for (let i = 0; i < ix.length; i += 3) { const t = ix[i + 1]; ix[i + 1] = ix[i + 2]; ix[i + 2] = t; } }
+      else for (const a of Object.values(e.attributes)) { const n = a.itemSize, A = a.array; for (let i = 0; i + 2 < a.count; i += 3) for (let k = 0; k < n; k++) { const t = A[(i + 1) * n + k]; A[(i + 1) * n + k] = A[(i + 2) * n + k]; A[(i + 2) * n + k] = t; } }
+      espejos.set(geo, e); this.gemelosGeo.push(e);
+      return e;
+    };
+    for (const [g, p] of [[this.gemelo, this.pivote], [this.gemeloPT, this.pivotePT]]) {
+      while (g.children.length) g.remove(g.children[0]);
+      for (const m of p.children) { const c = new THREE.Mesh(espejo(m.geometry), m.material); c.renderOrder = m.renderOrder; c.castShadow = m.castShadow; g.add(c); }
+    }
+    this.copiarGemelo();
+  }
+  // la pose del gemelo es la de la pieza reflejada: la posición con x cambiada y el giro conjugado por el espejo
+  copiarGemelo() {
+    for (const [g, p] of [[this.gemelo, this.pivote], [this.gemeloPT, this.pivotePT]]) {
+      g.position.set(-p.position.x, p.position.y, p.position.z);
+      g.quaternion.set(p.quaternion.x, -p.quaternion.y, -p.quaternion.z, p.quaternion.w);
+      g.updateMatrixWorld(true);
+    }
+  }
+  // El instante del video (lo usan los pliegues de la tela, los elementos, los destellos y el vaivén de la joya que flota)
+  ponerTiempo(t) { this.t = Number.isFinite(t) ? t : 0; }
+  // sin escena el trazador vuelve a la intensidad del estudio que tenía (la que puso texturas.js)
+  restaurarEntornoPT() {
+    const e = this.escenaPT;
+    if (this.esEstudioPropio(e.environment)) e.environment = this.envMetal;
+    if (this.esEstudioPropio(this.escena.environment)) this.escena.environment = this.pmMetal;
+    if (this.envPT && e.environmentIntensity === this.envPT.escrito) e.environmentIntensity = this.envPT.base;
+    this.envPT = null; e.backgroundIntensity = 1;
   }
 
   get tieneModelo() { return !!this.mallaMetal; }
@@ -187,17 +544,21 @@ export class Estudio {
     if (geoP) { geoP.translate(-centro.x, -centro.y, -centro.z); geoP.computeVertexNormals(); }
 
     this.limpiar();
+    this.versionModelo++;
     this.geo = geo; this.geoP = geoP;
     // tamaño de las piedras: con él se calcula cuánto color absorbe la luz al atravesarlas en el render realista
     this.tamPiedras = geoP ? Math.max(...geoP.boundingBox.getSize(new THREE.Vector3()).toArray()) : 0;
     this.mallaMetal = new THREE.Mesh(geo, this.mat);
+    this.mallaMetal.castShadow = true;   // (solo se nota con la luz de una escena 3D)
     this.pivote.add(this.mallaMetal);
     this.pivotePT.add(new THREE.Mesh(geo, this.matPT));
     if (geoP) {
       const interior = new THREE.Mesh(geoP, this.matP), exterior = new THREE.Mesh(geoP, this.matP2); exterior.renderOrder = 2;
+      interior.castShadow = true;
       this.pivote.add(interior, exterior);
       this.pivotePT.add(new THREE.Mesh(geoP, this.matPPT));
     }
+    this.armarGemelo();
     this.orientacionInicial = zArriba ? -Math.PI / 2 : 0;   // los programas de joyería guardan el STL con Z hacia arriba
     this.orientar(this.orientacionInicial, 0, 0);
     this.pintar();
@@ -205,7 +566,9 @@ export class Estudio {
   }
 
   limpiar() {
-    for (const p of [this.pivote, this.pivotePT]) while (p.children.length) p.remove(p.children[0]);
+    for (const p of [this.pivote, this.pivotePT, this.gemelo, this.gemeloPT]) while (p.children.length) p.remove(p.children[0]);
+    for (const g of this.gemelosGeo || []) g.dispose();
+    this.gemelosGeo = [];
     this.geo?.dispose(); this.geoP?.dispose();
     this.geo = this.geoP = this.mallaMetal = null;
     this.ptSucio = true;
@@ -225,15 +588,24 @@ export class Estudio {
   }
   medir() {
     if (!this.mallaMetal) return;
+    // (se mide la pieza en su lugar: sin el corrimiento del par ni lo que la suba la escena)
+    const dy = this.joyas.position.y, dx = this.ladoA.position.x;
+    this.joyas.position.y = 0; this.ladoA.position.x = 0; this.joyas.updateMatrixWorld(true);
     const caja = new THREE.Box3().setFromObject(this.pivote);
     const c = caja.getCenter(new THREE.Vector3());
     for (const p of [this.pivote, this.pivotePT]) { p.position.sub(c); p.updateMatrixWorld(true); }
     caja.translate(c.negate());
+    this.joyas.position.y = dy; this.ladoA.position.x = dx; this.joyas.updateMatrixWorld(true);
+    this.copiarGemelo();
     this.caja = caja;
     this.radio = caja.getBoundingSphere(new THREE.Sphere()).radius || 1;
     this.base = caja.min.y;
     const s = caja.getSize(new THREE.Vector3());
     this.huella = Math.max(s.x, s.z) / 2;
+    this.cajaJoyas = caja.clone();
+    // el pedestal se arma con la base y el tamaño de la pieza: cambia con el modelo y con su orientación
+    this.versionModelo++;
+    this.armarEscenario();
   }
 
   pintar() {
@@ -276,6 +648,8 @@ export class Estudio {
     if (g.perla || g.blanca) t.emissive.setHex(0x000000); else { t.emissive.setHex(g.color); t.emissiveIntensity = 0.2; }
     t.needsUpdate = true; this.matPT.needsUpdate = true;
     if (this.pt) this.pt.updateMaterials();
+    // la cadena de los elementos toma el metal de la joya
+    if (!this.elementos.vacio && this.escenaActiva) this.armarEscenario();
   }
 
   tamano(w, h) {
@@ -288,16 +662,50 @@ export class Estudio {
   // La luz gira con la cámara: el resultado es idéntico a una tornamesa con la pieza girando bajo luces fijas.
   // zona: franja de la imagen libre de textos ({ arriba, abajo }, de 0 a 1); la joya se encuadra ahí
   aplicarPose(p, zona = { arriba: 0.03, abajo: 0.97 }) {
-    const cam = this.camara, M = THREE.MathUtils;
+    const cam = this.camara, M = THREE.MathUtils, escenario = this.escenaActiva && this.escenario.limites;
+    let az = M.degToRad(p.giro);
+    if (escenario) {
+      // la joya dentro de un estuche que se abre: la tornamesa se mece (como mucho ±57°, casi igual en giros chicos) y la
+      // tapa abierta, que queda detrás, nunca tapa la pieza
+      const U = this.escena3D.utileria;
+      if (this.utileria.activa && U?.posicion === 'asiento' && utileriaQueAbre(this.escena3D)) az = Math.sin(az);
+      // la pila de cajas (r7) y la caja al lado (r5, con su corazón de cinta): se mece ±34°. Con la vuelta entera, a 90° y
+      // 270° las torres o la caja tapaban la joya y la cadena, y el corazón se veía de canto
+      else if (this.utileria.activa && (U?.tipo === 'pila-cajas' || U?.posicion === 'al-lado')) az = 0.6 * Math.sin(az);
+      az += this.frente || 0;
+    }
+    this.giroCamara = az;
+    // con escena: el estuche, la joya que sube o flota, la luz que gira y lo que se mueve con el tiempo (antes de la cámara:
+    // la cámara sigue a la joya que sube)
+    let dyJoya = 0;
+    if (escenario) dyJoya = this.poseObjetos(p, az);
+    const enc = escenario && this.encuadre ? this.encuadre : null, R = enc ? enc.radio : this.radio;
     const tv = Math.tan(M.degToRad(cam.fov) / 2), alto = Math.max(0.25, zona.abajo - zona.arriba);
     const tz = Math.min(tv * alto, tv * cam.aspect * 0.92);           // medio ángulo disponible para la pieza
-    const ajuste = this.radio * Math.sqrt(1 + tz * tz) / tz;          // la esfera que envuelve la joya cabe justo en la franja
+    const ajuste = R * Math.sqrt(1 + tz * tz) / tz;                   // la esfera que envuelve lo encuadrado cabe justo en la franja
     const dist = ajuste / Math.max(0.05, p.zoom);
-    const az = M.degToRad(p.giro), el = M.degToRad(M.clamp(p.inclinacion, -60, 85));
-    cam.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
-    cam.near = Math.max(dist - this.radio * 3, dist * 0.02); cam.far = dist + this.radio * 6;
-    // punto de interés: el centro de la pieza, o más arriba (la piedra) en los acercamientos
-    const foco = new THREE.Vector3(0, M.clamp(p.foco, 0, 1) * (this.caja ? this.caja.max.y * 0.7 : 0), 0);
+    // centro de la órbita: el del encuadre (en el marco del escenario: gira con la cámara) más lo que subió la joya
+    const centro = new THREE.Vector3(0, dyJoya, 0);
+    if (enc) centro.add(new THREE.Vector3(enc.centro.x, enc.centro.y, enc.centro.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), az));
+    let el = M.degToRad(M.clamp(p.inclinacion, -60, 85));
+    if (escenario) {
+      // con escena la cámara no baja de la superficie donde está la joya (no se mete en el pedestal ni bajo el piso):
+      // un mínimo suave, así un movimiento que baja mucho se aplana sin quiebre. Queda unos 3° por encima: a ras de la
+      // superficie el grano de la arena o del yeso se estira y se ve como manchas
+      const k = this.radio * 0.12, min = this.escenario.alturaMinima() - centro.y + this.radio * 0.04 + dist * 0.05, y = Math.sin(el) * dist;
+      const x = (y - min) / k, ys = min + k * (x > 30 ? x : Math.log1p(Math.exp(x)));
+      el = Math.asin(M.clamp(ys / dist, -1, 0.999));
+    }
+    cam.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist).add(centro);
+    if (escenario) {
+      // el fondo está lejos y el piso llega hasta la cámara: plano cercano chico y lejano hasta el borde del escenario
+      cam.near = Math.max(dist * 0.012, this.radio * 0.01); cam.far = dist + escenario.alcance;
+    } else { cam.near = Math.max(dist - this.radio * 3, dist * 0.02); cam.far = dist + this.radio * 6; }
+    // punto de interés: el centro de lo encuadrado, o la piedra en los acercamientos (con el par, la de la pieza de la izquierda)
+    const f = M.clamp(p.foco, 0, 1), piedra = new THREE.Vector3(this.par ? -this.par.d / 2 : 0, (this.caja ? this.caja.max.y * 0.7 : 0) + dyJoya, 0);
+    if (this.par) piedra.applyAxisAngle(new THREE.Vector3(0, 1, 0), az);
+    const foco = centro.clone().lerp(piedra, f);
+    if (!enc && !this.par) foco.set(0, f * (this.caja ? this.caja.max.y * 0.7 : 0), 0);   // (sin escena, como siempre)
     // cámara ladeada (roll): se gira el "arriba" alrededor de la dirección en que mira
     const mira = foco.clone().sub(cam.position).normalize();
     cam.up.set(0, 1, 0).applyAxisAngle(mira, M.degToRad(p.rodar || 0));
@@ -312,21 +720,102 @@ export class Estudio {
     cam.lookAt(foco.clone().addScaledVector(arribaCam, -cy * tv * dist).addScaledVector(derCam, -cx * tv * cam.aspect * dist));
     cam.up.copy(arribaLadeado);   // la orientación ya quedó calculada: camera.up vuelve a ser el «arriba» ladeado por el roll
     cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
-    cam.focusDistance = cam.position.distanceTo(foco);
+    if (escenario && !this.elementos.vacio) this.elementos.sombrasEnCuadro(cam);
+    // el trazador lanza los rayos desde el plano cercano y mide el foco desde ahí: se descuenta para que lo nítido sea la joya
+    cam.focusDistance = Math.max(this.radio * 0.05, cam.position.distanceTo(foco) - cam.near);
     // desenfoque 0 = todo nítido; 1 = macro con poca profundidad de campo (solo se ve con trazado de rayos).
     // El trazador mide la apertura en metros (bokehSize · 0,5·10⁻³) y la pieza está en mm: la apertura se calcula con el tamaño
     // de la pieza (hasta 0,3 de su radio), así se nota igual en un arete que en un anillo. Nunca es 0 exacto: pasar de 0 a otro
     // valor obligaría a recompilar el shader a mitad del video.
     cam.bokehSize = Math.max(1e-3, M.clamp(p.desenfoque || 0, 0, 1) * this.radio * 0.3 * 1000);
     this.renderer.toneMappingExposure = p.exposicion;
-    // el HDRI que suba la usuaria puede venir girado: se suma al giro de la tornamesa
-    const giroLuz = az + (this.rotacionHDRI || 0);
+    // el HDRI que suba la usuaria puede venir girado: se suma al giro de la tornamesa (y la pista «luz» gira el estudio)
+    const giroLuz = this.giroLuz = az + (this.rotacionHDRI || 0) + (escenario ? M.degToRad(p.luz || 0) : 0);
     for (const e of [this.escena, this.escenaPT]) e.environmentRotation.set(0, giroLuz, 0);
     this.luces.rotation.set(0, az, 0);
+    // con escena manda su luz (con sombras): las luces de apoyo del estudio iluminarían el fondo desde otro lado
+    this.luces.visible = !escenario;
+    if (escenario) {
+      this.poseEscena(az);
+      // los destellos: el tamaño del disco desenfocado sale de la distancia al plano de foco
+      this.escenario.destellos.poner(this.t, this.alto || 960, cam.position.distanceTo(foco), 1);
+    }
     // el mapa de las piedras también "sube" con una cámara baja (contrapicado, «Héroe»): sus facetas siguen viendo la cúpula
     // iluminada como a la altura normal (18°) y el pabellón no se ve negro en la vista rápida. Desde 18° hacia arriba no cambia.
     const alza = Math.max(0, M.degToRad(18) - el);
     this.matP.envMapRotation.set(-alza, az, 0); this.matP2.envMapRotation.set(-alza, az, 0);
+  }
+
+  // Con escena, en cada cuadro: el estuche se abre (pista «apertura»; sin keyframes, la apertura del panel), la joya sube
+  // (pista «elevar») y, si flota, se mece apenas; la luz gira (pista «luz»); la tela, los elementos y los destellos siguen el
+  // tiempo. Todo lo que se mueve avisa al trazador. Devuelve cuánto subió la joya (para la cámara, que la sigue)
+  poseObjetos(p, az) {
+    const cfg = this.escena3D, t = this.t || 0;
+    let sucio = false;
+    if (this.utileria.activa) {
+      this.utileria.ponerApertura(Number.isFinite(p.apertura) ? p.apertura : cfg.utileria.apertura);
+      this.utileria.girar(az, az);   // (giroPT: el giro de la tornamesa del trazador, el mismo de la cámara)
+      if (this.utileria.sucioPT) { sucio = true; this.utileria.sucioPT = false; }
+    }
+    const alto = this.alturaJoya || 2 * this.radio, flota = joyaFlota(cfg);
+    const elevar = (Number.isFinite(p.elevar) ? p.elevar : 0) * alto;
+    const vaiven = flota ? cfg.flotar.bob * 0.045 * alto * Math.sin(2 * Math.PI * t / 3.6) : 0;
+    if (this.moverJoya(elevar + vaiven)) sucio = true;
+    if (this.escenario.ponerGiroLuz(p.luz || 0)) sucio = true;
+    if (this.escenario.actualizar(t)) sucio = true;
+    if (!this.elementos.vacio) {
+      this.elementos.actualizar(t);
+      this.elementos.girar(az);
+      if (this.elementos.ptSucio) { sucio = true; this.elementos.ptSucio = false; }
+    }
+    if (sucio) this.ptSucio = true;
+    return elevar;
+  }
+
+  // Luz de la sala para las escenas (se calcula la primera vez que se pone una)
+  sala() {
+    if (!this.envSala) {
+      this.envSala = hdrEstudio(false, 1024, 512, true);
+      const pm = new THREE.PMREMGenerator(this.renderer); this.pmSala = pm.fromEquirectangular(this.envSala).texture; pm.dispose();
+    }
+    return this.envSala;
+  }
+  // El estudio de un esquema de luz: { env (equirectangular, trazador), pm (motor rápido) }. 'ventana' es la sala de siempre
+  estudioEsquema(esquema) {
+    if (!esquema || esquema === 'ventana') { this.sala(); return { env: this.envSala, pm: this.pmSala, ganancia: this.gananciaSalaPT }; }
+    if (!this.envEsquemas.has(esquema)) {
+      const env = hdrEsquema(esquema), pm = new THREE.PMREMGenerator(this.renderer);
+      // (el trazador usa uno con las tiras suaves en clave baja: la misma luz con menos grano en el oro)
+      this.envEsquemas.set(esquema, esquema === 'clave-baja' ? hdrEsquema(esquema, 1024, 512, true) : env); this.pmEsquemas.set(esquema, pm.fromEquirectangular(env).texture); pm.dispose();
+      if (esquema === 'clave-baja') env.dispose();
+    }
+    return { env: this.envEsquemas.get(esquema), pm: this.pmEsquemas.get(esquema), ganancia: GANANCIA_ESQUEMA_PT[esquema] ?? 1 };
+  }
+  // ¿Es uno de los estudios que pone la escena (y no el de siempre o un HDRI de la usuaria)?
+  esEstudioPropio(tex) { return tex === this.envSala || tex === this.pmSala || [...this.envEsquemas.values(), ...this.pmEsquemas.values()].includes(tex); }
+  // El escenario gira con la cámara (tornamesa) y toma la luz del estudio que esté puesta (también un HDRI)
+  poseEscena(az) {
+    const E = this.escenario, e = this.escena, ept = this.escenaPT, esquema = this.escena3D.luz?.esquema || 'ventana';
+    E.girar(az);
+    const est = this.estudioEsquema(esquema);
+    // con la luz de estudio de siempre, la escena usa la sala del esquema (con la ventana, la sala pareja que deja ver la
+    // ventana; con clave baja, un estudio oscuro con tiras finas). Un HDRI propio se respeta
+    if (esquema !== 'ventana' && (e.environment === this.pmMetal || this.esEstudioPropio(e.environment))) e.environment = est.pm;
+    else if (esquema === 'ventana' && this.esEstudioPropio(e.environment)) e.environment = this.pmMetal;
+    const propio = e.environment && e.environment !== this.pmMetal && !this.esEstudioPropio(e.environment);
+    if (ept.environment === this.envMetal || (this.esEstudioPropio(ept.environment) && ept.environment !== est.env)) ept.environment = est.env;
+    // relleno (ambiente): en el motor rápido solo toca los materiales de la escena (la joya sigue con su estudio)
+    const envRapido = propio ? e.environment : est.pm, intensidad = this.escena3D.ambiente * (e.environmentIntensity ?? 1);
+    for (const m of [E.mats.sup, E.mats.fondo]) if (m) { m.envMap = envRapido; m.envMapIntensity = intensidad; m.envMapRotation.copy(e.environmentRotation); }
+    if (this.utileria.activa) this.utileria.ponerEntorno({ envMap: envRapido, intensidad, rotacion: e.environmentRotation });
+    // en el trazador el relleno es la intensidad del estudio (la de texturas.js por el relleno de la escena).
+    // Con la sala se sube (gananciaSalaPT): en el trazador la joya refleja la sala, no el estudio del motor rápido, que es
+    // mucho más brillante. Más de ×1,5 deja el oro más vivo pero lava las ventanas y la sombra de contacto en los yesos claros
+    const k = this.escena3D.ambiente, g = ept.environment === est.env ? est.ganancia : 1;
+    if (!this.envPT || ept.environmentIntensity !== this.envPT.escrito) this.envPT = { base: ept.environmentIntensity ?? 1 };
+    this.envPT.escrito = ept.environmentIntensity = this.envPT.base * k * g;
+    // los rayos que escapan (por encima del fondo o a través de una piedra) ven el estudio, no un hueco transparente
+    ept.background = ept.environment; ept.backgroundRotation.copy(ept.environmentRotation); ept.backgroundIntensity = g;
   }
 
   renderRapido() {
@@ -336,11 +825,42 @@ export class Estudio {
 
   // Silueta de la pieza (para no oscurecerla con la sombra en el render final)
   renderMascara() {
-    const e = this.escena, prev = e.overrideMaterial, env = e.environment, tm = this.renderer.toneMapping;
-    e.overrideMaterial = this.matMascara; e.environment = null; this.renderer.toneMapping = THREE.NoToneMapping;
-    this.luces.visible = false;
-    this.renderer.render(e, this.camara);
-    e.overrideMaterial = prev; e.environment = env; this.renderer.toneMapping = tm; this.luces.visible = true;
+    const tm = this.renderer.toneMapping;
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    this.dibujarSilueta();
+    this.renderer.toneMapping = tm;
+  }
+  // La silueta blanca de la joya sobre negro transparente en el destino de ahora. Lo demás (escenario, estuche, elementos)
+  // se dibuja antes solo en profundidad: lo que tapa a la joya (la tapa cerrada de un estuche, una perla delante) la tapa
+  // también en la silueta. Sin esto se vería un fantasma del anillo a través de la tapa en el render realista
+  // piedras: las piedras van en magenta (sin verde): el limpiador del trazador alisa solo el metal
+  dibujarSilueta({ piedras = false } = {}) {
+    const r = this.renderer, e = this.escena, prev = e.overrideMaterial, env = e.environment, fondo = e.background, auto = r.autoClear;
+    const vis = new Map(e.children.map(o => [o, o.visible]));
+    const destellos = this.escenario.destellos.puntos, verDestellos = destellos?.visible;
+    const espejos = []; this.escenario.grupo.traverse(o => { if (o.isReflector && o.visible) { espejos.push(o); o.visible = false; } });
+    e.environment = null; e.background = null;
+    r.clear();
+    // 1) solo profundidad: todo menos la joya (sin manchas de contacto, luces ni destellos)
+    for (const o of e.children) o.visible = vis.get(o) && o !== this.joyas && o !== this.escenario.contacto && o !== this.luces;
+    if (destellos) destellos.visible = false;
+    e.overrideMaterial = this.matProfundidad;
+    r.render(e, this.camara);
+    // 2) la joya en blanco (y el gemelo del par)
+    for (const o of e.children) o.visible = o === this.joyas;
+    e.overrideMaterial = this.matMascara; r.autoClear = false;
+    r.render(e, this.camara);
+    if (piedras && this.geoP) {
+      const metal = []; this.joyas.traverse(o => { if (o.isMesh && o.visible && o.material === this.mat) { metal.push(o); o.visible = false; } });
+      const mp = this.matMascaraPiedras || (this.matMascaraPiedras = new THREE.MeshBasicMaterial({ color: 0xff00ff, depthFunc: THREE.LessEqualDepth }));
+      e.overrideMaterial = mp; r.render(e, this.camara);
+      for (const o of metal) o.visible = true;
+    }
+    r.autoClear = auto; e.overrideMaterial = prev; e.environment = env; e.background = fondo;
+    for (const [o, v] of vis) o.visible = v;
+    for (const o of espejos) o.visible = true;
+    if (destellos) destellos.visible = verDestellos;
+    this.luces.visible = !this.escenaActiva;
   }
 
   prepararPT() {
@@ -354,13 +874,88 @@ export class Estudio {
       pt.rasterizeScene = false; pt.dynamicLowRes = false;
       pt.multipleImportanceSampling = true;
     }
-    if (this.ptSucio) { this.pt.setScene(this.escenaPT, this.camara); this.ptSucio = false; }
+    // con escena, la tornamesa: todo se gira −giro alrededor del eje vertical (la cámara, la luz del estudio y la joya);
+    // el escenario y su luz quedan quietos. Sin escena la cámara del trazador es la misma de siempre
+    const giro = this.escenaActiva && this.escenario.limites ? this.giroCamara || 0 : 0, c = this.camaraPT, k = this.camara;
+    // con escena, la luz del foco que rebota en el fondo y vuelve a dar en el oro deja puntitos naranja sueltos en el
+    // fondo: ahí se suavizan más los rebotes brillantes (es un uniforme: no recompila el sombreador)
+    this.pt.filterGlossyFactor = this.escenaActiva ? 0.8 : 0.35;
+    // con escena casi todos los píxeles rebotan en el yeso hasta que la ruleta rusa los corta: con 5 rebotes la imagen
+    // no cambia a la vista (los diamantes tienen aparte sus rebotes por dentro). Ahorra poco (la ruleta ya corta casi
+    // todos los caminos antes): lo que cuesta la escena es que cada píxel del cuadro rebota al menos tres veces.
+    // Sin escena los rayos salen enseguida y los 14 de siempre no cuestan nada (son para el oro y los diamantes)
+    this.pt.bounces = this.escenaActiva ? this.rebotesEscenaPT : 14;
+    c.copy(k, false);
+    for (const p of ['focusDistance', 'bokehSize', 'apertureBlades', 'apertureRotation', 'anamorphicRatio']) c[p] = k[p];
+    if (giro) {
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -giro);
+      c.position.applyQuaternion(q); c.quaternion.premultiply(q); c.up.applyQuaternion(q);
+    }
+    c.updateMatrixWorld(true);
+    const e = this.escenaPT;
+    e.environmentRotation.set(0, (this.giroLuz || 0) - giro, 0); if (e.background) e.backgroundRotation.copy(e.environmentRotation);
+    if (this.tornamesaPT.rotation.y !== -giro) { this.tornamesaPT.rotation.y = -giro; this.tornamesaPT.updateMatrixWorld(true); }
+    if (this.ptSucio) { this.pt.setScene(e, c); this.ptSucio = false; this.giroPT = giro; }
+    else if (giro !== this.giroPT) {
+      // la joya giró en la tornamesa: el trazador vuelve a hornear su geometría y reajusta el BVH (sin reconstruirlo)
+      const t0 = performance.now();
+      this.pt.setScene(e, c);
+      this.costosPT.push(performance.now() - t0); if (this.costosPT.length > 400) this.costosPT.shift();
+      this.giroPT = giro;
+    }
   }
 
   // Renderiza el cuadro actual con trazado de rayos hasta llegar a las muestras pedidas.
   // Los cuadritos (tiles) se mandan a la tarjeta en tandas y se espera a que termine cada tanda antes de mandar otra:
   // así nunca se acumula trabajo de más, la página sigue respondiendo y «Cancelar» actúa enseguida.
+  // Guía (el mismo cuadro con el motor rápido) y silueta de la joya para limpiar el grano del escenario en el render realista
+  prepararLimpieza() {
+    const r = this.renderer, L = this.limpiador || (this.limpiador = new LimpiadorPT()), tam = r.getDrawingBufferSize(new THREE.Vector2());
+    L.tamano(tam.x, tam.y);
+    const antes = r.getRenderTarget(), color = r.getClearColor(new THREE.Color()), alfa = r.getClearAlpha();
+    // la guía: el mismo cuadro con el motor rápido (sin los destellos: en el trazador se dibujan después, encima)
+    const pts = this.escenario.destellos.puntos, ver = pts?.visible;
+    if (pts) pts.visible = false;
+    r.setRenderTarget(L.guia); r.clear(); r.render(this.escena, this.camara);
+    if (pts) pts.visible = ver;
+    r.setRenderTarget(L.mascara); r.setClearColor(0x000000, 0);
+    this.dibujarSilueta({ piedras: true });
+    r.setClearColor(color, alfa); r.setRenderTarget(antes);
+  }
+  // Los destellos del aire encima del cuadro del trazador (en el lienzo): primero la profundidad de la escena del motor
+  // rápido (la misma imagen) para que la joya y lo que está delante los tapen, después los puntos con su disco suave
+  dibujarDestellosEncima() {
+    const pts = this.escenario.destellos.puntos;
+    if (!pts || !this.escenaActiva) return;
+    const r = this.renderer, e = this.escena, prev = e.overrideMaterial, auto = r.autoClear, antes = r.getRenderTarget();
+    r.setRenderTarget(null); r.autoClear = false; r.clearDepth();
+    const ver = pts.visible; pts.visible = false;
+    const espejos = []; this.escenario.grupo.traverse(o => { if (o.isReflector && o.visible) { espejos.push(o); o.visible = false; } });
+    const fondo = e.background; e.background = null;
+    e.overrideMaterial = this.matProfundidad; r.render(e, this.camara); e.overrideMaterial = prev; e.background = fondo;
+    for (const o of espejos) o.visible = true;
+    pts.visible = true; r.render(pts, this.camara); pts.visible = ver;
+    r.autoClear = auto; r.setRenderTarget(antes);
+  }
+
+  // Cuánto tarda el trazado de rayos en este equipo, con la escena y la cámara de ahora, al tamaño actual (uno chico):
+  // un cuadro de 1 muestra para compilar el sombreador y armar el BVH (no cuenta), y luego 1 y 3 muestras. Devuelve, en
+  // ms por megapíxel, lo que cuesta cada muestra y lo fijo de cada cuadro (la guía de la limpieza, las esperas)
+  async medirPT({ cancelado } = {}) {
+    const mp = this.ancho * this.alto / 1e6;
+    await this.renderRealista(1, { cancelado });
+    let t0 = performance.now();
+    await this.renderRealista(1, { cancelado });
+    const t1 = performance.now() - t0;
+    t0 = performance.now();
+    await this.renderRealista(3, { cancelado });
+    const t3 = performance.now() - t0, muestra = Math.max(t3 / 6, (t3 - t1) / 2);
+    return { muestra: muestra / mp, fijo: Math.max(0, t1 - muestra) / mp };
+  }
+
   async renderRealista(muestras, { alAvanzar, cancelado } = {}) {
+    const limpiar = this.limpiezaPT && this.escenaActiva && !!this.escenario.limites;
+    if (limpiar) this.prepararLimpieza();
     this.prepararPT();
     const pt = this.pt, gl = this.renderer.getContext();
     pt.updateCamera(); pt.updateEnvironment(); pt.updateMaterials(); pt.reset();
@@ -381,6 +976,8 @@ export class Estudio {
       if (cancelado?.()) throw new DOMException('Cancelado', 'AbortError');
     }
     await enCurso;
+    if (limpiar) this.limpiador.aplicar(this.renderer, pt.target.texture, pt.samples, { metal: this.escena3D.luz?.esquema === 'clave-baja' });
+    this.dibujarDestellosEncima();
     alAvanzar?.(1);
   }
 
