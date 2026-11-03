@@ -1595,6 +1595,16 @@ function colorMetal(hex) {
   const c = new THREE.Color(hex), hsl = {}; c.getHSL(hsl);
   return c.setHSL(hsl.h, Math.min(1, hsl.s * 1.05), Math.max(hsl.l, 0.62));
 }
+// three.js (r183) calcula la visibilidad del brillo anisótropo como 0,5 / (gv + gl) sin el tope que sí tiene la versión normal
+// (max(…, EPSILON)): en el borde de la cinta de satén, donde la normal ya no mira a la cámara ni a una de las luces de foco,
+// gv + gl = 0, el brillo da infinito y la luz que llega (0) por infinito es NaN. Ese píxel NaN del motor rápido es la guía
+// de la limpieza del render realista, que lo volvía un cuadro negro de 9 × 9 en la foto (la cinta en corazón de r5)
+const VISIBILIDAD_ANISO = 'float v = 0.5 / ( gv + gl );';
+function brilloAnisotropoSeguro(sh) {
+  const trozo = THREE.ShaderChunk.lights_physical_pars_fragment;
+  if (!trozo.includes(VISIBILIDAD_ANISO)) return;
+  sh.fragmentShader = sh.fragmentShader.replace('#include <lights_physical_pars_fragment>', trozo.replace(VISIBILIDAD_ANISO, 'float v = 0.5 / max( gv + gl, EPSILON );'));
+}
 export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, tinte = 0.18 } = {}) {
   const color = new THREE.Color(colorHex), m = new THREE.MeshPhysicalMaterial({ color, roughness: 0.5, metalness: 0 });
   const tx = texturas(tipo);
@@ -1632,6 +1642,7 @@ export function materialElemento(tipo, colorHex, { tamano = 1, metalHex = null, 
       // satén: un brillo largo que recorre la cinta y el color algo más hondo (una cinta clara plana se veía de papel)
       // (anisotropía: el brillo se estira a lo largo de los hilos, como en la cinta de r5; el trazador usa la rugosidad sola)
       Object.assign(m, { roughness: 0.28, sheen: 1, sheenRoughness: 0.28, specularIntensity: 1, anisotropy: 0.7, side: THREE.FrontSide });
+      m.onBeforeCompile = brilloAnisotropoSeguro;
       m.color.multiplyScalar(0.46);
       m.sheenColor.copy(color).lerp(new THREE.Color(0xffffff), 0.4);
       if (tx) { m.normalMap = tx.normalMap; m.normalScale.set(0.32, 0.32); }

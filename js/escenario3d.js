@@ -1231,8 +1231,11 @@ const SOMBREADOR_LIMPIEZA = {
       #endif
       return linearToOutputTexel( vec4( c, 1.0 ) ).rgb;
     }
-    vec3 trazado( vec2 uv ) { return pantalla( texture2D( mapaPT, uv ).rgb ); }
-    vec3 guiado( vec2 uv ) { return pantalla( texture2D( guia, uv ).rgb ); }
+    // un píxel que no es un número (NaN o infinito: un caso degenerado del motor rápido o del trazador) cuenta como negro y
+    // los vecinos lo tapan; si no, el promedio lo esparcía y uno solo dejaba un cuadro negro de 9 × 9 en la foto
+    vec3 finito( vec3 c ) { return any( isnan( c ) ) || any( isinf( c ) ) ? vec3( 0.0 ) : c; }
+    vec3 trazado( vec2 uv ) { return pantalla( finito( texture2D( mapaPT, uv ).rgb ) ); }
+    vec3 guiado( vec2 uv ) { return pantalla( finito( texture2D( guia, uv ).rgb ) ); }
     void main() {
       vec3 c0 = trazado( vUv );
       // cuánto del píxel es joya (la silueta viene suavizada en los bordes): el borde se mezcla en esa proporción.
