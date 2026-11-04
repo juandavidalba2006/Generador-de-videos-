@@ -13,6 +13,8 @@
 // despacio con el tiempo), el degradado de cualquier fondo (colores por vértice: los entienden los dos motores), los
 // destellos del aire (puntos desenfocados; en el trazador se dibujan encima del cuadro, ver estudio.js) y los esquemas
 // de luz (clave baja, clave alta, contraluz): sus luces de apoyo van en un grupo que gira con la pista «luz».
+// v5: el fondo 'ciudad' (r6): fachadas con ventanas bajo un cielo estrellado, pintado (miniatura.js) y con luz propia (de noche
+// no lo ilumina la luz de la escena); queda detrás de la caja de regalo gigante del mundo en miniatura.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Reflector } from 'three/addons/objects/Reflector.js';
@@ -21,6 +23,7 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { PhysicalSpotLight, ShapedAreaLight } from 'three-gpu-pathtracer';
 import { mapaNormalDesde } from './texturas.js';
 import { normalizarEscena } from './escenas.js';
+import { texturaCiudad, V_TOPE, Miniatura } from './miniatura.js';
 
 const M = THREE.MathUtils;
 const limitar = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -442,8 +445,9 @@ const soloBasicos = limpia;
 
 // Piso y fondo. B: distancia del fondo detrás de la joya; piso en y = 0 (se sube después)
 // ext: el escenario se agranda cuando lo que se encuadra es mucho más grande que la joya (una pila de cajas, un par separado)
-function fondo(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
+function fondo(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null, alturaEscenario = 0) {
   if (f.forma === 'tela') return fondoTela(f, B, u, escalaUV, alcanceZ, ext, liso);
+  if (f.forma === 'ciudad') return fondoCiudad(f, B, u, escalaUV, alcanceZ, ext, alturaEscenario);
   const W = ANCHO * u * ext, F = FRENTE * u * ext, Ht = ALTO_FONDO * u * ext, xs = graduada(-W, W, u);
   const filasHasta = (z0, z1) => graduada(-F, F, u).map(z => -z).filter(z => z < z1 && z > z0).concat([z0, z1]).sort((a, b) => b - a);
   if (f.forma === 'pared') {
@@ -507,6 +511,22 @@ function fondo(f, B, u, escalaUV, alcanceZ, ext = 1, liso = null) {
   for (let h = y + 1.2 * u, paso = 1.2 * u; h < Ht; h += paso, paso = Math.min(paso * 1.3, 8 * u)) perfil.push({ z, y: h, ny: 0, nz: 1 });
   perfil.push({ z, y: Ht, ny: 0, nz: 1 });
   return { geo: barrido(perfil, xs, escalaUV), curva: Rc };
+}
+
+// ---------- Ciudad de noche (r6): el fondo curvo de siempre con el dibujo de las fachadas y el cielo ----------
+// La textura no se repite como la de un material: va una sola vez de alto, con la tapa de la caja de escenario (a
+// alturaEscenario sobre el piso) en v = V_TOPE, y se repite a lo ancho. S: unidades del mundo por cada unidad de v (y la
+// mitad a lo ancho: el dibujo es de 2:1, así las ventanas no se estiran)
+function fondoCiudad(f, B, u, escalaUV, alcanceZ, ext, alturaEscenario) {
+  const r = fondo({ ...f, forma: 'curva' }, B, u, escalaUV, alcanceZ, ext), g = r.geo, P = g.attributes.position, T = g.attributes.uv, S = 22 * u;
+  for (let i = 0; i < P.count; i++) T.setXY(i, P.getX(i) / (2 * S), limitar(V_TOPE + (P.getY(i) - alturaEscenario) / S, 0, 1));
+  T.needsUpdate = true;
+  return { ...r, ciudad: true };
+}
+function materialCiudad(color) {
+  const m = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 1, metalness: 0, emissive: 0xffffff, emissiveIntensity: 1, emissiveMap: texturaCiudad(color) });
+  m.userData.tipo = 'ciudad';
+  return m;
 }
 
 // ---------- Tela de satén: una sola tela que baja del fondo y hace de piso, con pliegues suaves ----------
@@ -934,6 +954,11 @@ export class Escenario3D {
     this.cfg = null; this.medidas = null; this.claves = {}; this.limites = null;
     this.mats = {}; this.desechos = [];
     this.destellos = new Destellos(); this.tela = null; this.giroLuz = 0; this.t = 0;
+    // v5: el mundo en miniatura (r6) va con el escenario de cada toma: en el motor rápido cuelga del grupo quieto (contacto) y en
+    // el trazador de grupoJoyaPT, que estudio.js pone en la tornamesa (así gira con la joya y con su caja de escenario)
+    this.grupoJoyaPT = new THREE.Group(); this.grupoJoyaPT.name = 'escenarioJoyaPT';
+    this.miniatura = new Miniatura();
+    this.contacto.add(this.miniatura.grupo); this.grupoJoyaPT.add(this.miniatura.grupoPT);
   }
 
   // cfg: escena normalizada (no 'ninguna'); m: { radio, base (donde va la cara de arriba de la superficie: la base de la
@@ -946,8 +971,11 @@ export class Escenario3D {
     const medidas = `${u.toPrecision(6)}|${hu.toPrecision(6)}|${(m.base || 0).toPrecision(6)}|${ext.toFixed(3)}`;
     // qué hay que rehacer: la geometría (formas, medidas y el material, que da la escala de la textura), la luz (y su
     // ventana), solo los colores o solo el degradado. El relleno (ambiente) no rehace nada: lo aplica el estudio en cada cuadro
-    const kGeo = JSON.stringify([s.forma, s.tamano, s.altura, s.material, f.forma, f.distancia, f.material, medidas, f.forma === 'tela' && !!m.flotando]);
-    const kLuz = JSON.stringify([l, s.tamano, kGeo]), kMat = JSON.stringify([s.material, s.color, f.material, f.color]);
+    const ciudad = f.forma === 'ciudad', hEsc = ciudad && Number.isFinite(m.alturaEscenario) ? Math.max(0, m.alturaEscenario) : 0;
+    const kGeo = JSON.stringify([s.forma, s.tamano, s.altura, s.material, f.forma, f.distancia, f.material, medidas, f.forma === 'tela' && !!m.flotando, ciudad && [hEsc.toPrecision(6), (m.huella || 0).toPrecision(6)]]);
+    // (la luz se mide con la huella de la joya cuando hay una caja de escenario gigante: el charco y el foco angosto son de la joya)
+    const hl = Number.isFinite(m.huellaLuz) && m.huellaLuz > 0 ? Math.max(m.huellaLuz, 0.15 * u) : hu;
+    const kLuz = JSON.stringify([l, s.tamano, kGeo, hl.toPrecision(6)]), kMat = JSON.stringify([s.material, s.color, f.material, f.color, ciudad]);
     const kDeg = JSON.stringify([f.degradado, kGeo]), kDes = JSON.stringify([f.destellos, kGeo]);
     const cambioGeo = kGeo !== this.claves.geo, cambioLuz = kLuz !== this.claves.luz, cambioMat = kMat !== this.claves.mat;
     const cambioDeg = kDeg !== this.claves.deg, cambioDes = kDes !== this.claves.des;
@@ -959,22 +987,24 @@ export class Escenario3D {
     if (cambioMat || !this.mats.sup) {
       const viejos = { sup: this.mats.sup, fondo: this.mats.fondo };
       this.mats.sup = crearMaterial(s.material, s.color);
-      this.mats.fondo = crearMaterial(f.material, f.color);
+      this.mats.fondo = ciudad ? materialCiudad(f.color) : crearMaterial(f.material, f.color);
       this.mats.fondo.normalScale.setScalar(0.6);   // el fondo es grande y queda desenfocado: su grano va más suave
       // solo cambió el color: las mallas que ya están toman los materiales nuevos
       for (const g of [this.grupo, this.grupoPT]) for (const o of g.children) {
         if (o.material === viejos.sup) o.material = this.mats.sup; else if (o.material === viejos.fondo) o.material = this.mats.fondo;
       }
-      for (const k of ['sup', 'fondo']) if (viejos[k]) { viejos[k].map?.dispose(); viejos[k].dispose(); }
+      for (const k of ['sup', 'fondo']) if (viejos[k]) { viejos[k].map?.dispose(); viejos[k].emissiveMap?.dispose(); viejos[k].dispose(); }
     }
     const tope = (m.base || 0) - EPS * u;
     if (cambioGeo) {
       this.limpiarGrupo('geo');
       const ped = pedestal(s, u, hu, TIPOS[s.material].T * u);
       const piso = tope - ped.H;
-      const B = s.forma === 'piso' ? (1.5 + 3 * f.distancia) * u : ped.alcanceZ + (0.8 + 2.2 * f.distancia) * u;
+      let B = s.forma === 'piso' ? (1.5 + 3 * f.distancia) * u : ped.alcanceZ + (0.8 + 2.2 * f.distancia) * u;
+      // (la ciudad queda detrás de la caja de regalo gigante, con aire: la caja nunca la atraviesa)
+      if (ciudad) B = Math.max(B, hu + 2.5 * u);
       // (la joya que flota no toca la tela: el piso puede plegarse justo debajo)
-      const fd = fondo(f, B, u, TIPOS[f.material].T * u, ped.alcanceZ, ext, m.flotando && s.forma === 'piso' ? 1.2 * u : null);
+      const fd = fondo(f, B, u, TIPOS[f.material].T * u, ped.alcanceZ, ext, m.flotando && s.forma === 'piso' ? 1.2 * u : null, hEsc);
       fd.geo.translate(0, piso, 0);
       this.tela = fd.tela ? { geo: fd.geo, datos: fd.tela, ondas: f.ondas, fase: null } : null;
       if (this.tela) { fd.tela.base = fd.geo.attributes.position.array.slice(); this.plegar(this.t, true); }
@@ -1001,7 +1031,7 @@ export class Escenario3D {
         d.rotation.x = -Math.PI / 2; d.position.y = piso + 0.004 * u; d.renderOrder = 1; d.userData.parte = 'geo';
         this.grupo.add(d);
       }
-      this.limites = { tope, piso, alto: ped.H, fondo: B, alcance: Math.hypot(ANCHO, FRENTE, ALTO_FONDO) * u * ext, radioSup: ped.alcanceZ, forma: s.forma, curva: fd.curva || 0, tela: !!fd.tela };
+      this.limites = { tope, piso, alto: ped.H, fondo: B, alcance: Math.hypot(ANCHO, FRENTE, ALTO_FONDO) * u * ext, radioSup: ped.alcanceZ, forma: s.forma, curva: fd.curva || 0, tela: !!fd.tela, escenario: hEsc ? tope + hEsc : null };
     }
     // degradado del fondo (más oscuro arriba): colores por vértice, sin rehacer la geometría
     if (cambioDeg || cambioGeo || cambioMat) {
@@ -1010,7 +1040,7 @@ export class Escenario3D {
       const vc = f.degradado > 0 || !!this.tela;   // (la tela lleva la sombra de los valles en los colores)
       if (this.mats.fondo.vertexColors !== vc) { this.mats.fondo.vertexColors = vc; this.mats.fondo.needsUpdate = true; }
     }
-    if (cambioLuz || cambioGeo) { this.limpiarGrupo('luz'); this.armarLuz(cfg, u, hu); }
+    if (cambioLuz || cambioGeo) { this.limpiarGrupo('luz'); this.armarLuz(cfg, u, hl); }
     if (cambioDes || cambioGeo) {
       const pts = this.destellos.armar(f.destellos, u, this.limites.piso, this.limites.fondo);
       if (pts && pts.parent !== this.grupo) this.grupo.add(pts);
@@ -1180,7 +1210,8 @@ export class Escenario3D {
 
   // Altura mínima de la cámara: nunca por debajo de la superficie donde está la joya (no se mete en el pedestal ni el piso;
   // en la tela, tampoco en un pliegue)
-  alturaMinima() { return this.limites ? this.limites.tope + (this.tela ? this.tela.datos.ampPiso * 1.1 : 0) : -Infinity; }
+  // (sobre una caja de escenario, la cámara no baja de su tapa)
+  alturaMinima() { return this.limites ? Math.max(this.limites.tope + (this.tela ? this.tela.datos.ampPiso * 1.1 : 0), this.limites.escenario ?? -Infinity) : -Infinity; }
 
   limpiarGrupo(parte, g = null) {
     for (const grupo of g ? [g] : [this.grupo, this.grupoPT]) {
@@ -1201,8 +1232,9 @@ export class Escenario3D {
   vaciar() {
     for (const p of ['geo', 'luz']) this.limpiarGrupo(p);
     this.limpiarGrupo('contacto', this.contacto);
-    for (const k of ['sup', 'fondo']) if (this.mats[k]) { this.mats[k].map?.dispose(); this.mats[k].dispose(); this.mats[k] = null; }
+    for (const k of ['sup', 'fondo']) if (this.mats[k]) { this.mats[k].map?.dispose(); this.mats[k].emissiveMap?.dispose(); this.mats[k].dispose(); this.mats[k] = null; }
     this.destellos.vaciar();
+    this.miniatura.vaciar();
     this.cfg = null; this.claves = {}; this.limites = null; this.luz = null; this.tela = null; this.rig = this.rigPT = null;
   }
 }

@@ -11,6 +11,7 @@ import { Escenario3D, LimpiadorPT } from './escenario3d.js';
 import { normalizarEscena, escenaOscura, usarNormalizadores, joyaFlota, utileriaQueAbre } from './escenas.js';
 import { Utileria, normalizarUtileria } from './utileria.js';
 import { Elementos, normalizarElementos, puntaCorazon } from './elementos.js';
+import { utileriaDeMiniatura } from './miniatura.js';
 export { METALES, PIEDRAS, ACABADOS };
 // la escena valida su estuche y sus elementos con los validadores completos (escenas.js no importa three.js)
 usarNormalizadores({ utileria: normalizarUtileria, elementos: normalizarElementos });
@@ -292,6 +293,8 @@ export class Estudio {
     this.elementos = new Elementos();
     this.t = 0; this.par = null; this.encuadre = null; this.alturaJoya = 1;
     this.pmEsquemas = new Map(); this.envEsquemas = new Map();
+    // v5: la joya se mece (pista «balanceo»): el giro de ahora y hasta cuánto llega en el video (los elementos se apartan)
+    this.balanceo = 0; this.balanceoMax = 0; this.poseJoya = '';
   }
 
   // ---------- Escena 3D ----------
@@ -299,12 +302,30 @@ export class Estudio {
   get escenaActiva() { return this.escena3D.id !== 'ninguna' && !!this.escenario.limites; }
   // con escena: ¿los textos van claros? (sin escena manda el fondo de marca: null)
   get oscuro() { return this.escenaActiva ? escenaOscura(this.escena3D) : null; }
+  // v5: el grano de película de la escena (0..1; lo pinta el compositor encima del render y debajo de los textos)
+  get grano() { return this.escenaActiva ? this.escena3D.grano || 0 : 0; }
+  // v5: el mundo en miniatura de la escena de ahora (va con el escenario de cada toma)
+  get miniatura() { return this.escenario.miniatura; }
+  // El estuche que se arma: el de la escena o, en el mundo en miniatura sin otro estuche, su caja de regalo gigante de escenario
+  utileriaDe(cfg) {
+    const U = cfg?.utileria;
+    return cfg?.miniatura?.activo && (!U || U.tipo === 'ninguna') ? normalizarUtileria(utileriaDeMiniatura(cfg.miniatura)) : U;
+  }
+  // v5: hasta cuántos grados se mece la joya en el video (lo dice quien tiene el proyecto: main.js, con las claves de la pista
+  // «balanceo»). Los elementos del piso se planean fuera del espacio que barre la joya; si cambia, se vuelven a armar
+  ponerBalanceoMaximo(grados) {
+    const g = Math.min(60, Math.abs(Number.isFinite(grados) ? grados : 0));
+    if (Math.abs(g - this.balanceoMax) < 0.5) return false;
+    this.balanceoMax = g;
+    if (this.escenaActiva && (this.escena3D.elementos || []).length) this.armarEscenario();
+    return true;
+  }
 
   // cfg: id de una escena lista o su configuración (se valida con normalizarEscena). Devuelve la escena que quedó
   ponerEscena(cfg) {
     const n = normalizarEscena(cfg), antes = this.escenaActiva;
     this.escena3D = n;
-    const grupos = [[this.escena, this.escenario.grupo], [this.escena, this.escenario.contacto], [this.escenaPT, this.escenario.grupoPT]];
+    const grupos = [[this.escena, this.escenario.grupo], [this.escena, this.escenario.contacto], [this.escenaPT, this.escenario.grupoPT], [this.tornamesaPT, this.escenario.grupoJoyaPT]];
     if (n.id === 'ninguna') {
       for (const [e, g] of grupos) e.remove(g);
       this.escenario.vaciar();
@@ -327,7 +348,7 @@ export class Estudio {
     const cfg = this.escena3D, ant = this.joyas.position.y;
     this.ponerPar(cfg.par?.activo ? cfg.par : null);
     this.moverJoya(0);   // las medidas se toman con la joya en su lugar (sin elevar ni el vaivén)
-    const caja = this.cajaJoyas, alto = Math.max(1e-6, caja.max.y - caja.min.y), U = cfg.utileria;
+    const caja = this.cajaJoyas, alto = Math.max(1e-6, caja.max.y - caja.min.y), U = this.utileriaDe(cfg);
     // r5: la cinta en corazón que sale del moño de una caja de regalo al lado. La joya sube sola (flota aunque no se haya
     // pedido) hasta donde el corazón cabe a su tamaño, y la caja se corre bajo la punta del corazón: con la altura de
     // flotar de siempre el corazón quedaba aplastado en una «S» o torcido en un gancho
@@ -365,15 +386,17 @@ export class Estudio {
     const piso = ru ? (U.posicion === 'escenario' ? ru.base : Math.min(ru.base, this.sueloFlota ?? suelo ?? this.base)) : (suelo ?? this.base);
     const huellaJoyas = Math.max(Math.abs(caja.min.x), Math.abs(caja.max.x), Math.abs(caja.min.z), Math.abs(caja.max.z));
     const huella = Math.max(this.huella, huellaJoyas, ru?.huella || 0);
+    // v5: el mundo en miniatura (r6): el farol, la banca y la cajita que vuela, sobre la tapa de la caja de escenario
+    const rm = this.miniatura.armar(cfg.miniatura, { joya: { caja }, suelo: ru?.escenario ? ru.suelo : piso, escenario: ru?.escenario, version: this.versionModelo });
     // el escenario crece si el encuadre es mucho más grande que la joya (una pila de cajas, un par muy separado)
-    const radioEnc = this.medirEncuadre(ru, null).radio, ext = Math.min(4, Math.max(1, radioEnc / this.radio / 1.6));
+    const radioEnc = this.medirEncuadre(ru, null, rm).radio, ext = Math.min(4, Math.max(1, radioEnc / this.radio / 1.6));
     // lo que queda quieto junto a la joya (la esfera de cristal de r8) se apoya en el pedestal: el pedestal crece hasta su
     // huella (antes la esfera quedaba en el aire, medio fuera del bloque). Los elementos se arman sobre el pedestal ya puesto:
     // la huella se recuerda de la vez anterior y, si cambió, el pedestal se vuelve a armar
     const conPedestal = cfg.superficie.forma !== 'piso' && !ru?.escenario;
     const claveApoyo = JSON.stringify([cfg.elementos || [], caja.min.toArray(), caja.max.toArray(), this.versionModelo, piso]);
     const apoyo = conPedestal && this.apoyo?.clave === claveApoyo ? this.apoyo.huella : 0;
-    const armarEscenario = h => this.escenario.armar(cfg, { radio: this.radio, base: piso, huella: Math.max(huella, h), joya: this.joyas, version: this.versionModelo, renderer: this.renderer, flotando: flota || !!ru, ext });
+    const armarEscenario = h => this.escenario.armar(cfg, { radio: this.radio, base: piso, huella: Math.max(huella, h), joya: this.joyas, version: this.versionModelo, renderer: this.renderer, flotando: flota || !!ru, ext, alturaEscenario: ru?.escenario ? ru.suelo - ru.base : 0, huellaLuz: ru?.escenario ? 1.3 * Math.max(this.huella, huellaJoyas) : undefined });
     let cambio = armarEscenario(apoyo);
     // los elementos
     const L = cfg.elementos || [];
@@ -383,6 +406,8 @@ export class Estudio {
       re = this.elementos.armar(L, {
         joya: { caja, mmPorUnidad: 1, objeto: this.joyas }, suelo: ru?.escenario ? ru.suelo : this.escenario.limites.tope, version: this.versionModelo, metal: this.ajustes.metal,
         ancla: local(an.mono), anclasCadena: an.izquierda && an.derecha ? { izquierda: an.izquierda.local, derecha: an.derecha.local } : undefined,
+        // v5: fuera del estuche abierto, del farol y de la banca y de por donde se mece la joya; lo que vuela, alrededor del farol
+        obstaculos: this.obstaculosElementos(U, ru, rm, caja), centroVuelo: rm?.cabeza || undefined,
       });
       for (const [e, g] of [[this.escena, this.elementos.grupo], [this.escenaPT, this.elementos.grupoPT], [this.tornamesaPT, this.elementos.grupoJoyaPT]]) if (g.parent !== e) e.add(g);
       this.elementos.t = null;
@@ -393,10 +418,45 @@ export class Estudio {
     if (hq !== apoyo) cambio = armarEscenario(hq) || cambio;
     if (cambio) { this.ptSucio = true; this.escena.background = new THREE.Color(cfg.fondo.color); }
     this.resultadoElementos = re;
-    this.encuadre = this.medirEncuadre(ru, re);
+    this.encuadre = this.medirEncuadre(ru, re, rm);
     this.frente = this.frenteDeEscena(re);
     this.moverJoya(ant);
     this.ptSucio = true;
+  }
+  // v5: lo que los elementos del piso no pueden atravesar: el estuche donde va la joya (sus paredes y la tapa en todo su
+  // recorrido), el farol y la banca de la miniatura y el espacio que barre la joya al mecerse. giro: cuánto gira cada cosa
+  // respecto a los elementos, que van con el escenario: el estuche de la joya va con la joya, y la tornamesa se mece ±1 rad
+  // con un estuche que se abre, ±0,6 con la pila o la miniatura, y da la vuelta entera con la bandeja (ver aplicarPose)
+  obstaculosElementos(U, ru, rm, caja) {
+    const L = [];
+    if (ru && !ru.escenario && this.utileria.activa) {
+      const giro = U.posicion === 'al-lado' ? 0 : U.tipo === 'pila-cajas' ? 0.6 : utileriaQueAbre({ ...this.escena3D, utileria: U }) ? 1 : Infinity;
+      for (const c of this.utileria.solidos()) L.push({ caja: c, giro });
+    }
+    if (rm) for (const c of rm.solidos) L.push({ caja: c, giro: 0.6 });
+    if (this.balanceoMax >= 0.5) L.push({ caja: this.barridoBalanceo(caja, this.balanceoMax), giro: 0 });
+    return L;
+  }
+  // De dónde cuelga la joya al mecerse (en su marco, sin elevar): escena.pivote (altos de la joya sobre su punto más alto) o,
+  // solo, el medio de las puntas de la cadena que cuelga de la joya (el dije), o un poco más arriba de la pieza
+  pivoteBalanceo() {
+    const caja = this.cajaJoyas || this.caja, alto = caja ? caja.max.y - caja.min.y : 2 * this.radio, top = caja ? caja.max.y : this.radio;
+    const pv = this.escenaActiva ? this.escena3D.pivote : null;
+    if (Number.isFinite(pv)) return new THREE.Vector3(0, top + pv * alto, 0);
+    const cad = this.escenaActiva ? this.resultadoElementos?.plan?.planes?.find(p => p.camino?.tipo === 'cadena' && p.camino.marco === 'joya') : null;
+    if (cad?.camino.tramos?.length) { const h = cad.camino.tramos.map(t => t.hasta); return new THREE.Vector3(h.reduce((a, p) => a + p.x, 0) / h.length, Math.max(...h.map(p => p.y)), 0); }
+    return new THREE.Vector3(0, top + 0.6 * alto, 0);
+  }
+  // La caja que barre la joya al mecerse hasta ±grados (en el marco del escenario el giro es alrededor del eje que mira a la
+  // cámara): el cilindro que la envuelve en cualquier giro de la tornamesa, girado alrededor del pivote
+  barridoBalanceo(caja, grados) {
+    const P = this.pivoteBalanceo(), rJ = Math.max(Math.abs(caja.min.x), Math.abs(caja.max.x), Math.abs(caja.min.z), Math.abs(caja.max.z)) * Math.SQRT2;
+    const b = new THREE.Box3(), v = new THREE.Vector3(), q = new THREE.Quaternion(), z = new THREE.Vector3(0, 0, 1);
+    for (let i = 0; i <= 16; i++) {
+      q.setFromAxisAngle(z, THREE.MathUtils.degToRad(-grados + 2 * grados * i / 16));
+      for (const x of [-rJ, rJ]) for (const y of [caja.min.y, caja.max.y]) for (const zz of [-rJ, rJ]) b.expandByPoint(v.set(x, y, zz).sub(P).applyQuaternion(q).add(P));
+    }
+    return b;
   }
   // Con qué joya se arman el estuche y los elementos (para bajar su STL igual a lo que se ve). Sin joya: el anillo de ejemplo
   opcionesUtileria() {
@@ -432,6 +492,121 @@ export class Estudio {
   quitarUtileria() { this.utileria.vaciar(); this.utileria.grupo.removeFromParent(); this.utileria.grupoPT.removeFromParent(); this.resultadoUtileria = null; }
   quitarElementos() { this.elementos.vaciar(); for (const g of [this.elementos.grupo, this.elementos.grupoPT, this.elementos.grupoJoyaPT]) g.removeFromParent(); this.resultadoElementos = null; }
 
+  // ---------- Una escena por toma (v5) ----------
+  // Cada toma del video (lo que hay entre dos cortes) puede tener su propia escena. Cada escena distinta se arma una sola vez en su
+  // propio «juego» (el escenario, el estuche y los elementos, con lo que el estudio calculó al armarlos: encuadre, piso, par…) y
+  // queda guardada: al pasar un corte, usarEscena solo cuelga ese juego en la escena del motor rápido y en la del trazador y
+  // descuelga el anterior. Nada se vuelve a armar cuadro a cuadro; un juego se rehace solo si cambia su escena, la joya o el metal.
+  //   estudio.prepararEscenas([escena de la toma 1, de la toma 2, …]) → { tomas, juegos, armados, ms }
+  //   estudio.usarEscena(i) → true si cambió de juego (el trazador vuelve a armar su BVH una vez, en el corte)
+  //   estudio.tomaActiva (la toma que se ve) y estudio.costosCambio (ms de cada cambio de juego, para medir)
+  // Sin prepararEscenas, ponerEscena sigue siendo la escena única de siempre.
+  static PIEZAS_TOMA = ['escenario', 'utileria', 'elementos'];
+  static CAMPOS_TOMA = ['escena3D', 'resultadoUtileria', 'resultadoElementos', 'encuadre', 'frente', 'sueloFlota', 'alturaJoya', 'apoyo'];
+  static MAX_JUEGOS_TOMA = 12;   // escenas distintas guardadas a la vez (más que eso se rehacen al llegar a su toma)
+  prepararEscenas(lista) {
+    const t0 = performance.now(), J = this.juegosToma();
+    const cfgs = (Array.isArray(lista) && lista.length ? lista : [this.escena3D]).map(c => normalizarEscena(c));
+    const claves = cfgs.map(c => JSON.stringify(c));
+    // (si alguien puso la escena con ponerEscena directamente, el juego colgado es de esa escena)
+    if (J.activo) { const k = JSON.stringify(this.escena3D); if (k !== J.activo.clave) { if (J.mapa.get(J.activo.clave) === J.activo) J.mapa.delete(J.activo.clave); J.activo.clave = k; J.activo.cfg = this.escena3D; J.mapa.set(k, J.activo); } }
+    const antes = this.tomasEscena?.claves || [];
+    this.tomasEscena = { claves, cfgs };
+    // los juegos que ya no sirven se reciclan; primero el que tenía la misma toma: al mover un deslizador de la escena de una
+    // toma, el escenario rehace solo lo que cambió (como con la escena única)
+    const necesarias = new Set(claves), libres = [...J.mapa.values()].filter(j => !necesarias.has(j.clave));
+    for (const j of libres) J.mapa.delete(j.clave);
+    for (const k of [...necesarias].slice(0, Estudio.MAX_JUEGOS_TOMA)) {
+      if (J.mapa.has(k)) continue;
+      const i = claves.indexOf(k), a = libres.findIndex(j => j.clave === antes[i]);
+      const j = (a >= 0 ? libres.splice(a, 1)[0] : libres.shift()) || this.nuevoJuego();
+      Object.assign(j, { clave: k, cfg: cfgs[i], version: null });
+      J.mapa.set(k, j);
+    }
+    for (const j of libres) if (j !== J.activo) this.desecharJuego(j); else { j.clave = null; J.mapa.set(null, j); }
+    // se arma lo que falte (escenas nuevas, o de antes de cambiar la joya o el metal)
+    let armados = 0;
+    const ver = this.versionToma();
+    for (const j of [...J.mapa.values()]) if (j.clave !== null && j.version !== ver && j.version !== 'activo') { this.activarJuego(j); this.ponerEscena(j.cfg); j.version = 'activo'; armados++; }
+    if (J.mapa.has(null)) { const viejo = J.mapa.get(null); J.mapa.delete(null); if (viejo === J.activo) { this.activarJuego([...J.mapa.values()][0]); } this.desecharJuego(viejo); }
+    this.usarEscena(Math.min(this.tomaActiva ?? 0, claves.length - 1), { forzar: true });
+    return { tomas: claves.length, juegos: J.mapa.size, armados, ms: Math.round((performance.now() - t0) * 10) / 10 };
+  }
+  // Cuelga el juego de la toma i (la del instante que se va a dibujar). Barato si ya es el que está
+  usarEscena(i, { forzar = false } = {}) {
+    const T = this.tomasEscena, J = this.juegosT;
+    if (!T || !J) return false;
+    const idx = Math.max(0, Math.min(T.claves.length - 1, Math.round(+i) || 0)), k = T.claves[idx], ver = this.versionToma();
+    this.tomaActiva = idx;
+    let j = J.mapa.get(k);
+    if (j && j === J.activo && (!forzar || j.version === ver || j.version === 'activo')) { j.uso = ++J.reloj; return false; }
+    const t0 = performance.now();
+    if (!j) {
+      // más escenas distintas que juegos guardados: se recicla el que hace más tiempo no se usa
+      const viejos = [...J.mapa.values()].filter(x => x !== J.activo).sort((a, b) => a.uso - b.uso);
+      j = J.mapa.size >= Estudio.MAX_JUEGOS_TOMA && viejos.length ? viejos[0] : this.nuevoJuego();
+      if (J.mapa.get(j.clave) === j) J.mapa.delete(j.clave);
+      Object.assign(j, { clave: k, cfg: T.cfgs[idx], version: null });
+      J.mapa.set(k, j);
+    }
+    const cambio = j !== J.activo;
+    this.activarJuego(j);
+    if (j.version !== ver && j.version !== 'activo') { this.ponerEscena(j.cfg); }
+    j.version = 'activo'; j.uso = ++J.reloj;
+    const ms = performance.now() - t0;
+    (this.costosCambio ||= []).push(ms); if (this.costosCambio.length > 400) this.costosCambio.shift();
+    return cambio;
+  }
+  juegosToma() {
+    if (!this.juegosT) {
+      // el primero es el de siempre (el escenario, el estuche y los elementos que ya tiene el estudio)
+      const j = this.nuevoJuego(true);
+      this.juegosT = { mapa: new Map([[j.clave, j]]), activo: j, reloj: 0 };
+    }
+    return this.juegosT;
+  }
+  versionToma() { return `${this.versionModelo}|${this.ajustes.metal}`; }
+  nuevoJuego(actual = false) {
+    const piezas = actual ? Object.fromEntries(Estudio.PIEZAS_TOMA.map(k => [k, this[k]]))
+      : { escenario: new Escenario3D(), utileria: new Utileria({ alCambiarPT: () => { this.ptSucio = true; } }), elementos: new Elementos() };
+    const campos = actual ? Object.fromEntries(Estudio.CAMPOS_TOMA.map(k => [k, this[k]]))
+      : { escena3D: { id: 'ninguna' }, resultadoUtileria: null, resultadoElementos: null, encuadre: null, frente: 0, sueloFlota: null, alturaJoya: this.alturaJoya, apoyo: undefined };
+    return { clave: actual ? JSON.stringify(this.escena3D) : null, cfg: actual ? this.escena3D : null, version: actual ? 'activo' : null, piezas, campos,
+      par: actual && this.par ? { activo: true, separacion: this.par.separacion } : null, fondo: actual ? this.escena.background : null, colgados: [], uso: 0 };
+  }
+  // los grupos de una pieza que van colgados en las escenas (motor rápido, trazador y la tornamesa del trazador)
+  gruposToma(p) { return [p?.grupo, p?.grupoPT, p?.contacto, p?.grupoJoyaPT].filter(Boolean); }
+  activarJuego(j) {
+    const J = this.juegosToma();
+    if (j === J.activo) return;
+    if (J.activo) {
+      // se guarda lo que está colgado (y lo que calculó el estudio) y se descuelga
+      const a = J.activo;
+      for (const k of Estudio.PIEZAS_TOMA) a.piezas[k] = this[k];
+      for (const k of Estudio.CAMPOS_TOMA) a.campos[k] = this[k];
+      a.par = this.par ? { activo: true, separacion: this.par.separacion } : null; a.fondo = this.escena.background;
+      if (a.version === 'activo') a.version = this.versionToma();   // (mientras estuvo colgado, el estudio lo tuvo al día)
+      a.colgados = [];
+      for (const k of Estudio.PIEZAS_TOMA) for (const g of this.gruposToma(this[k])) if (g.parent) { a.colgados.push([g, g.parent]); g.removeFromParent(); }
+    }
+    for (const k of Estudio.PIEZAS_TOMA) this[k] = j.piezas[k];
+    for (const k of Estudio.CAMPOS_TOMA) this[k] = j.campos[k];
+    this.ponerPar(j.par);
+    this.escena.background = j.fondo ?? null;
+    for (const [g, p] of j.colgados) if (g.parent !== p) p.add(g);
+    j.colgados = [];
+    // lo que va pegado a la joya (la cinta, la cadena) a la altura de la joya: moverJoya no lo toca si la joya no se mueve
+    for (const g of [this.elementos.joya, this.elementos.grupoJoyaPT]) if (g && g.position.y !== this.joyas.position.y) { g.position.y = this.joyas.position.y; g.updateMatrixWorld(true); }
+    if (this.escena3D.id === 'ninguna') { this.moverJoya(0); this.escenaPT.background = null; this.luces.visible = true; this.restaurarEntornoPT(); }
+    J.activo = j;
+    this.ptSucio = true;
+  }
+  desecharJuego(j) {
+    if (!j) return;
+    for (const p of Object.values(j.piezas)) { for (const g of this.gruposToma(p)) g.removeFromParent(); p.vaciar?.(); }
+    j.colgados = [];
+  }
+
   // El par: una segunda pieza en espejo, al lado (separación en anchos de la joya). Los dos lados se corren medio par.
   ponerPar(par) {
     const ancho = this.caja ? this.caja.max.x - this.caja.min.x : 2 * this.radio;
@@ -450,8 +625,10 @@ export class Estudio {
   // Lo que encuadra la cámara con zoom 1: la joya (o el par), el estuche y dónde quedan los elementos (sin pasar de 1,7 veces
   // lo demás: una lluvia de perlas no aleja la cámara). Si los elementos llegan más lejos (una cadena que cruza el cuadro),
   // igual entra lo que queda quieto junto a la joya, hasta 3 veces (r8: la esfera de cristal; antes quedaba fuera del cuadro)
-  medirEncuadre(ru, re) {
+  medirEncuadre(ru, re, rm = null) {
     const c = this.cajaJoyas ? this.cajaJoyas.clone() : (this.caja?.clone() || new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)));
+    // v5: el mundo en miniatura entra entero (la joya, el farol con su halo y la banca), como en r6
+    if (rm?.limites) c.union(rm.limites);
     // la pila de cajas (r7): la joya y las cimas de las torres (de donde cuelga la cadena); las torres salen del cuadro
     // por abajo y por los lados, como en el reel (con la pila entera la joya quedaba diminuta)
     const an = ru?.anclas || {};
@@ -468,11 +645,25 @@ export class Estudio {
     const radio = Math.max(this.radio, esfera.radius);
     return { centro: esfera.center.clone(), radio };
   }
-  // Sube la joya (y lo que va pegado a ella: la cinta y la cadena del dije) dy unidades. true si se movió
-  moverJoya(dy) {
-    if (this.joyas.position.y === dy) return false;
-    for (const g of [this.joyas, this.joyasPT, this.elementos.joya, this.elementos.grupoJoyaPT]) { g.position.y = dy; g.updateMatrixWorld(true); }
-    return true;
+  // Sube la joya (y lo que va pegado a ella: la cinta y la cadena del dije) dy unidades y (v5) la mece balanceo grados
+  // alrededor del pivote, rígida (el STL no se dobla), en el plano de frente a la cámara: az es el giro de la cámara (en el motor
+  // rápido la joya queda quieta y la cámara da la vuelta; en el trazador la joya va en la tornamesa y en su marco el eje es el
+  // mismo). La cámara no la sigue: la joya entra y sale del cuadro como el péndulo de r8. true si se movió
+  moverJoya(dy, balanceo = 0, az = 0) {
+    const th = THREE.MathUtils.degToRad(Number.isFinite(balanceo) ? THREE.MathUtils.clamp(balanceo, -60, 60) : 0);
+    const pos = new THREE.Vector3(0, dy, 0), q = new THREE.Quaternion();
+    if (th) {
+      const P = this.pivoteBalanceo().add(pos);
+      q.setFromAxisAngle(new THREE.Vector3(Math.sin(az), 0, Math.cos(az)), th);
+      pos.sub(P).applyQuaternion(q).add(P);
+    }
+    this.balanceo = th;
+    let movio = false;
+    for (const g of [this.joyas, this.joyasPT, this.elementos.joya, this.elementos.grupoJoyaPT]) {
+      if (g.position.equals(pos) && g.quaternion.equals(q)) continue;
+      g.position.copy(pos); g.quaternion.copy(q); g.updateMatrixWorld(true); movio = true;
+    }
+    return movio;
   }
   // La segunda pieza del par: la misma pieza en espejo (x → −x). Es una copia de la geometría ya reflejada (con el orden de
   // los vértices corregido) y no una escala negativa: el trazador, al actualizar cuadro a cuadro una malla con escala
@@ -589,13 +780,13 @@ export class Estudio {
   medir() {
     if (!this.mallaMetal) return;
     // (se mide la pieza en su lugar: sin el corrimiento del par ni lo que la suba la escena)
-    const dy = this.joyas.position.y, dx = this.ladoA.position.x;
-    this.joyas.position.y = 0; this.ladoA.position.x = 0; this.joyas.updateMatrixWorld(true);
+    const pj = this.joyas.position.clone(), qj = this.joyas.quaternion.clone(), dx = this.ladoA.position.x;
+    this.joyas.position.set(0, 0, 0); this.joyas.quaternion.identity(); this.ladoA.position.x = 0; this.joyas.updateMatrixWorld(true);
     const caja = new THREE.Box3().setFromObject(this.pivote);
     const c = caja.getCenter(new THREE.Vector3());
     for (const p of [this.pivote, this.pivotePT]) { p.position.sub(c); p.updateMatrixWorld(true); }
     caja.translate(c.negate());
-    this.joyas.position.y = dy; this.ladoA.position.x = dx; this.joyas.updateMatrixWorld(true);
+    this.joyas.position.copy(pj); this.joyas.quaternion.copy(qj); this.ladoA.position.x = dx; this.joyas.updateMatrixWorld(true);
     this.copiarGemelo();
     this.caja = caja;
     this.radio = caja.getBoundingSphere(new THREE.Sphere()).radius || 1;
@@ -672,6 +863,8 @@ export class Estudio {
       // la pila de cajas (r7) y la caja al lado (r5, con su corazón de cinta): se mece ±34°. Con la vuelta entera, a 90° y
       // 270° las torres o la caja tapaban la joya y la cadena, y el corazón se veía de canto
       else if (this.utileria.activa && (U?.tipo === 'pila-cajas' || U?.posicion === 'al-lado')) az = 0.6 * Math.sin(az);
+      // (v5: el mundo en miniatura también: con la vuelta entera el farol y la banca pasaban por delante de la joya)
+      else if (this.miniatura.activa) az = 0.6 * Math.sin(az);
       az += this.frente || 0;
     }
     this.giroCamara = az;
@@ -679,6 +872,7 @@ export class Estudio {
     // la cámara sigue a la joya que sube)
     let dyJoya = 0;
     if (escenario) dyJoya = this.poseObjetos(p, az);
+    else if (this.tieneModelo && this.moverJoya(0, p.balanceo, az)) this.ptSucio = true;   // (sin escena la joya también se mece)
     const enc = escenario && this.encuadre ? this.encuadre : null, R = enc ? enc.radio : this.radio;
     const tv = Math.tan(M.degToRad(cam.fov) / 2), alto = Math.max(0.25, zona.abajo - zona.arriba);
     const tz = Math.min(tv * alto, tv * cam.aspect * 0.92);           // medio ángulo disponible para la pieza
@@ -760,7 +954,16 @@ export class Estudio {
     const alto = this.alturaJoya || 2 * this.radio, flota = joyaFlota(cfg);
     const elevar = (Number.isFinite(p.elevar) ? p.elevar : 0) * alto;
     const vaiven = flota ? cfg.flotar.bob * 0.045 * alto * Math.sin(2 * Math.PI * t / 3.6) : 0;
-    if (this.moverJoya(elevar + vaiven)) sucio = true;
+    if (this.moverJoya(elevar + vaiven, p.balanceo, az)) sucio = true;
+    // la sombra de contacto se queda en el piso: con la joya meciéndose, se apaga
+    for (const c of this.escenario.contacto.children) if (c.userData.parte === 'contacto') c.visible = !this.balanceo;
+    // v5: el latido del farol y la cajita que vuela del mundo en miniatura
+    const mi = this.miniatura;
+    if (mi.activa) {
+      mi.actualizar(t);
+      if (mi.ptSucio) { sucio = true; mi.ptSucio = false; }
+      if (mi.lucesSucias) { this.lucesPT = true; mi.lucesSucias = false; }
+    }
     if (this.escenario.ponerGiroLuz(p.luz || 0)) sucio = true;
     if (this.escenario.actualizar(t)) sucio = true;
     if (!this.elementos.vacio) {
@@ -841,8 +1044,12 @@ export class Estudio {
     const espejos = []; this.escenario.grupo.traverse(o => { if (o.isReflector && o.visible) { espejos.push(o); o.visible = false; } });
     e.environment = null; e.background = null;
     r.clear();
-    // 1) solo profundidad: todo menos la joya (sin manchas de contacto, luces ni destellos)
-    for (const o of e.children) o.visible = vis.get(o) && o !== this.joyas && o !== this.escenario.contacto && o !== this.luces;
+    // 1) solo profundidad: todo menos la joya (sin manchas de contacto, luces, destellos ni el halo del farol; el farol y la
+    // banca del mundo en miniatura, que cuelgan del mismo grupo que la mancha, sí tapan a la joya)
+    const manchas = this.escenario.contacto.children.filter(c => c.userData.parte === 'contacto' && c.visible), halo = this.miniatura.halo, verHalo = halo?.visible;
+    for (const o of e.children) o.visible = vis.get(o) && o !== this.joyas && o !== this.luces;
+    for (const m of manchas) m.visible = false;
+    if (halo) halo.visible = false;
     if (destellos) destellos.visible = false;
     e.overrideMaterial = this.matProfundidad;
     r.render(e, this.camara);
@@ -859,6 +1066,8 @@ export class Estudio {
     r.autoClear = auto; e.overrideMaterial = prev; e.environment = env; e.background = fondo;
     for (const [o, v] of vis) o.visible = v;
     for (const o of espejos) o.visible = true;
+    for (const m of manchas) m.visible = true;
+    if (halo) halo.visible = verHalo;
     if (destellos) destellos.visible = verDestellos;
     this.luces.visible = !this.escenaActiva;
   }
@@ -902,7 +1111,8 @@ export class Estudio {
       this.pt.setScene(e, c);
       this.costosPT.push(performance.now() - t0); if (this.costosPT.length > 400) this.costosPT.shift();
       this.giroPT = giro;
-    }
+    } else if (this.lucesPT) this.pt.updateLights();   // (v5: el farol late: solo cambió la fuerza de su luz)
+    this.lucesPT = false;
   }
 
   // Renderiza el cuadro actual con trazado de rayos hasta llegar a las muestras pedidas.
@@ -913,28 +1123,35 @@ export class Estudio {
     const r = this.renderer, L = this.limpiador || (this.limpiador = new LimpiadorPT()), tam = r.getDrawingBufferSize(new THREE.Vector2());
     L.tamano(tam.x, tam.y);
     const antes = r.getRenderTarget(), color = r.getClearColor(new THREE.Color()), alfa = r.getClearAlpha();
-    // la guía: el mismo cuadro con el motor rápido (sin los destellos: en el trazador se dibujan después, encima)
-    const pts = this.escenario.destellos.puntos, ver = pts?.visible;
+    // la guía: el mismo cuadro con el motor rápido (sin los destellos ni el halo del farol: en el trazador van después, encima)
+    const pts = this.escenario.destellos.puntos, ver = pts?.visible, halo = this.miniatura.halo, verHalo = halo?.visible;
     if (pts) pts.visible = false;
+    if (halo) halo.visible = false;
     r.setRenderTarget(L.guia); r.clear(); r.render(this.escena, this.camara);
     if (pts) pts.visible = ver;
+    if (halo) halo.visible = verHalo;
     r.setRenderTarget(L.mascara); r.setClearColor(0x000000, 0);
     this.dibujarSilueta({ piedras: true });
     r.setClearColor(color, alfa); r.setRenderTarget(antes);
   }
   // Los destellos del aire encima del cuadro del trazador (en el lienzo): primero la profundidad de la escena del motor
-  // rápido (la misma imagen) para que la joya y lo que está delante los tapen, después los puntos con su disco suave
+  // rápido (la misma imagen) para que la joya y lo que está delante los tapen, después los puntos con su disco suave.
+  // v5: lo mismo con el halo del farol del mundo en miniatura (un brillo de pantalla, no geometría)
   dibujarDestellosEncima() {
-    const pts = this.escenario.destellos.puntos;
-    if (!pts || !this.escenaActiva) return;
+    const pts = this.escenario.destellos.puntos, halo = this.miniatura.halo;
+    if ((!pts && !halo) || !this.escenaActiva) return;
     const r = this.renderer, e = this.escena, prev = e.overrideMaterial, auto = r.autoClear, antes = r.getRenderTarget();
     r.setRenderTarget(null); r.autoClear = false; r.clearDepth();
-    const ver = pts.visible; pts.visible = false;
+    const ver = pts?.visible, verHalo = halo?.visible;
+    if (pts) pts.visible = false;
+    if (halo) halo.visible = false;
     const espejos = []; this.escenario.grupo.traverse(o => { if (o.isReflector && o.visible) { espejos.push(o); o.visible = false; } });
     const fondo = e.background; e.background = null;
     e.overrideMaterial = this.matProfundidad; r.render(e, this.camara); e.overrideMaterial = prev; e.background = fondo;
     for (const o of espejos) o.visible = true;
-    pts.visible = true; r.render(pts, this.camara); pts.visible = ver;
+    if (pts) { pts.visible = true; r.render(pts, this.camara); pts.visible = ver; }
+    if (halo && verHalo) { halo.visible = true; r.render(halo, this.camara); }
+    if (halo) halo.visible = verHalo;
     r.autoClear = auto; r.setRenderTarget(antes);
   }
 

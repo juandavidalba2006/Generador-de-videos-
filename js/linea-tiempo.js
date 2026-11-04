@@ -9,8 +9,8 @@ import {
 import { escarabajo } from './marca.js';
 
 // nombres para la columna de los carriles (la del inspector lleva el nombre completo)
-const MEDIOS = { giro: 'Giro', inclinacion: 'Altura cámara', zoom: 'Zoom', altura: 'Pos. vertical', lateral: 'Pos. lateral', foco: 'Foco piedra', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque', apertura: 'Apertura', elevar: 'Elevar joya', luz: 'Giro de luz' };
-const CORTOS = { giro: 'Giro', inclinacion: 'Altura', zoom: 'Zoom', altura: 'Vertical', lateral: 'Lateral', foco: 'Foco', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque', apertura: 'Apertura', elevar: 'Elevar', luz: 'Luz' };
+const MEDIOS = { giro: 'Giro', inclinacion: 'Altura cámara', zoom: 'Zoom', altura: 'Pos. vertical', lateral: 'Pos. lateral', foco: 'Foco piedra', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque', apertura: 'Apertura', elevar: 'Elevar joya', luz: 'Giro de luz', balanceo: 'Balanceo' };
+const CORTOS = { giro: 'Giro', inclinacion: 'Altura', zoom: 'Zoom', altura: 'Vertical', lateral: 'Lateral', foco: 'Foco', rodar: 'Roll', exposicion: 'Exposición', desenfoque: 'Desenfoque', apertura: 'Apertura', elevar: 'Elevar', luz: 'Luz', balanceo: 'Péndulo' };
 const DURACIONES = [6, 8, 10, 15, 20, 30];
 const MAX_HISTORIAL = 50;
 const IMAN = 6;        // px: a esta distancia del cabezal un rombo o un borde se pega a él
@@ -87,13 +87,16 @@ export class LineaTiempo {
   // pistaVisible(id): si el carril de una pista se muestra (las de la escena —apertura, elevar, luz— solo cuando sirven:
   // con un estuche, con la joya que flota, con una escena 3D). Una pista con keyframes se muestra siempre. Sin esto, las de la
   // cámara (y «Añadir keyframe en todas» marca todas las pistas, como antes)
-  constructor(contenedor, { obtenerProyecto, alCambiar, alMoverCabezal, alSeleccionar, efectos, estilosMusica, pistaVisible, valorSinClaves } = {}) {
+  // tomas(): con cortes, la escena de cada toma para el carril de los cortes: [{ desde, hasta, propia, nombre, color, miniatura }]
+  // (una franja del color del fondo y la miniatura de la escena al comienzo de cada toma). Sin esto, el carril queda como antes
+  constructor(contenedor, { obtenerProyecto, alCambiar, alMoverCabezal, alSeleccionar, efectos, estilosMusica, pistaVisible, valorSinClaves, tomas } = {}) {
     this.cont = contenedor;
     this.obtenerProyecto = obtenerProyecto;
     this.pistaVisible = typeof pistaVisible === 'function' ? pistaVisible : k => !PISTAS_ESCENA.includes(k);
     this.claveEnTodas = typeof pistaVisible === 'function' ? () => this.visibles() : () => Object.keys(PISTAS);
     // valor de una pista que todavía no tiene keyframes y lo toma de otro lado (la apertura del estuche, del panel)
     this.valorSinClaves = typeof valorSinClaves === 'function' ? valorSinClaves : () => null;
+    this.tomas = typeof tomas === 'function' ? tomas : () => [];
     this.alCambiar = alCambiar || (() => {});
     this.alMoverCabezal = alMoverCabezal || (() => {});
     this.alSeleccionar = alSeleccionar || (() => {});
@@ -288,8 +291,16 @@ export class LineaTiempo {
       return `<button type="button" class="lt-corte t-${tr}" data-corte-i="${i}" style="--p:${limitar(c.t / d, 0, 1)}" aria-pressed="${s}"
         aria-label="Corte en ${seg(c.t)}: ${esc(TRANSICIONES[tr])}" title="Corte · ${seg(c.t)} · ${esc(TRANSICIONES[tr])}">${icono('tijera')}${SIGNO_TRANSICION[tr] ? `<b aria-hidden="true">${SIGNO_TRANSICION[tr]}</b>` : ''}</button>`;
     }).join('');
-    return `<div class="lt-et lt-et-cortes" title="Cortes: la cámara salta de un plano a otro">${icono('tijera', 'lt-tijera')}<span>Cortes</span>${cortes.length ? `<small>${cortes.length}</small>` : ''}</div>
-      <div class="lt-carril lt-carril-cortes${cortes.length ? '' : ' vacio'}" data-carril="cortes">${marcas || '<span class="lt-pista-nota"><span class="lt-largo">Sin cortes · usa «Corte en el cabezal» o doble clic aquí</span><span class="lt-corto">Sin cortes · doble toque aquí</span></span>'}</div>`;
+    // la escena de cada toma: una franja con el color de su fondo (más tenue si la hereda de la anterior) y su miniatura si cabe
+    const color = c => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : '#DDD8CE'), pps = this.pps;
+    const tomas = cortes.length ? (this.tomas() || []).filter(x => x && Number.isFinite(x.desde) && Number.isFinite(x.hasta)) : [];
+    const muestras = tomas.map((x, i) => {
+      const w = Math.max(0, x.hasta - x.desde), cabe = w * pps >= (i ? 52 : 34) && typeof x.miniatura === 'string' && x.miniatura.startsWith('data:image/');
+      return `<i class="lt-toma${x.propia ? '' : ' hereda'}${i ? '' : ' primera'}" style="--p:${limitar(x.desde / d, 0, 1)};--w:${limitar(w / d, 0, 1)};--c:${color(x.color)}">${cabe ? `<img class="lt-toma-mini" src="${x.miniatura}" alt="">` : ''}</i>`;
+    }).join('');
+    const ayuda = tomas.length ? ` · ${tomas.length} tomas: cada franja es la escena de una toma` : '';
+    return `<div class="lt-et lt-et-cortes" title="Cortes: la cámara salta de un plano a otro${ayuda}">${icono('tijera', 'lt-tijera')}<span>Cortes</span>${cortes.length ? `<small>${cortes.length}</small>` : ''}</div>
+      <div class="lt-carril lt-carril-cortes${cortes.length ? '' : ' vacio'}${tomas.length ? ' con-tomas' : ''}" data-carril="cortes">${tomas.length ? `<span class="lt-tomas" aria-hidden="true">${muestras}</span>` : ''}${marcas || '<span class="lt-pista-nota"><span class="lt-largo">Sin cortes · usa «Corte en el cabezal» o doble clic aquí</span><span class="lt-corto">Sin cortes · doble toque aquí</span></span>'}</div>`;
   }
 
   // una línea por cada corte que atraviesa todos los carriles (se ve dónde salta cada pista)

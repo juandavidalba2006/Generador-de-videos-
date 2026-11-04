@@ -16,6 +16,8 @@ export const PISTAS = {
   apertura:    { nombre: 'Apertura del estuche', corto: 'Apertura', unidad: '', min: 0, max: 1, paso: 0.01, def: 1 },   // 0 = cerrado; sin keyframes, la del panel (corto: la etiqueta de la fila)
   elevar:      { nombre: 'Elevar la joya',     unidad: '',  min: 0,     max: 1.5,  paso: 0.01, def: 0 },     // en altos de la joya, sobre su asiento o el piso
   luz:         { nombre: 'Giro de la luz',     unidad: '°', min: -180,  max: 180,  paso: 1,    def: 0 },     // la luz principal gira: los brillos recorren la tela
+  // v5: la joya se mece entera alrededor de un punto encima de ella (como un dije que cuelga: el STL es rígido, no se dobla)
+  balanceo:    { nombre: 'Balanceo (péndulo)', corto: 'Balanceo', unidad: '°', min: -60, max: 60, paso: 1, def: 0 },
 };
 // Pistas de la escena: un movimiento base no las borra salvo que las traiga el movimiento anterior (como las de imagen)
 export const PISTAS_ESCENA = ['apertura', 'elevar', 'luz'];
@@ -160,10 +162,41 @@ export const MOVIMIENTOS = {
       foco: [K(0, 1, 'salida'), K(D * 0.85, 0)], desenfoque: [K(0, 0.25, 'salida'), K(D * 0.7, 0)],
     }),
   },
+  // v5 (r8): la joya entra meciéndose desde un lado como un péndulo y se va calmando; la cámara, quieta y de frente, se acerca apenas
+  pendulo: {
+    nombre: 'Péndulo (la joya se mece)', bucle: false,
+    crear: D => ({ inclinacion: [K(0, 10), K(D, 12)], zoom: [K(0, 0.92, 'lineal'), K(D, 1.04)], balanceo: clavesPendulo({ duracion: D }) }),
+  },
 };
 
+// Oscilación amortiguada de la pista «balanceo»: θ(t) = A·e^(−γ·(t − inicio))·cos(2π·(t − inicio)/T). Un keyframe en cada extremo
+// (cada medio periodo) con la curva suave, que entre dos extremos es casi un coseno: la joya pasa rápido por el centro y se frena
+// en las puntas. Cuando la amplitud ya no se nota (< 0,5°) llega al centro y se queda quieta; si el video termina antes, el
+// último keyframe es el ángulo exacto del final. amplitud en grados (+ empieza a la derecha), periodo en s, amortiguacion en 1/s
+export function clavesPendulo({ amplitud = 42, periodo = 2.6, amortiguacion = 0.25, inicio = 0, duracion = 8 } = {}) {
+  const max = PISTAS.balanceo.max, A = limitar(esNum(amplitud) ? amplitud : 42, -max, max), T = limitar(esNum(periodo) ? periodo : 2.6, 0.4, 20);
+  const g = limitar(esNum(amortiguacion) ? amortiguacion : 0.25, 0, 5), fin = limitar(esNum(duracion) ? duracion : 8, DURACION_MIN, DURACION_MAX);
+  const t0 = limitar(esNum(inicio) ? inicio : 0, 0, fin), angulo = t => A * Math.exp(-g * (t - t0)) * Math.cos(2 * Math.PI * (t - t0) / T);
+  const claves = t0 > TOLERANCIA ? [K(0, A, 'lineal')] : [];
+  for (let k = 0; ; k++) {
+    const t = t0 + k * T / 2;
+    if (t > fin - TOLERANCIA) { if (!(claves[claves.length - 1]?.t >= fin - TOLERANCIA)) claves.push(K(fin, angulo(fin))); break; }
+    const v = A * Math.exp(-g * (t - t0)) * (k % 2 ? -1 : 1);
+    if (k > 0 && Math.abs(v) < 0.5) {
+      // del último extremo al centro: arranca despacio y llega con velocidad (un cuarto de coseno ≈ «acelerar»)
+      claves[claves.length - 1].curva = 'entrada';
+      claves.push(K(t - T / 4, 0, 'lineal'));
+      if (t - T / 4 < fin - TOLERANCIA) claves.push(K(fin, 0, 'lineal'));
+      break;
+    }
+    claves.push(K(t, v));
+  }
+  return claves;
+}
+
 // Pistas de "imagen" (y las de la escena): un movimiento base no las borra salvo que las traiga el movimiento anterior
-const PISTAS_IMAGEN = ['exposicion', 'desenfoque', ...PISTAS_ESCENA];
+// (v5: el balanceo de la joya tampoco: se mece igual con otro movimiento de cámara; el «Péndulo» sí lo trae y lo reemplaza)
+const PISTAS_IMAGEN = ['exposicion', 'desenfoque', ...PISTAS_ESCENA, 'balanceo'];
 
 const pistasVacias = () => Object.fromEntries(Object.keys(PISTAS).map(id => [id, []]));
 
@@ -175,6 +208,7 @@ export function proyectoNuevo() {
     bucle: MOVIMIENTOS.giro.bucle,
     pistas: { ...pistasVacias(), ...MOVIMIENTOS.giro.crear(8) },
     cortes: [],
+    planos: [],   // v5: la escena propia de cada toma (ver «Una escena por toma»)
     textos: [],
     audio: { clips: [], musica: null },
   };
@@ -309,6 +343,7 @@ export function quitarCorte(proyecto, t) {
   const c = typeof t === 'object' && t ? (cortes.includes(t) ? t : null) : corteEn(proyecto, t);
   if (!c) return null;
   cortes.splice(cortes.indexOf(c), 1);
+  quitarPlanoEn(proyecto, c.t);   // la toma se junta con la anterior, que conserva su escena
   return c;
 }
 
@@ -333,9 +368,13 @@ export function moverCorte(proyecto, corte, nuevoT, { arrastrarClaves = false } 
       ordenar(claves);
     }
   }
+  // la escena de la toma que empieza en el corte se va con él (los cortes que se juntan con este se llevan la suya)
+  const plano = planoEn(proyecto, antes);
   corte.t = t;
-  for (let i = cortes.length - 1; i >= 0; i--) if (cortes[i] !== corte && Math.abs(cortes[i].t - corte.t) < SEPARACION_CORTES - HOLGURA) cortes.splice(i, 1);
+  for (let i = cortes.length - 1; i >= 0; i--) if (cortes[i] !== corte && Math.abs(cortes[i].t - corte.t) < SEPARACION_CORTES - HOLGURA) { quitarPlanoEn(proyecto, cortes[i].t, plano); cortes.splice(i, 1); }
+  if (plano) plano.desde = t;
   ordenarCortes(cortes);
+  if (Array.isArray(proyecto.planos)) ordenarPlanos(proyecto.planos);
   return corte;
 }
 
@@ -411,6 +450,86 @@ export function cortesEntre(proyecto, a, b) {
   return (proyecto.cortes || []).filter(c => c.t > a && c.t <= b);
 }
 
+// ---------- Una escena por toma (v5) ----------
+// Cada toma (lo que hay entre dos cortes) puede tener su propia escena: proyecto.planos = [{ desde, escena }], donde desde es el
+// instante del corte que la empieza. La primera toma usa la escena del proyecto (proyecto.escena, o la que pase quien llama: en
+// la app vive en los ajustes, con el estudio) y una toma sin escena propia usa la de la anterior. La lista va ordenada, con a lo
+// sumo una escena por corte, y cada desde es el de un corte que existe: al mover un corte su escena se va con él, al quitarlo se va
+// su escena (la toma se junta con la anterior, que conserva la suya) y una toma nueva sigue con la escena que tenía.
+// Aquí no se valida la escena (eso es de escenas.js, que el servidor no carga con three.js): solo tiene que ser un objeto.
+const esPlano = p => esObj(p) && esNum(p.desde) && esObj(p.escena);
+const ordenarPlanos = planos => planos.sort((a, b) => a.desde - b.desde);
+const cortesValidos = proyecto => (Array.isArray(proyecto?.cortes) ? proyecto.cortes.filter(c => esObj(c) && esNum(c.t)).sort((a, b) => a.t - b.t) : []);
+const copiaEscena = e => JSON.parse(JSON.stringify(e, reemplazo));
+// La escena propia de la toma que empieza en t (o null)
+function planoEn(proyecto, t) {
+  return Array.isArray(proyecto.planos) ? proyecto.planos.find(p => esPlano(p) && Math.abs(p.desde - t) < TOLERANCIA) || null : null;
+}
+function quitarPlanoEn(proyecto, t, salvo = null) {
+  if (!Array.isArray(proyecto.planos)) return;
+  proyecto.planos = proyecto.planos.filter(p => p === salvo || !esPlano(p) || Math.abs(p.desde - t) >= TOLERANCIA);
+}
+
+// Limpia la lista de escenas por toma (de un archivo, de la IA o después de cambiar los cortes de golpe): solo las que empiezan en
+// un corte que existe (a menos de medio cuadro: se pegan a él), una por corte (gana la última), en orden. Nunca lanza.
+// copiar: false = no copia las escenas (para reacomodar la lista del mismo proyecto)
+export function normalizarPlanos(lista, cortes, { copiar = true } = {}) {
+  const ts = (Array.isArray(cortes) ? cortes : []).map(c => (esNum(c) ? c : c?.t)).filter(esNum);
+  if (!Array.isArray(lista) || !ts.length) return [];
+  const porCorte = new Map();
+  for (const p of lista) {
+    if (!esPlano(p)) continue;
+    let mejor = null, dm = TOLERANCIA;
+    for (const t of ts) { const d = Math.abs(t - p.desde); if (d < dm) { dm = d; mejor = t; } }
+    if (mejor === null) continue;
+    const escena = copiar ? copiaEscena(p.escena) : p.escena;
+    porCorte.set(mejor, copiar ? { desde: mejor, escena } : Object.assign(p, { desde: mejor }));
+  }
+  return ordenarPlanos([...porCorte.values()]).slice(0, MAX_CORTES);
+}
+// Vuelve a alinear proyecto.planos con los cortes de ahora (después de reemplazar la lista de cortes, por ejemplo)
+export function ajustarPlanos(proyecto) {
+  if (!esObj(proyecto)) return [];
+  return (proyecto.planos = normalizarPlanos(proyecto.planos, cortesValidos(proyecto), { copiar: false }));
+}
+
+// La toma del instante t: cuántos cortes ya pasaron. Igual que en valorClaves, el cuadro del corte ya es de la toma nueva
+export function tomaEn(proyecto, t) {
+  const x = esNum(t) ? limitar(t, 0, proyecto?.duracion || 8) : 0;
+  let i = 0;
+  for (const c of cortesValidos(proyecto)) if (x >= c.t) i++;
+  return i;
+}
+// Las tomas del video: [{ indice, desde, hasta, corte (el que la empieza, o null), propia (si tiene escena propia) }]
+export function tomas(proyecto) {
+  const D = proyecto?.duracion || 8, cortes = cortesValidos(proyecto);
+  return [null, ...cortes].map((c, i) => ({ indice: i, desde: c ? c.t : 0, hasta: i < cortes.length ? cortes[i].t : D, corte: c, propia: !!c && !!planoEn(proyecto, c.t) }));
+}
+// La escena de cada toma (la propia o la que hereda de la anterior). base: la de la primera toma (por defecto, proyecto.escena)
+export function escenasDeTomas(proyecto, base = proyecto?.escena ?? null) {
+  let e = base;
+  return [e, ...cortesValidos(proyecto).map(c => (e = planoEn(proyecto, c.t)?.escena ?? e))];
+}
+export function escenaDeToma(proyecto, i, base = proyecto?.escena ?? null) {
+  const lista = escenasDeTomas(proyecto, base);
+  return lista[limitar(Math.round(esNum(i) ? i : 0), 0, lista.length - 1)];
+}
+// Pone la escena propia de la toma i (desde la segunda: la de la primera es la del proyecto). Guarda una copia. true si la puso
+export function ponerEscenaToma(proyecto, i, escena) {
+  const c = cortesValidos(proyecto)[Math.round(i) - 1];
+  if (!c || !esObj(escena)) return false;
+  quitarPlanoEn(proyecto, c.t);
+  (proyecto.planos ||= []).push({ desde: c.t, escena: copiaEscena(escena) });
+  ordenarPlanos(proyecto.planos);
+  return true;
+}
+// «Igual que la toma anterior»: la toma i deja su escena propia y vuelve a heredar la de la anterior. Devuelve la que quitó, o null
+export function quitarEscenaToma(proyecto, i) {
+  const c = cortesValidos(proyecto)[Math.round(i) - 1], p = c ? planoEn(proyecto, c.t) : null;
+  if (p) quitarPlanoEn(proyecto, c.t);
+  return p;
+}
+
 // ---------- Movimientos base ----------
 const igualesClaves = (a = [], b = []) => a.length === b.length && a.every((c, i) => Math.abs(c.t - b[i].t) < 1e-3 && Math.abs(c.v - b[i].v) < 1e-3 && c.curva === b[i].curva);
 
@@ -441,6 +560,7 @@ export function aplicarMovimiento(proyecto, id) {
   }
   proyecto.pistas = pistas;
   proyecto.cortes = [];
+  proyecto.planos = [];   // sin cortes hay una sola toma: la escena del proyecto
   proyecto.bucle = m.bucle;
   return proyecto;
 }
@@ -481,6 +601,8 @@ export function escalarTiempo(proyecto, nuevaDuracion) {
   }
   for (const clip of proyecto.audio?.clips || []) if (esNum(clip.t)) clip.t = esc(clip.t);
   // (al encoger, dos cortes pueden quedar a menos de 2 cuadros: se juntan; los objetos que quedan son los mismos)
+  // la escena de cada toma se va con su corte (la de un corte que se junta con el anterior desaparece con él)
+  const planoDe = new Map((Array.isArray(proyecto.cortes) ? proyecto.cortes : []).filter(c => esObj(c) && esNum(c.t)).map(c => [c, planoEn(proyecto, c.t)]).filter(([, p]) => p));
   if (Array.isArray(proyecto.cortes)) {
     const quedan = [];
     for (const c of proyecto.cortes.filter(c => esObj(c) && esNum(c.t)).sort((x, y) => x.t - y.t)) {
@@ -491,6 +613,7 @@ export function escalarTiempo(proyecto, nuevaDuracion) {
       if (!quedan.length || c.t - quedan[quedan.length - 1].t >= SEPARACION_CORTES - HOLGURA) quedan.push(c);
     }
     proyecto.cortes = quedan;
+    if (Array.isArray(proyecto.planos)) proyecto.planos = ordenarPlanos(quedan.filter(c => planoDe.has(c)).map(c => Object.assign(planoDe.get(c), { desde: c.t })));
   }
   // al encoger, dos keyframes de un mismo lado de un corte pueden quedar a menos de medio cuadro: se juntan ya (como al
   // abrir el archivo), así lo que se ve es lo mismo que lo que se guarda. Gana el de la costura; si no, el último.
@@ -550,6 +673,7 @@ export function deserializar(json) {
   p.bucle = typeof d.bucle === 'boolean' ? d.bucle : true;
   const fuente = esObj(d.pistas) ? d.pistas : MOVIMIENTOS.giro.crear(p.duracion);
   p.cortes = normalizarCortes(d.cortes, p.duracion);   // (los archivos de antes no tienen cortes)
+  p.planos = normalizarPlanos(d.planos, p.cortes);     // (ni escenas por toma: todas las tomas usan la del proyecto)
   p.pistas = Object.fromEntries(Object.keys(PISTAS).map(id => [id, limpiarClaves(fuente[id], id, p.duracion, p.cortes)]));
   p.textos = Array.isArray(d.textos) ? d.textos.filter(esObj) : [];
   const a = esObj(d.audio) ? d.audio : {};

@@ -123,6 +123,8 @@ export const ESQUEMA = obj({
         cantidad: num('Cuántos (0 = los de siempre).'),
       })),
     }, 'Objetos que acompañan a la joya: esferas, perlas, cuentas, una esfera de cristal, una cinta de satén, una cadena.'),
+    // v5: una escena por toma
+    toma: { type: 'string', description: 'En qué toma va este cambio de escena (las tomas son lo que hay entre cortes; cuentan desde 1): «actual» = la toma del cabezal (o todo el video si tiene una sola escena), «todas» = todas las tomas, «ultima» = la última, «1», «2», «3»… = esa toma.' },
   }, 'La escena donde está la joya.'),
 });
 
@@ -248,6 +250,11 @@ ${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion
   estuche que va con la joya, color tinta #1E1B15; «caja de regalo con cinta dorada» = caja-regalo con cinta #B8871F. Colores de la
   marca: tinta #1E1B15, bosque #17150F, esmeralda #1E5B4B, granate #8E2F3A, rosa #C9A3A8, perla #F1EFEA, papel #FCFBF8, oro #B8871F
   (negro = tinta, dorado = oro, blanco = papel); nunca el azul turquesa de otra joyería.
+- Una escena por toma: con cortes, cada toma (lo que hay entre dos cortes) puede tener su propia escena; <proyecto>.tomas dice la
+  escena de cada una (si es propia o la hereda de la anterior) y <proyecto>.tomaActual la del cabezal. escena.toma = «2» para «en la
+  segunda toma usa satén esmeralda»; «todas» para «todas las tomas con fondo negro» (el cambio se hace sobre la escena de cada toma);
+  «ultima» para «la última toma con la caja abierta»; «actual» si no dice la toma. Con un cambio para una sola toma, las demás quedan
+  como están. Si pide una toma que no existe, no cambies la escena y dile cuántas tomas tiene.
 - Elementos (elementos.lista, modo agregar): ${lista2(ELEMENTOS_IA)}; coreografías: ${COREOGRAFIAS_IDS.join(', ')}; la cinta dibuja un
   recorrido (${RECORRIDOS_CINTA_IDS.join(', ')}) y pasa por el anillo; la cadena cuelga de la joya. «perlas que caen en círculo» = perlas con
   caer-en-circulo; «una cinta en corazón» = cinta con recorrido corazon; «esfera de cristal» = cristal; «cuelga una cadena» = cadena.

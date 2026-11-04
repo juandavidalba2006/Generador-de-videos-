@@ -4,6 +4,9 @@
 // Todas las medidas son relativas al tamaño de la joya, así la escena se ve igual con un arete que con un collar.
 // v4: la tela de satén (fondo 'tela' con pliegues), el degradado y los destellos de cualquier fondo, los esquemas de luz
 // (luz.esquema), la joya que flota (flotar), el par de aretes (par), el estuche o caja (utileria) y los elementos.
+// v5: el mundo en miniatura de noche (miniatura: la caja de regalo gigante de escenario, el farol, la banca y la cajita que
+// vuela; lo arma miniatura.js), el fondo 'ciudad' (fachadas con ventanas bajo un cielo estrellado), el grano de película del
+// cuadro (grano, lo pinta composicion.js) y el punto de donde cuelga la joya cuando se mece (pivote, pista «balanceo»).
 // utileria y elementos se validan con normalizarUtileria (utileria.js) y normalizarElementos (elementos.js), que usan
 // three.js: este módulo no los importa (lo usan las funciones del servidor, sin three). El estudio los registra con
 // usarNormalizadores(); sin ellos (en el servidor y en Node) se hace una validación plana que el navegador completa después.
@@ -21,6 +24,7 @@ export const FORMAS_FONDO = {
   pared:   'Pared y piso',
   arco:    'Nicho con arco',
   tela:    'Tela de satén con pliegues',
+  ciudad:  'Ciudad de noche con estrellas',
 };
 export const MATERIALES_ESCENA = {
   yeso:         'Yeso mate',
@@ -65,13 +69,19 @@ export const RANGOS = {
   ondas:      { min: 0,   max: 1,   def: 0 },      // la tela se mueve despacio (0 = quieta)
   degradado:  { min: 0,   max: 1,   def: 0 },      // el fondo se oscurece hacia arriba
   destellos:  { min: 0,   max: 1,   def: 0 },      // brillitos desenfocados que flotan en el aire
+  grano:      { min: 0,   max: 1,   def: 0 },      // grano de película en todo el cuadro (0 = sin grano)
 };
 // La joya en la escena: flotando (altura en altos de la joya, vaivén suave) y en par (separación en anchos de la joya)
 export const RANGOS_JOYA = {
   altura:     { min: 0,   max: 1.5, def: 0.35 },
   bob:        { min: 0,   max: 1,   def: 0.3 },
   separacion: { min: 0.2, max: 2,   def: 0.5 },
+  pivote:     { min: 0,   max: 8,   def: null },   // de dónde cuelga cuando se mece: altos de la joya sobre su punto más alto (null = solo)
 };
+// El mundo en miniatura (r6): caja de escenario (color, cinta y material), qué accesorios van y cuánto late el halo del farol
+export const MATERIALES_CAJA_MINIATURA = ['papel', 'terciopelo', 'laca', 'cuero', 'saten'];
+export const RANGOS_MINIATURA = { pulso: { min: 0, max: 1, def: 0.6 }, periodo: { min: 1, max: 12, def: 4 } };
+const SIN_MINIATURA = { activo: false, caja: '#1E5B4B', cinta: '#B8871F', material: 'papel', farol: true, banca: true, regalo: true, pulso: 0.6, periodo: 4 };
 
 const S = (forma, material, color, extra = {}) => ({ forma, material, color, tamano: 1, altura: 1, ...extra });
 const F = (forma, material, color, extra = {}) => ({ forma, material, color, distancia: 1, ondas: 0, degradado: 0, destellos: 0, ...extra });
@@ -146,6 +156,13 @@ export const ESCENAS = {
   'saten-perla': SATEN('Satén perla', 'Satén claro en clave alta: luminoso, suave y sin sombras duras.', '#F1EFEA', {
     luz: { angulo: -42, elevacion: 46, suavidad: 0.7, intensidad: 1.05, calidez: 0.15, esquema: 'alta-clave' }, fondo: { degradado: 0.2, ondas: 0.15 }, ambiente: 0.75,
   }),
+  // v5 (r6): la tapa de una caja de regalo gigante es el piso de un mundo en miniatura de noche; la joya es la protagonista
+  'noche-de-regalo': {
+    nombre: 'Noche de regalo', descripcion: 'Mundo en miniatura de noche sobre una caja de regalo gigante: farol encendido, banca, ciudad y cielo estrellado.',
+    superficie: S('piso', 'concreto', '#101614'), fondo: F('ciudad', 'yeso', '#143B33', { distancia: 2.4, destellos: 0.18 }),
+    luz: L('ninguno', { angulo: -30, elevacion: 56, suavidad: 0.6, intensidad: 0.2, calidez: -0.6, esquema: 'clave-baja' }), ambiente: 0.32,
+    miniatura: { ...SIN_MINIATURA, activo: true }, grano: 0.3,
+  },
 };
 
 export const ESCENA_INICIAL = 'pedestal-arena';   // la de un estudio recién abierto (los proyectos viejos sin escena quedan en 'ninguna')
@@ -193,7 +210,7 @@ export function usarNormalizadores({ utileria, elementos } = {}) {
 export function escenaDe(id) {
   const e = ESCENAS[clave(ESCENAS, id, ESCENA_INICIAL)];
   if (e.ninguna) return { id: 'ninguna' };
-  return normalizarEscena({ id: clave(ESCENAS, id, ESCENA_INICIAL), superficie: e.superficie, fondo: e.fondo, luz: e.luz, ambiente: e.ambiente, flotar: e.flotar || QUIETA });
+  return normalizarEscena({ id: clave(ESCENAS, id, ESCENA_INICIAL), superficie: e.superficie, fondo: e.fondo, luz: e.luz, ambiente: e.ambiente, flotar: e.flotar || QUIETA, miniatura: e.miniatura || SIN_MINIATURA, grano: e.grano || 0 });
 }
 
 // Valida una escena que viene de un archivo, del chat o de la IA: completa lo que falte con la escena base (cfg.id)
@@ -206,7 +223,7 @@ export function normalizarEscena(cfg) {
   const idBase = clave(ESCENAS, cfg.id, null) && cfg.id !== 'ninguna' ? cfg.id : clave(ESCENAS, cfg.base, ESCENA_INICIAL);
   const b = escenaDeBase(idBase === 'ninguna' ? ESCENA_INICIAL : idBase);
   const s = esObj(cfg.superficie) ? cfg.superficie : {}, f = esObj(cfg.fondo) ? cfg.fondo : {}, l = esObj(cfg.luz) ? cfg.luz : {};
-  const fl = esObj(cfg.flotar) ? cfg.flotar : {}, pa = esObj(cfg.par) ? cfg.par : {};
+  const fl = esObj(cfg.flotar) ? cfg.flotar : {}, pa = esObj(cfg.par) ? cfg.par : {}, mi = esObj(cfg.miniatura) ? cfg.miniatura : {}, bm = b.miniatura;
   const r = {
     id: b.id,
     superficie: {
@@ -226,6 +243,15 @@ export function normalizarEscena(cfg) {
     },
     ambiente: Number.isFinite(cfg.ambiente) ? num(cfg.ambiente, 'ambiente') : b.ambiente,
     flotar: { activo: typeof fl.activo === 'boolean' ? fl.activo : b.flotar.activo, altura: numJ(fl.altura, 'altura', b.flotar.altura), bob: numJ(fl.bob, 'bob', b.flotar.bob) },
+    miniatura: {
+      activo: typeof mi.activo === 'boolean' ? mi.activo : bm.activo, caja: color(mi.caja, bm.caja), cinta: color(mi.cinta, bm.cinta),
+      material: MATERIALES_CAJA_MINIATURA.includes(mi.material) ? mi.material : bm.material,
+      ...Object.fromEntries(['farol', 'banca', 'regalo'].map(k => [k, typeof mi[k] === 'boolean' ? mi[k] : bm[k]])),
+      ...Object.fromEntries(['pulso', 'periodo'].map(k => [k, Number.isFinite(mi[k]) ? Math.round(limitar(mi[k], RANGOS_MINIATURA[k].min, RANGOS_MINIATURA[k].max) * 100) / 100 : bm[k]])),
+    },
+    grano: Number.isFinite(cfg.grano) ? Math.round(num(cfg.grano, 'grano') * 100) / 100 : b.grano,
+    // de dónde cuelga la joya al mecerse (pista «balanceo»): no cambia el aspecto de la escena
+    pivote: Number.isFinite(cfg.pivote) ? numJ(cfg.pivote, 'pivote') : null,
     // el par, el estuche y los elementos son lo que hay en la escena (no su aspecto): no la vuelven «personalizada»
     par: { activo: typeof pa.activo === 'boolean' ? pa.activo : false, separacion: numJ(pa.separacion, 'separacion') },
     utileria: normalizarU(cfg.utileria),
@@ -236,10 +262,10 @@ export function normalizarEscena(cfg) {
 }
 function escenaDeBase(id) {
   const e = ESCENAS[id];
-  return { id, superficie: { ...e.superficie }, fondo: { ...e.fondo }, luz: { ...e.luz }, ambiente: e.ambiente, flotar: { ...(e.flotar || QUIETA) } };
+  return { id, superficie: { ...e.superficie }, fondo: { ...e.fondo }, luz: { ...e.luz }, ambiente: e.ambiente, flotar: { ...(e.flotar || QUIETA) }, miniatura: { ...(e.miniatura || SIN_MINIATURA) }, grano: e.grano || 0 };
 }
 function igualesEscenas(a, b) {
-  const plano = e => JSON.stringify([e.superficie, e.fondo, e.luz, e.ambiente, e.flotar]);
+  const plano = e => JSON.stringify([e.superficie, e.fondo, e.luz, e.ambiente, e.flotar, e.miniatura, e.grano]);
   return plano(a) === plano(b);
 }
 
@@ -267,7 +293,7 @@ export function escenaParecida({ fondo, superficie, oscuro } = {}) {
   const F = rgb(fondo), Sp = rgb(superficie);
   let mejor = ESCENA_INICIAL, dm = Infinity;
   for (const [id, e] of Object.entries(ESCENAS)) {
-    if (e.ninguna) continue;
+    if (e.ninguna || e.miniatura?.activo) continue;   // (el mundo en miniatura no sale de unos colores: lo pide la joyera)
     const d2 = (a, b) => (a && b ? (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2 : 0);
     const d = d2(F, rgb(e.fondo.color)) + 0.6 * d2(Sp, rgb(e.superficie.color)) + (typeof oscuro === 'boolean' && oscuro !== escenaOscura(escenaDe(id)) ? 3e4 : 0);
     if (d < dm) { dm = d; mejor = id; }

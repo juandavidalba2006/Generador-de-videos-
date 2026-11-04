@@ -266,3 +266,17 @@
   .lt-ico:hover{background:#33302A}
 }
 @media (prefers-reduced-motion: reduce){.lt *{transition:none!important}}
+
+/* v5: la escena de cada toma en el carril de los cortes: una franja del color de su fondo y la miniatura de la escena al
+   comienzo de la toma (la toma que hereda la escena de la anterior va más tenue). No reciben el puntero: el carril sigue igual */
+.lt-tomas{position:absolute;inset:0;pointer-events:none}
+.lt-toma{position:absolute;bottom:2px;height:5px;left:calc(var(--lt-m) + (100% - 2 * var(--lt-m)) * var(--p));width:calc((100% - 2 * var(--lt-m)) * var(--w));
+  background:var(--c);border-radius:3px;box-shadow:inset 0 0 0 1px rgba(30,27,21,.16)}
+.lt-toma + .lt-toma{border-top-left-radius:0;border-bottom-left-radius:0}
+.lt-toma.hereda{opacity:.5}
+.lt-toma-mini{position:absolute;left:17px;bottom:4px;width:17px;height:21px;border-radius:3px;object-fit:cover;box-shadow:0 0 0 1px var(--papel),0 1px 3px rgba(30,27,21,.4)}
+.lt-toma.primera .lt-toma-mini{left:3px}
+@media (prefers-color-scheme: dark){
+  .lt-toma{box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+  .lt-toma-mini{box-shadow:0 0 0 1px #3A352B,0 1px 3px rgba(0,0,0,.6)}
+}

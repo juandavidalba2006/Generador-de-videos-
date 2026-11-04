@@ -130,6 +130,26 @@ como en los reels con varias tomas.
 - Si el corte cae en medio de un giro, la cámara sigue girando a los dos lados del corte (no se congela).
 - Las transiciones se ven en la vista previa y salen en el video. Todo se puede deshacer.
 
+### Una escena por toma
+
+Con cortes, cada **toma** (lo que hay entre dos cortes) puede tener **su propia escena**: un satén de noche con el estuche
+al comienzo, un pedestal de yeso en la toma del medio y un satén perla con perlas al final, como los reels de varias tomas.
+
+- Pon los cortes y lleva el cabezal a la toma que quieres cambiar. Arriba de la pestaña **Escena** aparece la barra
+  **«Toma 2 de 3»** (con su miniatura y sus segundos) y las flechas **‹ ›** para pasar de una toma a otra.
+- Todo lo que cambies en la pestaña (la escena, la luz, la joya flotando o en par, el estuche y los elementos) es de esa toma.
+  Una toma que no tiene escena propia usa la de la anterior: si cambias la toma 2, las que siguen sin la suya también la toman.
+- **Igual que la toma anterior** le quita a la toma su escena propia (vuelve a usar la de la anterior). **Usar en todas las
+  tomas** pone la escena de esta toma en todo el video.
+- En la línea de tiempo, el carril *Cortes* muestra la escena de cada toma: una franja del color de su fondo y la miniatura
+  al comienzo de la toma (más tenue si la hereda de la anterior).
+- La escena cambia justo en el cuadro del corte, en la vista previa, en los dos videos (rápido y con trazado de rayos) y en la
+  foto. Las transiciones (flash, fundido a negro, barrido) funcionan entre escenas distintas.
+- Al mover un corte, su escena se va con él; al quitarlo, la toma se junta con la anterior (que conserva la suya). Las escenas
+  de las tomas se guardan con el proyecto, en el autoguardado y en *Deshacer* / *Rehacer*.
+- Cada escena distinta se arma una sola vez: pasar de una toma a otra no vuelve a armar nada (es inmediato en la vista previa;
+  el trazado de rayos vuelve a preparar la escena una vez en cada corte).
+
 ## Asistente (chat)
 
 En la pestaña **Asistente** describes con tus palabras lo que quieres y el asistente lo convierte en keyframes,
@@ -144,6 +164,9 @@ textos, efectos y música. Por ejemplo:
   «quita los cortes»
 - Escena: «pon la joya en un pedestal de mármol», «fondo con luz de ventana», «escena oscura», «luz desde la
   derecha», «más suave la luz», «sin fondo» (vuelve al fondo liso de marca)
+- Una escena por toma: «en la segunda toma usa satén esmeralda», «todas las tomas con fondo negro», «la última toma con la
+  caja abierta», «en la toma 3 pon un pedestal de mármol». Si el video ya tiene escenas distintas y no dices la toma, el cambio
+  es para la toma del cabezal.
 
 Todo lo que hace se puede deshacer con *Deshacer* en la línea de tiempo (también un cambio de escena).
 
@@ -174,7 +197,10 @@ un tope de gasto mensual a la clave.
    barridos), mide el **movimiento de la cámara** en cada plano (giro, acercamiento, altura, inclinación, posición) y los
    **colores del fondo y de la superficie**. Con IA, además, Claude mira unos fotogramas y reconoce la joya, el metal, la
    piedra, la escena, el encuadre de cada plano y los textos que aparecen.
-3. Revisa el resultado: la tira de planos con lo que hace la cámara en cada uno, la escena parecida y la joya. Marca qué
+3. Revisa el resultado: la tira de planos con lo que hace la cámara en cada uno, la escena parecida y la joya. Si las tomas
+   del reel cambian de fondo (un satén oscuro al comienzo, un ciclorama claro después, un satén claro al final), el estudio
+   arma **una escena por toma**, cada una con los colores de tu marca que hacen su papel en esa toma; las muestras de color
+   van por grupo de tomas y las puedes cambiar antes de aplicar. Marca qué
    quieres usar (*Movimientos y cortes*, *Escena*, *Metal y piedra*, *Textos*, *Sonidos en los cortes*, *Música parecida*,
    *Duración igual al video*) y toca **Aplicar al proyecto**. Si no te gusta, *Deshacer* lo devuelve todo (también la
    escena y los materiales).
@@ -288,8 +314,9 @@ python3 -m http.server 8000
 
 - `index.html` y `estilos.css`: la interfaz del editor, con el sistema visual de la página de la joyería
   (Bodoni Moda + Instrument Sans, perla, tinta, oro y bosque; modo oscuro automático).
-- `js/main.js`: une todo. El **proyecto** (`js/proyecto.js`: keyframes, curvas, movimientos, textos y audio) es
-  la única fuente de verdad: la vista previa y el video final salen de él cuadro por cuadro.
+- `js/main.js`: une todo. El **proyecto** (`js/proyecto.js`: keyframes, curvas, movimientos, cortes, la escena de cada toma
+  —`proyecto.planos`—, textos y audio) es la única fuente de verdad: la vista previa y el video final salen de él cuadro por cuadro.
+  El estudio arma una vez la escena de cada toma y la cambia en el corte (`prepararEscenas` / `usarEscena`).
 - `js/linea-tiempo.js`: la línea de tiempo con keyframes, deshacer y rehacer.
 - `js/estudio.js`: escena 3D con [three.js](https://threejs.org). Luz de estudio de joyería en HDR, materiales
   físicos de metal y piedras con su índice de refracción real, y el trazado de rayos con

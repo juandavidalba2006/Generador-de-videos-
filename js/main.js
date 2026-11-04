@@ -7,7 +7,7 @@ import { Compositor, FONDOS, FORMATOS, cargarFuentes } from './composicion.js';
 import { crearCodificador, elegirVideo, puedeCodificar } from './codificador.js';
 import { escarabajo } from './marca.js';
 import { anilloEjemplo } from './demo.js';
-import { proyectoNuevo, evaluar, serializar, deserializar } from './proyecto.js';
+import { proyectoNuevo, evaluar, serializar, deserializar, tomaEn, tomas as tomasDe, escenasDeTomas, ponerEscenaToma, quitarEscenaToma, ajustarPlanos } from './proyecto.js';
 import { LineaTiempo, reloj as relojVideo } from './linea-tiempo.js';
 import { PanelTextos, textosPorDefecto, adaptarAFormato, normalizarCapas, zonaLibre, arrastrarEnLienzo, textosDesdeAcciones } from './textos.js';
 import { PanelSonido, Reproductor, EFECTOS, ESTILOS_MUSICA, mezclar, codificarAudio, hayAudio, musicaNueva } from './sonido.js';
@@ -15,7 +15,7 @@ import { PanelTexturas } from './texturas.js';
 import { Chat, aplicarAccionesAProyecto } from './chat.js';
 import { efectoTransicion, dibujarTransicion } from './transiciones.js';
 import { ESCENAS, ESCENA_INICIAL, normalizarEscena, joyaFlota, utileriaQueAbre } from './escenas.js';
-import { PanelEscena } from './panel-escena.js';
+import { PanelEscena, dibujarMiniatura } from './panel-escena.js';
 import { PanelUtileria } from './panel-utileria.js';
 import { PanelElementos } from './panel-elementos.js';
 import { descargarSTL as bajarSTLUtileria } from './utileria.js';
@@ -48,7 +48,8 @@ const rep = new Reproductor();
 // t en segundos; sonido: la vista previa suena (empieza muda, como los videos que se reproducen solos)
 // exportando: se está creando el video o la foto (la escena queda congelada hasta que termine)
 // escena: la escena 3D del proyecto (normalizada); el estudio la muestra (durante un video, la nueva espera a que termine)
-const estado = { escena: { id: 'ninguna' }, fondo: 'perla', formato: 'reel', t: 0, reproduciendo: true, sucio: true, ocupado: false, exportando: false, cancelar: false, realista: false, pestana: 'modelo', sonido: false, silencioManual: false, medidas: null };
+// toma: la toma del cabezal (la que edita la pestaña Escena); escenasTomas: la escena de cada toma (la primera es estado.escena)
+const estado = { escena: { id: 'ninguna' }, toma: 0, escenasTomas: null, fondo: 'perla', formato: 'reel', t: 0, reproduciendo: true, sucio: true, ocupado: false, exportando: false, cancelar: false, realista: false, pestana: 'modelo', sonido: false, silencioManual: false, medidas: null };
 // medición del trazado de rayos en este equipo (ver sondearPT): medidas por escena, joya y formato, y la que está en curso
 const medidasPT = new Map();
 let sondeo = null, esperaSondeo = 0;
@@ -85,17 +86,19 @@ for (const id of ['calidad', 'fps']) $(id).addEventListener('change', () => { av
 
 // los bitmaps y la escena se guardan con el proyecto (en sus ajustes): sus paneles se crean antes de leer el autoguardado
 const panelTexturas = new PanelTexturas($('panelTexturas'), { estudio, alCambiar: () => { cambio(); programarAutoguardado(); } });
-const panelEscena = new PanelEscena($('panelEscena'), { estudio, alCambiar: cfg => cambioEscena(cfg, 'escena') });
+const panelEscena = new PanelEscena($('panelEscena'), { estudio, alCambiar: cfg => cambioEscena(cfg, 'escena'), alToma: (accion, i) => accionToma(accion, i) });
 // «Fondo» y «Sombra bajo la pieza» son los ajustes del fondo liso de marca: van dentro de esa tarjeta del panel
 panelEscena.ranuraLiso.append($('ajustesLiso'));
+// la barra de la toma («Toma 2 de 5») va arriba de toda la pestaña: también manda sobre el estuche y los elementos
+$('panelEscena').before(panelEscena.barraToma);
 // El estuche o la caja y los elementos: secciones de la misma pestaña; su configuración viaja dentro de la escena
 const panelUtileria = new PanelUtileria($('panelUtileria'), {
-  alCambiar: u => cambioEscena({ ...estado.escena, utileria: u }, 'utileria'),
+  alCambiar: u => cambioEscena({ ...escenaDeLaToma(), utileria: u }, 'utileria'),
   // el STL se arma con la joya de ahora (y su par): así la caja que se imprime es la que se ve
   descargarSTL: ({ cfg, parte }) => { const o = estudio.opcionesUtileria(); return bajarSTLUtileria(cfg, { joya: o.joya, suelo: o.suelo, partes: parte, apertura: 0 }); },
 });
 const panelElementos = new PanelElementos($('panelElementos'), {
-  alCambiar: lista => cambioEscena({ ...estado.escena, elementos: lista }, 'elementos'),
+  alCambiar: lista => cambioEscena({ ...escenaDeLaToma(), elementos: lista }, 'elementos'),
   descargarSTL: lista => exportarSTLElementos(lista, { ...estudio.opcionesElementos(), t: estado.t }),
   subirSTL: async archivo => registrarSTL(await archivo.arrayBuffer(), archivo.name),
   opcionesSTL: () => ({ ...estudio.opcionesElementos(), t: estado.t }),
@@ -103,20 +106,26 @@ const panelElementos = new PanelElementos($('panelElementos'), {
 
 // Un cambio en los paneles de la pestaña Escena (la escena, el estuche o los elementos): es un paso de Deshacer (una ráfaga
 // de cambios seguidos, como arrastrar un deslizador, es un solo paso). Al pasar al fondo liso se recuerda lo que había en la
-// escena (par, estuche, elementos): si se vuelve a una escena 3D, regresa
+// escena (par, estuche, elementos): si se vuelve a una escena 3D, regresa. Con cortes, la pestaña edita la toma del cabezal:
+// la primera es estado.escena; las demás se guardan en el proyecto (proyecto.planos)
 let rafagaEscena = 0, contenidoGuardado = null, lineaLista = false;   // lineaLista: la línea de tiempo ya existe (se crea después)
 const tieneContenido = e => e && e.id !== 'ninguna' && (e.par?.activo || (e.utileria && e.utileria.tipo !== 'ninguna') || e.elementos?.length);
 function cambioEscena(cfg, desde) {
-  if (estado.exportando) { ponerEscena(estado.escena); return; }   // (los paneles están bloqueados: no debería pasar)
+  if (estado.exportando) { mostrarToma({ forzar: true }); return; }   // (los paneles están bloqueados: no debería pasar)
   let n = normalizarEscena(cfg);
-  const antes = estado.escena;
-  if (n.id === 'ninguna' && tieneContenido(antes)) contenidoGuardado = { par: antes.par, utileria: antes.utileria, elementos: antes.elementos };
-  else if (antes.id === 'ninguna' && n.id !== 'ninguna' && contenidoGuardado && !tieneContenido(n)) { n = normalizarEscena({ ...n, ...contenidoGuardado }); desde = null; }
+  const i = estado.toma, antes = escenaDeLaToma();
+  if (n.id === 'ninguna' && tieneContenido(antes)) contenidoGuardado = { toma: i, par: antes.par, utileria: antes.utileria, elementos: antes.elementos };
+  else if (antes.id === 'ninguna' && n.id !== 'ninguna' && contenidoGuardado?.toma === i && !tieneContenido(n)) { const { toma, ...c } = contenidoGuardado; n = normalizarEscena({ ...n, ...c }); desde = null; }
+  // editar la escena de una toma pausa (como en CapCut): si siguiera, el cabezal pasaría a otra toma a mitad del gesto
+  if (proyecto?.cortes?.length) reproducir(false);
   historialEscena();
-  ponerEscena(n, { desde });
+  if (i === 0) ponerEscena(n, { desde });
+  else { const pistas = clavePistas(); ponerEscenaToma(proyecto, i, n); asentar(); sincronizarTomas({ desde }); verEscenaExportar(); cambio(); if (lineaLista && pistas !== clavePistas()) programarLinea(); }
   programarAutoguardado();
 }
-function historialEscena() {
+// nuevo: el paso de Deshacer no se junta con la ráfaga de antes (un botón justo después de mover un deslizador)
+function historialEscena({ nuevo = false } = {}) {
+  if (nuevo) { clearTimeout(rafagaEscena); rafagaEscena = 0; }
   if (!rafagaEscena) {
     cerrarRafaga();
     const d = JSON.parse(serializar(proyecto)); d.ajustes = { escena: estado.escena, soloEscena: true };
@@ -125,29 +134,106 @@ function historialEscena() {
   clearTimeout(rafagaEscena); rafagaEscena = setTimeout(() => { rafagaEscena = 0; }, 800);
 }
 
-// Pone la escena 3D (id de una escena lista o su configuración). Mientras se crea un video el estudio sigue con la de antes
-// (los cuadros que faltan no cambian) y la nueva se arma al terminar. desde: el panel de donde vino el cambio (ese no se
-// vuelve a dibujar: se le estaría moviendo el deslizador bajo el dedo); panel: false = desde el panel de la escena
+// Pone la escena 3D de la primera toma (id de una escena lista o su configuración); las tomas que no tienen la suya la heredan.
+// Mientras se crea un video el estudio sigue con la de antes (los cuadros que faltan no cambian) y la nueva se arma al terminar.
+// desde: el panel de donde vino el cambio (ese no se vuelve a dibujar: se le estaría moviendo el deslizador bajo el dedo);
+// panel: false = desde el panel de la escena
 function ponerEscena(cfg, { panel = true, desde = panel ? null : 'escena' } = {}) {
-  const n = normalizarEscena(cfg), antes = estado.escena;
+  const n = normalizarEscena(cfg), pistas = clavePistas();
   estado.escena = n;
+  sincronizarTomas({ desde });
+  if (proyecto) avisoCalidad();   // (al arrancar, antes de leer el proyecto, todavía no hay aviso que actualizar)
+  verEscenaExportar(); cambio();
+  // las pistas de la escena (apertura, elevar, luz) aparecen en la línea de tiempo solo cuando sirven
+  if (lineaLista && pistas !== clavePistas()) programarLinea();
+  return n;
+}
+
+// ---------- Una escena por toma ----------
+// La escena de cada toma: la primera es estado.escena y cada una de las siguientes, la suya (proyecto.planos) o la de la anterior.
+// El estudio las tiene armadas todas (prepararEscenas) y en cada cuadro cuelga la de su instante (poner → usarEscena): la vista
+// previa, los dos videos y la foto cambian de escena justo en el cuadro del corte, sin rehacer nada.
+const escenasDe = pr => escenasDeTomas(pr, estado.escena).map(e => normalizarEscena(e));
+const escenaDeLaToma = (i = estado.toma) => estado.escenasTomas?.[i] || estado.escena;
+let claveTomas = '';
+function sincronizarTomas({ desde = null, forzar = false } = {}) {
+  if (proyecto) ajustarPlanos(proyecto);
+  const lista = proyecto ? escenasDe(proyecto) : [estado.escena];
+  estado.escenasTomas = lista;
+  // (la joya y el metal también: el estudio rehace las escenas guardadas que se armaron con otra)
+  const k = JSON.stringify([lista, estudio.versionModelo, estudio.ajustes.metal]);
+  if (!estado.exportando && (k !== claveTomas || forzar)) { estudio.prepararEscenas(lista); claveTomas = k; estado.sucio = true; }
+  mostrarToma({ forzar: true, desde });
+  if (lineaLista) programarLinea();   // (las muestras de cada toma en el carril de los cortes)
+}
+// La pestaña Escena muestra la toma del cabezal. forzar: aunque sea la misma toma (su escena cambió); desde: ese panel no se toca
+function mostrarToma({ forzar = false, desde = null } = {}) {
+  const i = proyecto ? Math.min(tomaEn(proyecto, estado.t), (estado.escenasTomas?.length || 1) - 1) : 0;
+  if (i === estado.toma && !forzar) return;
+  estado.toma = i;
+  const n = escenaDeLaToma(i);
   if (desde !== 'escena') panelEscena.poner(n);
   if (desde !== 'utileria') panelUtileria.poner(n.id === 'ninguna' ? 'ninguna' : n.utileria);
   if (desde !== 'elementos') panelElementos.poner(n.id === 'ninguna' ? [] : n.elementos);
   verSeccionesEscena(n);
-  if (!estado.exportando) estudio.ponerEscena(n);
-  if (proyecto) avisoCalidad();   // (al arrancar, antes de leer el proyecto, todavía no hay aviso que actualizar)
-  verEscenaExportar(); cambio();
-  // las pistas de la escena (apertura, elevar, luz) aparecen en la línea de tiempo solo cuando sirven
-  if (lineaLista && clavePistas(antes) !== clavePistas(n)) programarLinea();
-  return n;
+  const lista = proyecto ? tomasDe(proyecto) : [{ indice: 0, desde: 0, hasta: 8, propia: false }], t = lista[i] || lista[0];
+  panelEscena.ponerToma({ indice: i, total: lista.length, desde: t.desde, hasta: t.hasta, propia: t.propia, nombre: nombreEscena(n), nombreAnterior: i ? nombreEscena(escenaDeLaToma(i - 1)) : '', variadas: !!proyecto?.planos?.length });
 }
-const clavePistas = e => ['apertura', 'elevar', 'luz'].map(k => pistaVisible(k, e)).join();
-// ¿Se ve el carril de una pista de la escena? (una pista con keyframes se ve siempre: lo decide la línea de tiempo)
-function pistaVisible(k, e = estado.escena) {
-  if (k === 'apertura') return utileriaQueAbre(e);
-  if (k === 'elevar') return !!e && e.id !== 'ninguna' && (joyaFlota(e) || (!!e.utileria && e.utileria.tipo !== 'ninguna'));
-  if (k === 'luz') return !!e && e.id !== 'ninguna';
+// los botones de la toma (en la pestaña Escena): ir a otra toma, «Usar en todas las tomas» e «Igual que la toma anterior»
+function accionToma(accion, i) {
+  if (estado.exportando || !proyecto) return;
+  const lista = tomasDe(proyecto);
+  if (accion === 'ir') { const t = lista[Math.max(0, Math.min(lista.length - 1, i))]; if (t) { buscar(t.desde); linea.ponerCabezal(t.desde); } return; }
+  const i0 = estado.toma, e = escenaDeLaToma(i0);
+  if (accion === 'todas') {
+    if (!proyecto.planos?.length && i0 === 0) return;
+    historialEscena({ nuevo: true });
+    proyecto.planos = []; asentar();
+    ponerEscena(e);
+    aviso(lista.length > 1 ? `Las ${lista.length} tomas usan ahora «${nombreEscena(e)}».` : 'Listo.');
+  } else if (accion === 'anterior' && i0 > 0) {
+    if (!lista[i0]?.propia) return;
+    historialEscena({ nuevo: true });
+    const pistas = clavePistas();
+    quitarEscenaToma(proyecto, i0); asentar();
+    sincronizarTomas(); verEscenaExportar(); cambio();
+    if (lineaLista && pistas !== clavePistas()) programarLinea();
+    aviso(`La toma ${i0 + 1} usa la misma escena que la toma ${i0}.`);
+  }
+  programarAutoguardado();
+}
+const nombreEscena = e => (!e || e.id === 'ninguna' ? `Fondo liso de marca` : `${ESCENAS[e.base || e.id]?.nombre || 'Personalizada'}${e.id === 'personalizada' ? ' (ajustada)' : ''}`);
+// Miniatura de la escena de cada toma (para el carril de los cortes): el mismo dibujito de las tarjetas, chiquito
+const miniaturas = new Map();
+function miniaturaEscena(e) {
+  const k = JSON.stringify(e);
+  if (!miniaturas.has(k)) {
+    const c = document.createElement('canvas'); c.width = 48; c.height = 60;
+    dibujarMiniatura(c, e);
+    if (miniaturas.size > 60) miniaturas.clear();
+    miniaturas.set(k, c.toDataURL('image/png'));
+  }
+  return miniaturas.get(k);
+}
+function tomasLinea() {
+  if (!proyecto || !proyecto.cortes?.length) return [];
+  const lista = estado.escenasTomas || [];
+  return tomasDe(proyecto).map((t, i) => {
+    const e = lista[i] || estado.escena;
+    return { desde: t.desde, hasta: t.hasta, propia: t.propia || i === 0, nombre: nombreEscena(e), color: e.id === 'ninguna' ? '#EFEAE0' : e.fondo.color, miniatura: miniaturaEscena(e) };
+  });
+}
+
+const clavePistas = () => ['apertura', 'elevar', 'luz', 'balanceo'].map(k => pistaVisible(k)).join();
+// ¿Se ve el carril de una pista de la escena? Basta con que sirva en una de las tomas (una pista con keyframes se ve siempre:
+// lo decide la línea de tiempo)
+function pistaVisible(k, e) {
+  const lista = e ? [e] : estado.escenasTomas || [estado.escena];
+  if (k === 'apertura') return lista.some(x => utileriaQueAbre(x));
+  if (k === 'elevar') return lista.some(x => !!x && x.id !== 'ninguna' && (joyaFlota(x) || (!!x.utileria && x.utileria.tipo !== 'ninguna')));
+  if (k === 'luz') return lista.some(x => !!x && x.id !== 'ninguna');
+  // (v5) mecerse tiene sentido si la joya cuelga: flota, es un dije con su cadena o la escena dice de dónde cuelga
+  if (k === 'balanceo') return lista.some(x => !!x && x.id !== 'ninguna' && (joyaFlota(x) || Number.isFinite(x.pivote) || (x.elementos || []).some(g => g?.forma === 'cadena' && g.colgar === 'joya')));
   return true;
 }
 // sin escena 3D no hay estuche ni elementos: en su lugar, una nota
@@ -155,15 +241,17 @@ function verSeccionesEscena(n) {
   const sin = n.id === 'ninguna';
   $('panelUtileria').hidden = $('panelElementos').hidden = sin; $('sinEscena3D').hidden = !sin;
 }
-// En Exportar se recuerda con qué escena (o fondo liso) sale el video
+// En Exportar se recuerda con qué escena (o fondo liso) sale el video (con una escena por toma, cuántas distintas)
 function verEscenaExportar() {
-  const e = estado.escena, base = ESCENAS[e.base || e.id];
-  $('escenaExportar').innerHTML = e.id === 'ninguna'
-    ? `Fondo liso de marca: <b>${FONDOS[estado.fondo]?.nombre || ''}</b>`
-    : `Escena: <b>${base?.nombre || 'Personalizada'}</b>${e.id === 'personalizada' ? ' (ajustada)' : ''}`;
+  const e = estado.escena, base = ESCENAS[e.base || e.id], lista = estado.escenasTomas || [e];
+  const distintas = new Set(lista.map(x => JSON.stringify(x))).size;
+  $('escenaExportar').innerHTML = distintas > 1
+    ? `Una escena por toma: <b>${distintas} escenas</b> en ${lista.length} tomas (empieza con «${nombreEscena(e)}»)`
+    : e.id === 'ninguna'
+      ? `Fondo liso de marca: <b>${FONDOS[estado.fondo]?.nombre || ''}</b>`
+      : `Escena: <b>${base?.nombre || 'Personalizada'}</b>${e.id === 'personalizada' ? ' (ajustada)' : ''}`;
 }
 $('irEscena').addEventListener('click', () => abrirPestana('escena', { desplazar: true }));
-const mismaEscena = (a, b) => JSON.stringify(normalizarEscena(a)) === JSON.stringify(normalizarEscena(b));
 // metal y piedra que vio la IA en un reel (solo los del catálogo)
 function ponerMateriales({ metal, piedra } = {}) {
   if (METALES.includes(metal)) { estudio.ajustes.metal = metal; $('metal').value = metal; }
@@ -215,13 +303,13 @@ const ajustesEscena = ({ stl = 'no' } = {}) => ({
   metal: estudio.ajustes.metal, acabado: estudio.ajustes.acabado, piedra: estudio.ajustes.piedra,
   autos: { titulo: [...autos.titulo].slice(-20), detalle: [...autos.detalle].slice(-20), nombre: nombreActual },
   texturas: panelTexturas.guardable(),
-  ...(stl !== 'no' ? { stls: stlsDeEscena(estado.escena, stl === 'chico' ? 1.5e6 : Infinity) } : {}),
+  ...(stl !== 'no' ? { stls: stlsDeEscena([estado.escena, ...(proyecto?.planos || []).map(p => p.escena)], stl === 'chico' ? 1.5e6 : Infinity) } : {}),
 });
 const archivoProyecto = (op = {}) => { const d = JSON.parse(serializar(proyecto)); d.ajustes = ajustesEscena(op); return JSON.stringify(d); };
-// Los STL propios de los elementos de la escena: { id: { nombre, datos (base64) } }
-function stlsDeEscena(e, tope) {
+// Los STL propios de los elementos de las escenas (la de cada toma): { id: { nombre, datos (base64) } }
+function stlsDeEscena(escenas, tope) {
   const sal = {}; let total = 0;
-  for (const g of e?.elementos || []) {
+  for (const g of escenas.flatMap(e => e?.elementos || [])) {
     const id = g?.forma === 'stl' && g.stl?.id; if (!id || sal[id]) continue;
     const bytes = datosSTL(id); if (!bytes) continue;
     if (total + bytes.length * 4 / 3 > tope) continue;
@@ -230,8 +318,9 @@ function stlsDeEscena(e, tope) {
   }
   return sal;
 }
-// Vuelve a registrar los STL que vienen en un archivo; devuelve los que faltan (los elementos que no tienen su STL)
-function restaurarSTLs(aj) {
+// Vuelve a registrar los STL que vienen en un archivo; devuelve los que faltan (los elementos que no tienen su STL).
+// planos: las escenas de las otras tomas (vienen en el proyecto, no en los ajustes)
+function restaurarSTLs(aj, planos = []) {
   const lista = aj.stls && typeof aj.stls === 'object' && !Array.isArray(aj.stls) ? aj.stls : {};
   for (const v of Object.values(lista)) {
     if (!v || typeof v.datos !== 'string') continue;
@@ -239,7 +328,7 @@ function restaurarSTLs(aj) {
     catch (e) { console.warn('No se pudo leer un STL guardado:', e); }
   }
   const faltan = [];
-  for (const g of Array.isArray(aj.escena?.elementos) ? aj.escena.elementos : []) {
+  for (const g of [aj.escena, ...(Array.isArray(planos) ? planos : []).map(p => p?.escena)].flatMap(e => (Array.isArray(e?.elementos) ? e.elementos : []))) {
     const id = g?.forma === 'stl' && g.stl?.id;
     if (id && !infoSTL(id)) faltan.push(`tu STL «${String(g.stl.nombre || 'mi STL').slice(0, 40)}» (pestaña Escena)`);
   }
@@ -257,10 +346,10 @@ function leerProyecto(texto) {
 }
 
 // soloEscena: los ajustes de una foto de Deshacer que solo guarda la escena (lo que cambió el asistente)
-function aplicarAjustes(aj) {
+function aplicarAjustes(aj, planos = proyecto?.planos) {
   // un proyecto de antes de las escenas 3D (sin «escena» en sus ajustes) se ve como se hizo: con el fondo liso de marca
   if (!aj || typeof aj !== 'object') { ponerEscena('ninguna'); return; }
-  const sinSTL = restaurarSTLs(aj);   // (antes de la escena: sus elementos usan esos STL)
+  const sinSTL = restaurarSTLs(aj, planos);   // (antes de la escena: sus elementos usan esos STL)
   ponerEscena('escena' in aj ? aj.escena : 'ninguna');
   if (aj.soloEscena) return sinSTL;
   // (un archivo editado a mano o de otra versión no puede dejar la app a medias: solo se toma lo que es válido)
@@ -298,7 +387,7 @@ let proyecto = null;
   const guardado = leerLocal(CLAVE_PROYECTO);
   let faltan = [], fallo = false;
   if (guardado) {
-    try { const { p, aj } = leerProyecto(guardado); faltan = aplicarAjustes(aj); proyecto = p; adaptarAFormato(proyecto.textos, estado.formato); }
+    try { const { p, aj } = leerProyecto(guardado); faltan = aplicarAjustes(aj, p.planos); proyecto = p; adaptarAFormato(proyecto.textos, estado.formato); }
     catch (e) {
       // no se pudo leer: se guarda aparte (no se pierde al autoguardar el proyecto nuevo) y se avisa
       console.warn(e); proyecto = null; fallo = true; guardarLocal(CLAVE_PROYECTO + '-respaldo', guardado);
@@ -311,6 +400,7 @@ let proyecto = null;
     if (fallo) setTimeout(() => aviso('No se pudo recuperar tu último proyecto: empezamos uno nuevo (quedó una copia de respaldo en este equipo).', true), 600);
   } else setTimeout(() => avisoAbierto('Se recuperó tu último proyecto.', faltan), 600);
 }
+sincronizarTomas();   // (las escenas de las otras tomas vienen en el proyecto)
 pintarControles();
 
 // ---------- Deshacer: la pila vive en la línea de tiempo ----------
@@ -337,6 +427,7 @@ function todoCambio({ linea: conLinea = true } = {}) {
   adaptarAFormato(proyecto.textos, estado.formato);
   refrescarAutos();
   estado.t = Math.min(estado.t, proyecto.duracion);
+  sincronizarTomas();
   if (conLinea) linea.render();
   panelTextos.render(); panelSonido.render();
   rep.preparar(proyecto.audio, proyecto.duracion);
@@ -364,7 +455,9 @@ const linea = new LineaTiempo($('lineaTiempo'), {
   efectos: EFECTOS, estilosMusica: ESTILOS_MUSICA,
   // las pistas de la escena se ven solo cuando sirven; la apertura sin keyframes es la del panel del estuche
   pistaVisible: k => pistaVisible(k),
-  valorSinClaves: k => (k === 'apertura' && estado.escena.utileria ? estado.escena.utileria.apertura : null),
+  valorSinClaves: k => (k === 'apertura' && escenaDeLaToma().utileria ? escenaDeLaToma().utileria.apertura : null),
+  // una muestra de la escena de cada toma en el carril de los cortes
+  tomas: () => tomasLinea(),
   // los paneles de arriba cambian de alto al volver a dibujarse: la línea de tiempo se queda quieta bajo el puntero
   alCambiar: motivo => sinSaltar(() => {
     clearTimeout(tRafaga); tRafaga = 0;
@@ -372,6 +465,8 @@ const linea = new LineaTiempo($('lineaTiempo'), {
     if (motivo === 'textos' || motivo === 'duracion') panelTextos.render();
     if (motivo === 'audio' || motivo === 'duracion') { panelSonido.render(); rep.preparar(proyecto.audio, proyecto.duracion); }
     if (motivo === 'duracion') avisoCalidad();
+    // los cortes cambiaron (o la duración, o un movimiento base los quitó): las escenas de las tomas los siguen
+    if (motivo === 'cortes' || motivo === 'duracion' || motivo === 'movimiento') sincronizarTomas();
     asentar(); cambio();
   }),
   // tocar la regla, arrastrar el cabezal o editar un valor pausa la reproducción (como en CapCut)
@@ -498,6 +593,9 @@ function obtenerInfo() {
     medidas: m ? [m.x, m.y, m.z].map(v => Math.round(v * 10) / 10) : null,
     tienePiedras: !!estudio.geoP, metal: estudio.ajustes.metal, piedra: estudio.geoP ? estudio.ajustes.piedra : null, formato: estado.formato,
     escena: estado.escena,
+    // con cortes: la escena de cada toma y la del cabezal (el asistente cambia «la segunda toma», «todas las tomas»…)
+    tomas: proyecto?.cortes?.length ? tomasDe(proyecto).map((t, i) => ({ toma: i + 1, desde: t.desde, hasta: t.hasta, propia: i === 0 || t.propia, escena: nombreEscena(escenaDeLaToma(i)) })) : null,
+    tomaActual: estado.toma + 1,
   };
 }
 
@@ -508,8 +606,9 @@ function aplicarAcciones(acciones, { foto } = {}) {
   const antes = serializar(proyecto), escenaAntes = estado.escena;
   const hecho = aplicarAccionesAProyecto(proyecto, acciones, {
     textosDesdeAcciones, formato: estado.formato, musicaNueva, foto,
-    // la escena vive en el estudio, no en el proyecto: el asistente la cambia por aquí
-    alEscena: cfg => ponerEscena(cfg), escenaActual: () => estado.escena,
+    // la escena vive en el estudio, no en el proyecto: el asistente la cambia por aquí (la de la primera toma; las de las
+    // otras tomas las pone en proyecto.planos). tomaActual: la del cabezal, para «esta toma»
+    alEscena: cfg => ponerEscena(cfg), escenaActual: () => estado.escena, tomaActual: () => estado.toma,
   });
   if (!hecho.algo) return hecho;
   // si cambió la escena, Deshacer también la devuelve: la foto lleva la escena de antes (solo eso: el metal, el fondo
@@ -619,6 +718,7 @@ function listo(info) {
   for (const id of ['crear', 'foto', 'realista']) $(id).disabled = false;
   if (refrescarAutos()) { asentar(); panelTextos.render(); linea.render(); }
   panelTexturas.reaplicar();
+  sincronizarTomas();   // (las escenas guardadas de las otras tomas se rehacen con la joya nueva)
   estado.t = 0; reproducir(true); cambio(); verMini();
   nota('Modelo listo. Todo se procesa en tu equipo.');
 }
@@ -696,16 +796,21 @@ function franja(capas, W, H) {
 }
 // coloca la cámara del instante t (segundos) según los keyframes del proyecto
 // (la apertura del estuche sin keyframes es la del panel: el estudio la toma de la escena)
+// (con una escena por toma, el estudio cuelga la de la toma de ese instante: cambia justo en el cuadro del corte)
 const poner = (pr, t) => {
+  estudio.usarEscena(tomaEn(pr, t));
   estudio.ponerTiempo(t);
   const pose = evaluar(pr, t);
   if (!pr.pistas?.apertura?.length) pose.apertura = null;
+  // (v5: hasta dónde se mece la joya en todo el video: los elementos del piso se apartan de ese espacio)
+  estudio.ponerBalanceoMaximo(Math.max(0, ...(pr.pistas?.balanceo || []).map(c => Math.abs(c.v))));
   estudio.aplicarPose(pose, franja(pr.textos, estudio.ancho, estudio.alto));
 };
 const intensidadSombra = () => +$('sombra').value;
 // lo que se ve de la escena (fondo, sombra y formato); trabajo() lo copia al empezar para que el video no cambie a mitad.
 // opaco: hay una escena 3D (pedestal y fondo de verdad): el render cubre todo el cuadro, sin el fondo de marca ni la sombra 2D;
-// oscuro: con escena, si los textos van claros (sin escena lo decide el fondo de marca)
+// oscuro: con escena, si los textos van claros (sin escena lo decide el fondo de marca). Con una escena por toma, opaco y
+// oscuro son los de la toma de cada cuadro: al dibujarlo se leen del estudio (después de poner)
 const escenaActual = () => ({ fondo: estado.fondo, sombra: intensidadSombra(), formato: estado.formato, opaco: estudio.escenaActiva, oscuro: estudio.oscuro });
 // Flash, fundido a negro o barrido de los cortes, encima del cuadro ya compuesto. fps: el ritmo de los cuadros (así el flash
 // revienta justo en el primer cuadro del plano nuevo)
@@ -720,7 +825,8 @@ const capaElegida = () => estado.pestana === 'textos' && panelTextos.seleccion ?
 function dibujarRapido(comp, pr, t, { seleccion = null, escena = escenaActual(), fps = +$('fps').value } = {}) {
   poner(pr, t);
   estudio.renderRapido();
-  comp.cuadro({ fondo: escena.fondo, render3D: lienzoGL, sombra: escena.opaco ? null : estudio.sombra(), intensidadSombra: escena.sombra, capas: pr.textos, t, duracion: pr.duracion, seleccion, opaco: escena.opaco, oscuro: escena.oscuro });
+  const opaco = estudio.escenaActiva, oscuro = estudio.oscuro;
+  comp.cuadro({ fondo: escena.fondo, render3D: lienzoGL, sombra: opaco ? null : estudio.sombra(), intensidadSombra: escena.sombra, capas: pr.textos, t, duracion: pr.duracion, seleccion, opaco, oscuro, grano: estudio.grano });
   transicion(comp, pr, t, fps);
 }
 
@@ -745,7 +851,7 @@ function bucle(ahora) {
     if (estado.t > D) { estado.t %= D; estado.sucio = true; }
     if (estado.sucio) {
       estado.sucio = false;
-      relojes(); linea.ponerCabezal(estado.t);
+      relojes(); linea.ponerCabezal(estado.t); mostrarToma();   // (la pestaña Escena sigue a la toma del cabezal)
       if (estudio.tieneModelo) { $('etiquetaVista').textContent = 'Vista rápida'; dibujarRapido(previa, proyecto, estado.t, { seleccion: capaElegida() }); previaPintada(); }
     }
   }
@@ -772,7 +878,7 @@ function ponerSonido(si, manual = false) {
   if (si && estado.reproduciendo && estudio.tieneModelo) rep.reproducir(estado.t); else if (!si) rep.detener();
 }
 // mover el cabezal (regla, deslizador, keyframes): pausa y deja el audio listo en ese punto
-function buscar(t) { reproducir(false); estado.t = Math.max(0, Math.min(proyecto.duracion || 8, +t || 0)); rep.buscar(estado.t); cambio(); }
+function buscar(t) { reproducir(false); estado.t = Math.max(0, Math.min(proyecto.duracion || 8, +t || 0)); rep.buscar(estado.t); mostrarToma(); cambio(); }
 function alternar() {
   if (estado.realista) estado.cancelar = true;
   const si = !estado.reproduciendo;
@@ -817,7 +923,7 @@ function copiaProyecto() { const c = deserializar(serializar(proyecto)); c.texto
 // Con escena 3D no hay sombra 2D (la sombra la calcula el trazador sobre el pedestal) y no hace falta la silueta.
 // fps: el ritmo de los cuadros para la transición de los cortes (null = sin transición, como en la foto para catálogo)
 async function componerRealista(comp, pr, muestras, { sombra, t, img, masc, alAvanzar, cancelado, escena = escenaActual(), fps = +$('fps').value }) {
-  const W = lienzoGL.width, H = lienzoGL.height, opaco = escena.opaco;
+  const W = lienzoGL.width, H = lienzoGL.height, opaco = estudio.escenaActiva, oscuro = estudio.oscuro, grano = estudio.grano;   // (los de la toma de t: ya se puso)
   img.width = W; img.height = H;
   if (!opaco) {
     masc.width = W; masc.height = H;
@@ -827,7 +933,7 @@ async function componerRealista(comp, pr, muestras, { sombra, t, img, masc, alAv
   const ci = img.getContext('2d');
   const pintar = () => {
     ci.clearRect(0, 0, W, H); ci.drawImage(lienzoGL, 0, 0);
-    comp.cuadro({ fondo: escena.fondo, render3D: img, sombra: opaco ? null : sombra, intensidadSombra: escena.sombra, mascara: opaco ? null : masc, capas: pr.textos, t, duracion: pr.duracion, opaco, oscuro: escena.oscuro });
+    comp.cuadro({ fondo: escena.fondo, render3D: img, sombra: opaco ? null : sombra, intensidadSombra: escena.sombra, mascara: opaco ? null : masc, capas: pr.textos, t, duracion: pr.duracion, opaco, oscuro, grano });
     if (fps) transicion(comp, pr, t, fps);
     if (comp === previa) previaPintada(t);
   };
@@ -848,7 +954,7 @@ const COSTO_ESCENA = { 'pedestal-arena': 6, travertino: 5, 'marmol-blanco': 5, '
 // formato de ahora; cada combinación se mide una vez, al abrir Exportar con una calidad de trazado de rayos. La vista previa
 // se detiene mientras tanto (unos segundos; la primera vez, lo que tarde en compilar el sombreador) y cualquier cambio,
 // «Crear video», la foto o la vista hiperrealista la sueltan enseguida
-const claveSondeo = () => JSON.stringify([estado.escena, estudio.versionModelo, estado.formato]);
+const claveSondeo = () => JSON.stringify([escenaDeLaToma(), estudio.versionModelo, estado.formato]);
 // (se espera un poco: si solo se pasa por Exportar, o se cambia la calidad enseguida, no se mide)
 function programarSondeo() { clearTimeout(esperaSondeo); esperaSondeo = setTimeout(sondearPT, 2500); }
 function sondearPT() {
@@ -880,7 +986,9 @@ function avisoCalidad() {
     clearTimeout(esperaSondeo); if (sondeo) sondeo.cancelado = true;   // (el render rápido no necesita la medición)
     $('avisoCal').textContent = `Render rápido: ${n} cuadros en pocos segundos. Ideal para revisar el movimiento y el sonido antes del video final.`; return;
   }
-  const k = claveSondeo(), med = medidasPT.get(k), base = estado.escena.base || estado.escena.id, veces = COSTO_ESCENA[base];
+  // (con una escena por toma, el aviso habla de la más cara)
+  const caras = (estado.escenasTomas || [estado.escena]).map(e => e.base || e.id), veces = Math.max(0, ...caras.map(b => COSTO_ESCENA[b] || 0)) || undefined;
+  const k = claveSondeo(), med = medidasPT.get(k), base = caras.find(b => b !== 'ninguna') || caras[0];
   let cuanto;
   if (med) {
     const seg = n * f.w * f.h / 1e6 * (m * med.muestra + med.fijo) / 1000;
@@ -933,8 +1041,8 @@ async function trabajo(fn) {
   } finally {
     try { await bloqueo?.release(); } catch (e) { /* nada */ }
     estado.exportando = false; bloquearEscena(false);
-    // la escena que pidió el asistente mientras tanto
-    if (!mismaEscena(estudio.escena3D, estado.escena)) estudio.ponerEscena(estado.escena);
+    // la escena (o las de las tomas) que cambió mientras tanto: el asistente, los cortes que se movieron
+    sincronizarTomas();
     ajustarPrevia(); estado.ocupado = false; estado.sucio = true;
     $('progreso').hidden = true;
     for (const id of ['crear', 'foto', 'realista']) $(id).disabled = !estudio.tieneModelo;
@@ -1050,7 +1158,7 @@ async function abrirProyecto(archivo) {
     const { p, aj } = leerProyecto(await archivo.text());
     // Deshacer devuelve también el formato, el fondo y el metal de antes (los cambia el archivo): la foto lleva los ajustes
     cerrarRafaga(); linea.guardarHistorial(archivoProyecto());
-    const faltan = aplicarAjustes(aj);
+    const faltan = aplicarAjustes(aj, p.planos);
     reemplazarProyecto(p);
     estado.t = 0; buscar(0);
     avisoAbierto('Proyecto abierto.', faltan);
@@ -1087,4 +1195,4 @@ requestAnimationFrame(bucle);
 if (!puedeCodificar()) nota('Este navegador no puede crear video: usa Chrome, Edge o Safari actualizados.', 'error');
 // útil para depurar desde la consola
 window.estudio = estudio;
-window.atelier = { get proyecto() { return proyecto; }, estado, linea, panelTextos, panelSonido, panelTexturas, panelEscena, panelUtileria, panelElementos, get replicar() { return panelReplicar(); }, chat, rep, ponerEscena, archivoProyecto };
+window.atelier = { get proyecto() { return proyecto; }, estado, linea, panelTextos, panelSonido, panelTexturas, panelEscena, panelUtileria, panelElementos, get replicar() { return panelReplicar(); }, chat, rep, ponerEscena, archivoProyecto, sincronizarTomas, accionToma, cambioEscena, buscar };

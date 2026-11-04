@@ -14,7 +14,10 @@
 //     colores: 'marca' | 'video'   (opcional, por defecto 'marca': los colores de la escena pasan a los de Atelier & Co)
 //   render(), reiniciar(), analizarArchivo(archivo), analizarEnlace(texto), cancelar(), bloquear(si)
 //   estado: 'inicio' | 'descargando' | 'analizando' | 'resultado' | 'error'; plan, analisis, ia: lo último que se analizó
-import { construirReplica, recolorearEscena, describirPuesta, nombreDeEscena, NOMBRE_TRANSICION } from './replica.js';
+// v5, una escena por toma: después del análisis se mide la paleta de cada plano en su miniatura (paletaDeImagen); si las tomas
+// tienen fondos distintos, el plan trae una escena por toma (plan.escenasTomas) y el resultado las muestra (en la tira de planos y
+// en la tarjeta de la escena) con las muestras de color de cada grupo de tomas
+import { construirReplica, recolorearEscena, recolorearTomas, paletaDeImagen, describirPuesta, nombreDeEscena, NOMBRE_TRANSICION } from './replica.js';
 import { ESCENAS, FORMAS_SUPERFICIE, MATERIALES_ESCENA, GOBOS } from './escenas.js';
 import { COLORES_MARCA, FORMAS_FONDO_V4, ESQUEMAS_LUZ, idMarca } from './escena-marca.js';
 import { ENCUADRES } from './analisis-ia.js';
@@ -149,6 +152,8 @@ export class PanelReplicar {
       this.ir('analizando');
       const analisis = await this.op.analizar(video, { cancelado, alAvanzar: (paso, p) => { if (!cancelado()) this.avancePaso(paso, p); } });
       if (cancelado()) return;
+      await paletasDePlanos(analisis);   // (la de cada toma, para darle su propia escena)
+      if (cancelado()) return;
       for (const k of ['leyendo', 'cortes', 'movimiento']) this.marcarPaso(k, 'hecho', 1);
       this.marcarPaso('ia', 'curso', 0);
       let ia = null, notaIA = null;
@@ -207,7 +212,7 @@ export class PanelReplicar {
     else if (a === 'aplicar') this.aplicar();
     else if (a === 'reintentar') { const f = this.fuente; if (f?.archivo) this.procesar({ archivo: f.archivo }); else if (f?.enlace) this.procesar({ enlace: f.enlace }); else this.ir('inicio'); }
     else if (a === 'volver') { this.error = null; this.ir(this.plan ? 'resultado' : 'inicio'); }
-    else if (a === 'color') this.ponerColor(b.dataset.rol, b.dataset.hex);
+    else if (a === 'color') this.ponerColor(b.dataset.rol, b.dataset.hex, b.closest('[data-grupo]')?.dataset.grupo);
   }
   // las muestras de cada parte son un grupo de radio: con las flechas se pasa de una a otra (y se escoge)
   alTecla(e) {
@@ -216,7 +221,7 @@ export class PanelReplicar {
     const todos = [...b.closest('.rpl-paleta').querySelectorAll('[data-accion=color]')], i = todos.indexOf(b);
     const j = e.key === 'Home' ? 0 : e.key === 'End' ? todos.length - 1 : (i + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1) + todos.length) % todos.length;
     e.preventDefault();
-    this.ponerColor(todos[j].dataset.rol, todos[j].dataset.hex);
+    this.ponerColor(todos[j].dataset.rol, todos[j].dataset.hex, b.closest('[data-grupo]')?.dataset.grupo);
   }
   // Colores de la marca o del video: se vuelve a armar el plan (las casillas marcadas se conservan)
   ponerModoColor(modo) {
@@ -227,9 +232,18 @@ export class PanelReplicar {
     this.render();
     this.$(`[name=rpl-colores-${this.idUnico()}][value=${modo}]`)?.focus();
   }
-  // Una parte (fondo, superficie, caja o cinta) con otro color, antes de aplicar
-  ponerColor(rol, hex) {
-    const p = this.plan, m = p?.colores?.muestras?.find(x => x.rol === rol), h = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex) ? hex.toUpperCase() : null;
+  // Una parte (fondo, superficie, caja o cinta) con otro color, antes de aplicar. grupo: con una escena por toma, el grupo de
+  // tomas que comparten esa escena (sus muestras van juntas)
+  ponerColor(rol, hex, grupo) {
+    const p = this.plan, h = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex) ? hex.toUpperCase() : null;
+    const grupos = gruposDeTomas(p);
+    if (grupos && h && grupos[+grupo]) {
+      recolorearTomas(p, grupos[+grupo].tomas, rol, h);
+      this.aplicado = false; this.render();
+      (this.$(`[data-grupo="${+grupo}"] .rpl-paleta[data-rol=${rol}] [data-hex="${h}"]`) || this.$(`[data-grupo="${+grupo}"] .rpl-paleta[data-rol=${rol}] input[type=color]`))?.focus();
+      return;
+    }
+    const m = p?.colores?.muestras?.find(x => x.rol === rol);
     if (!m || !h || !p.escena) return;
     p.escena = recolorearEscena(p.escena, { [rol]: h });
     m.hex = h; m.marca = idMarca(h);
@@ -244,7 +258,7 @@ export class PanelReplicar {
     const t = e.target;
     if (t.matches('.rpl-soltar input[type=file]')) { const f = t.files?.[0]; t.value = ''; if (f) this.analizarArchivo(f); return; }
     if (t.matches('.rpl-modo-color input[type=radio]')) { this.ponerModoColor(t.value); return; }
-    if (t.matches('.rpl-paleta input[type=color]')) { this.ponerColor(t.dataset.rol, t.value); return; }
+    if (t.matches('.rpl-paleta input[type=color]')) { this.ponerColor(t.dataset.rol, t.value, t.closest('[data-grupo]')?.dataset.grupo); return; }
     if (t.matches('[data-parte]') && this.marcas) {
       this.marcas[t.dataset.parte] = t.checked;
       this.aplicado = false;
@@ -293,6 +307,9 @@ export class PanelReplicar {
     if (this.estado === 'resultado') {
       const lienzo = this.$('.rpl-escena canvas');
       if (lienzo && this.plan?.escena) dibujarMiniatura(lienzo, this.plan.escena);
+      // una escena por toma: la miniatura de cada escena distinta
+      const g = gruposDeTomas(this.plan);
+      for (const c of this.cont.querySelectorAll('canvas[data-escena-grupo]')) { const x = g?.[+c.dataset.escenaGrupo]; if (x) dibujarMiniatura(c, x.escena); }
     }
     if (this.estado === 'descargando') this.avanceDescarga(this.descarga?.p || 0, this.descarga);
   }
@@ -359,8 +376,10 @@ export class PanelReplicar {
     const planos = p.planos.map((pl, i) => {
       const mini = pl.miniatura || (Array.isArray(a.miniaturas) ? a.miniaturas[pl.analizado] : null);
       const tr = i > 0 ? `<li class="rpl-tr" title="${esc(NOMBRE_TRANSICION[pl.transicion] || '')}">${svg(pl.transicion || 'seco')}<span>${esc(primeraMayus(NOMBRE_TRANSICION[pl.transicion] || 'corte'))}</span></li>` : '';
+      const et = p.escenasTomas?.[i]?.escena, color = et && et.id !== 'ninguna' ? et.fondo?.color : '#EFEAE0';
+      const deEscena = et ? `<i class="rpl-plano-escena" style="--c:${esc(color)}" title="${esc(nombreDeEscena(et) || '')}"></i>` : '';
       return `${tr}<li class="rpl-plano">
-          <span class="rpl-foto">${mini ? `<img src="${esc(mini)}" alt="" loading="lazy">` : ''}<em>${i + 1}</em></span>
+          <span class="rpl-foto">${mini ? `<img src="${esc(mini)}" alt="" loading="lazy">` : ''}<em>${i + 1}</em>${deEscena}</span>
           <span class="rpl-plano-dato"><b>${decimal(pl.duracion)} s</b>${pl.encuadre && conIA ? ` · ${esc(ENCUADRES[pl.encuadre] || '')}` : ''}</span>
           <span class="rpl-plano-desc">${esc(pl.descripcion)}</span>
         </li>`;
@@ -398,7 +417,7 @@ export class PanelReplicar {
         <ol class="rpl-tira">${planos}</ol>
       </section>
       <section class="rpl-bloque rpl-dos">
-        <div class="rpl-tarjeta rpl-escena"><canvas width="96" height="120" aria-hidden="true"></canvas><div><h4>${esc(nombreEscena)}</h4><p class="rpl-ayuda">${esc(detalleEscena)}</p>${muestras}${puesta.length ? `<ul class="rpl-puesta">${puesta.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div></div>
+        ${this.htmlEscenasTomas() || `<div class="rpl-tarjeta rpl-escena"><canvas width="96" height="120" aria-hidden="true"></canvas><div><h4>${esc(nombreEscena)}</h4><p class="rpl-ayuda">${esc(detalleEscena)}</p>${muestras}${puesta.length ? `<ul class="rpl-puesta">${puesta.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div></div>`}
         ${joya}
       </section>
       ${this.htmlColores()}
@@ -412,10 +431,20 @@ export class PanelReplicar {
       </div>
       <p class="rpl-hecho" role="status"${this.aplicado ? '' : ' hidden'}>Listo: se aplicó al proyecto. Si no te gusta, usa Deshacer.</p>`;
   }
+  // Una escena por toma: la tarjeta lista cada escena distinta con su miniatura y las tomas que la usan
+  htmlEscenasTomas() {
+    const g = gruposDeTomas(this.plan);
+    if (!g) return '';
+    return `<div class="rpl-tarjeta rpl-escena rpl-escenas"><div>
+        <h4>Una escena por toma</h4>
+        <p class="rpl-ayuda">${g.length} escenas para ${this.plan.escenasTomas.length} tomas: cada toma cambia de fondo como en el video.</p>
+        <ul class="rpl-escenas-lista">${g.map((x, k) => `<li><canvas width="72" height="90" data-escena-grupo="${k}" aria-hidden="true"></canvas><span><b>${esc(nombreDeEscena(x.escena) || 'Escena')}</b><span class="rpl-ayuda">${esc(textoTomas(x.tomas))}</span></span></li>`).join('')}</ul>
+      </div></div>`;
+  }
   // «Colores: de mi marca (recomendado) | del video» y las muestras de cada parte de la escena
   htmlColores() {
-    const p = this.plan, lista = p?.colores?.muestras || [];
-    if (!p?.escena || p.escena.id === 'ninguna' || !lista.length) return '';
+    const p = this.plan, grupos = gruposDeTomas(p), lista = grupos ? grupos.flatMap(x => x.muestras) : p?.colores?.muestras || [];
+    if (!p?.escena || (!grupos && p.escena.id === 'ninguna') || !lista.length) return '';
     const id = this.idUnico(), modo = p.colores.modo;
     const opcion = (v, t) => `<label><input type="radio" name="rpl-colores-${id}" value="${v}"${modo === v ? ' checked' : ''}><span>${t}</span></label>`;
     const fila = m => {
@@ -437,7 +466,8 @@ export class PanelReplicar {
           <div class="rpl-modo-color" role="radiogroup" aria-labelledby="rpl-col-t-${id}">${opcion('marca', 'De mi marca <em>(recomendado)</em>')}${opcion('video', 'Del video')}</div>
         </div>
         <p class="rpl-ayuda">${modo === 'marca' ? 'Cada parte toma el color de tu marca que hace su mismo papel (oscuro, claro o dorado). Cámbialo aquí antes de aplicar.' : 'Los colores tal como se ven en el reel (pueden ser los de otra marca). Puedes cambiarlos aquí.'}</p>
-        <div class="rpl-colores-lista">${lista.map(fila).join('')}</div>
+        ${grupos ? grupos.map((x, k) => (x.muestras.length ? `<div class="rpl-colores-lista rpl-colores-grupo" data-grupo="${k}"><h5>${esc(textoTomas(x.tomas))} · ${esc(nombreDeEscena(x.escena) || 'Escena')}</h5>${x.muestras.map(fila).join('')}</div>` : '')).join('')
+          : `<div class="rpl-colores-lista">${lista.map(fila).join('')}</div>`}
       </section>`;
   }
   avisoAplicar(texto, mal = false) {
@@ -450,6 +480,42 @@ export class PanelReplicar {
     if (this.marcas?.duracion) return Math.abs(dv - p.duracion) > 0.05 ? `El video dura ${decimal(dv)} s; el proyecto quedará de ${decimal(p.duracion)} s.` : `El proyecto quedará de ${decimal(p.duracion)} s, como el video.`;
     return Number.isFinite(dp) ? `Se deja la duración del proyecto (${decimal(dp)} s) y el video se ajusta a ella.` : 'Se deja la duración del proyecto y el video se ajusta a ella.';
   }
+}
+
+// Las escenas distintas del plan con las tomas que las usan: [{ escena, muestras, tomas: [índices] }] o null (una sola escena)
+function gruposDeTomas(plan) {
+  const lista = Array.isArray(plan?.escenasTomas) ? plan.escenasTomas : null;
+  if (!lista) return null;
+  const grupos = [], porClave = new Map();
+  lista.forEach((x, i) => {
+    const k = JSON.stringify(x.escena);
+    if (!porClave.has(k)) { porClave.set(k, grupos.length); grupos.push({ escena: x.escena, muestras: x.muestras || [], tomas: [] }); }
+    grupos[porClave.get(k)].tomas.push(i);
+  });
+  return grupos.length > 1 ? grupos : null;
+}
+// «Toma 1», «Tomas 3–9», «Tomas 2, 5 y 7» (las tomas cuentan desde 1)
+function textoTomas(t) {
+  const n = t.map(i => i + 1);
+  if (n.length === 1) return `Toma ${n[0]}`;
+  if (n.every((x, i) => !i || x === n[i - 1] + 1)) return `Tomas ${n[0]}–${n.at(-1)}`;
+  return `Tomas ${n.slice(0, -1).join(', ')} y ${n.at(-1)}`;
+}
+// La paleta de cada plano, medida en su miniatura (para una escena por toma). Sin navegador, o si una no se puede leer, ese plano
+// queda sin paleta (usa la escena principal)
+async function paletasDePlanos(a) {
+  if (typeof document === 'undefined' || !Array.isArray(a?.planos) || !Array.isArray(a?.miniaturas)) return a;
+  const c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true });
+  for (const [i, p] of a.planos.entries()) {
+    const src = a.miniaturas[p?.indice ?? i];
+    if (!p || p.paleta || typeof src !== 'string' || !src.startsWith('data:image/')) continue;
+    try {
+      const img = await new Promise((ok, mal) => { const im = new Image(); im.onload = () => ok(im); im.onerror = mal; im.src = src; });
+      c.width = img.naturalWidth; c.height = img.naturalHeight; x.drawImage(img, 0, 0);
+      p.paleta = paletaDeImagen(x.getImageData(0, 0, c.width, c.height));
+    } catch (e) { /* esa toma sigue con la escena principal */ }
+  }
+  return a;
 }
 
 // Casillas marcadas al llegar el resultado: lo que hay, menos los textos (son los de otra marca) y la música (puede tener la suya)

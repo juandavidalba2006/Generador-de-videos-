@@ -1335,6 +1335,11 @@ export class Utileria {
     this.actualizarAnclas();
   }
 
+  // v5: los sólidos de la caja para que los elementos no se metan en sus paredes ni en la tapa abierta: una caja (Box3, en el
+  // marco de la joya y en unidades del estudio) con lo que no se mueve y una por cada paso de la apertura con lo que se mueve
+  // (la tapa barre su arco al abrirse: la pista «apertura» puede llevarla a cualquier punto). Ver solidosDePlan
+  solidos(pasos = 7) { return this.plan ? solidosDePlan(this.plan, this.J.k, pasos) : []; }
+
   // Anclas en tres marcos: punto/direccion (padre de grupo, motor rápido), puntoPT/direccionPT (padre de grupoPT) y
   // local/direccionLocal (marco de la joya, sin giro). En unidades del estudio
   actualizarAnclas() {
@@ -1382,5 +1387,23 @@ export class Utileria {
   }
 }
 
+// Sólidos de un plan (v5): las piezas quietas juntas (una caja por caja de la pila) y las móviles en cada paso de la apertura
+function solidosDePlan(plan, k = 1, pasos = 7) {
+  const esc = 1 / k, fijas = new Map(), moviles = [], us = plan.abre ? Array.from({ length: pasos }, (_, i) => i / (pasos - 1)) : [0];
+  for (const pz of plan.piezas) for (const geo of pz.geos.values()) {
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    if (pz.movil && plan.pose) us.forEach((u, i) => { (moviles[i] ||= new THREE.Box3()).union(geo.boundingBox.clone().applyMatrix4(matrizPieza(plan, pz, u))); });
+    else { const c = fijas.get(pz.caja) || new THREE.Box3(); c.union(geo.boundingBox.clone().applyMatrix4(matrizPieza(plan, pz, 0))); fijas.set(pz.caja, c); }
+  }
+  return [...fijas.values(), ...moviles].filter(b => b && !b.isEmpty()).map(b => new THREE.Box3(b.min.clone().multiplyScalar(esc), b.max.clone().multiplyScalar(esc)));
+}
+// Los sólidos de una configuración sin armar mallas (para las pruebas en Node y para revisar choques con los elementos)
+export function solidosUtileria(cfg, { joya, suelo, pasos = 7 } = {}) {
+  const n = normalizarUtileria(cfg);
+  if (n.tipo === 'ninguna') return [];
+  const J = medirJoya(joya);
+  return solidosDePlan(planificar(n, J, { suelo }), J.k, pasos);
+}
+
 // (para las pruebas)
-export const _interno = { medirJoya, planificar, matrizPieza, triangulos, torno, losa, contorno, cajasDePila, BISAGRA };
+export const _interno = { solidosDePlan, medirJoya, planificar, matrizPieza, triangulos, torno, losa, contorno, cajasDePila, BISAGRA };

@@ -1,9 +1,10 @@
 // Asistente sin conexión: entiende pedidos sencillos en español («gira 2 vueltas y acércate a la piedra») y los convierte
 // en las mismas acciones que devuelve la IA (keyframes, cortes, escena, textos, sonidos y música). Aquí también se validan y se aplican
 // esas acciones al proyecto. Es puro (sin DOM): lo usan el chat, la función de Vercel (api/chat.js) y las pruebas en Node.
-import { PISTAS, CURVAS, MOVIMIENTOS, TRANSICIONES, evaluar, valorEn, escalarTiempo, normalizarCortes, separarPlanos, unirPlanos, TOLERANCIA, DURACION_MIN, DURACION_MAX } from './proyecto.js';
+import { PISTAS, CURVAS, MOVIMIENTOS, TRANSICIONES, evaluar, valorEn, escalarTiempo, normalizarCortes, separarPlanos, unirPlanos, TOLERANCIA, DURACION_MIN, DURACION_MAX, tomas as tomasDe, escenasDeTomas, ponerEscenaToma, normalizarPlanos } from './proyecto.js';
 import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RANGOS, ESCENA_INICIAL, escenaDe, normalizarEscena } from './escenas.js';
 import { COLORES_MARCA, ESQUEMAS_LUZ, TIPOS_UTILERIA, POSICIONES_UTILERIA, ELEMENTOS_IA, COREOGRAFIAS_IDS, RECORRIDOS_CINTA_IDS, FORMAS_FONDO_V4, esEscenaConocida, escenaDeId, completarEscena, grupoElemento, nombreEscena as nombreEscenaLista } from './escena-marca.js';
+import { clavesPendulo } from './proyecto.js';   // (v5: «que se balancee»; ver «Noche de regalo, grano y péndulo» al final)
 
 // ---------- Catálogos ----------
 // Copias de los ids de sonido.js y textos.js: esos módulos usan Web Audio y el DOM, y este tiene que correr en Node.
@@ -149,8 +150,19 @@ export function normalizarAcciones(crudo, { duracion = 8 } = {}) {
   }
   const es = esObj(a.escena) ? a.escena : {};
   const idEscena = es.id === 'actual' || es.id === 'personalizada' ? 'actual' : esEscenaConocida(es.id) ? es.id : null;
-  if (es.cambiar === true && idEscena) r.escena = { cambiar: true, id: idEscena, cambios: idEscena === 'ninguna' ? null : cambiosEscena(es) };
+  if (es.cambiar === true && idEscena) {
+    r.escena = { cambiar: true, id: idEscena, cambios: idEscena === 'ninguna' ? null : cambiosEscena(es) };
+    // v5: en qué toma (sin «toma», o «actual»: la del cabezal; con una sola escena en el video, todo el video)
+    const toma = normalizarToma(es.toma);
+    if (toma !== 'actual') r.escena.toma = toma;
+  }
   return r;
+}
+// La toma de una acción de escena: 'actual' | 'todas' | 'ultima' | 1, 2, 3… (cuentan desde 1). Acepta números como texto
+export function normalizarToma(v) {
+  if (v === 'todas' || v === 'ultima') return v;
+  const n = typeof v === 'string' && /^\s*\d{1,3}\s*$/.test(v) ? +v : v;
+  return Number.isInteger(n) && n >= 1 && n <= 241 ? n : 'actual';
 }
 
 // Los cambios de una escena, validados: acepta la forma del intérprete ({ cambios: { superficie: {material}, luz: {angulo} } })
@@ -198,6 +210,7 @@ function cambiosEscena(es) {
     const lista = (Array.isArray(el.lista) ? el.lista : []).slice(0, 8).map(grupoDeAccion).filter(Boolean);
     if (lista.length || modo !== 'agregar') out.elementos = { modo, lista };
   }
+  Object.assign(out, cambiosNoche(fuente));   // v5: el grano, el mundo en miniatura y el pivote (ver al final)
   return Object.keys(out).length ? out : null;
 }
 // Un grupo de elementos de una acción: del tipo que dice la IA («perlas» con su coreografía) o ya armado por el intérprete
@@ -250,6 +263,7 @@ export function escenaDesdeAccion(accion, actual) {
     luz: { ...base.luz, ...(c.luz || {}) }, ambiente: esNum(c.ambiente) ? c.ambiente : base.ambiente,
     flotar: { ...(base.flotar || {}), ...(c.flotar || {}) }, par: { ...(deAhora('par') || {}), ...(c.par || {}) },
     ...(utileria ? { utileria } : {}), elementos: mezclarElementos(deAhora('elementos'), c.elementos),
+    ...camposNoche(base, c),   // v5: el grano, el mundo en miniatura y el pivote siguen (o cambian) con la escena
   });
 }
 // Elementos de la escena con los de la acción: agregar (uno de la misma forma se reemplaza), reemplazar o quitar
@@ -333,7 +347,9 @@ function escalarAcciones(a, k) {
 // La escena no vive en el proyecto: si la acción la cambia, se le pasa la configuración final a alEscena(cfg, accion) (main.js
 // la pone en el estudio). escenaActual: la escena de ahora (configuración, o una función que la devuelve). Sin alEscena, la
 // escena no cambia.
-export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato = 'reel', musicaNueva, foto, alEscena, escenaActual } = {}) {
+// v5: con cortes, la escena de una toma (escena.toma) va en proyecto.planos; la de la primera toma, por alEscena. tomaActual: la toma
+// del cabezal (índice desde 0, o una función que lo devuelve) para los pedidos sin toma cuando las tomas ya tienen escenas distintas.
+export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAcciones, formato = 'reel', musicaNueva, foto, alEscena, escenaActual, tomaActual } = {}) {
   const hecho = { duracion: false, bucle: false, pistas: [], textos: false, sonidos: false, musica: false, cortes: false, escena: false, algo: false };
   if (!esObj(proyecto)) return hecho;
   const antes = esNum(proyecto.duracion) ? proyecto.duracion : 8;
@@ -376,9 +392,17 @@ export function aplicarAccionesAProyecto(proyecto, acciones, { textosDesdeAccion
   }
   if (a.cortes.cambiar) { proyecto.cortes = normalizarCortes(a.cortes.lista, D); hecho.cortes = true; }
   if (a.escena.cambiar && typeof alEscena === 'function') {
-    const cfg = escenaDesdeAccion(a.escena, typeof escenaActual === 'function' ? escenaActual() : escenaActual);
-    alEscena(cfg, a.escena);
-    hecho.escena = true; hecho.escenaCfg = cfg;
+    const base = typeof escenaActual === 'function' ? escenaActual() : escenaActual;
+    const destino = destinoDeToma(a.escena.toma, proyecto, typeof tomaActual === 'function' ? tomaActual() : tomaActual);
+    if (destino === null) {
+      // una sola escena en el video (o sin decir la toma): la de todo el video, como siempre
+      const cfg = escenaDesdeAccion(a.escena, base);
+      alEscena(cfg, a.escena);
+      hecho.escena = true; hecho.escenaCfg = cfg;
+    } else if (destino !== 'fuera') {
+      hecho.tomas = aplicarEscenaEnTomas(proyecto, a.escena, destino, base, alEscena);
+      hecho.escena = hecho.tomas.length > 0; hecho.escenaCfg = escenasDeTomas(proyecto, base)[hecho.tomas[0] ?? 0];
+    }
   }
   hecho.algo = hecho.duracion || hecho.bucle || hecho.pistas.length > 0 || hecho.textos || hecho.sonidos || hecho.musica || hecho.cortes || hecho.escena;
   return hecho;
@@ -465,6 +489,11 @@ export function resumenProyecto(proyecto = {}, info = {}) {
     },
     cortes: (Array.isArray(p.cortes) ? p.cortes : []).filter(c => esObj(c) && esNum(c.t)).slice(0, 60).map(c => ({ t: r2(c.t), transicion: Object.hasOwn(TRANSICIONES, c.transicion) ? c.transicion : 'seco' })),
     escena: i.escena === undefined || i.escena === null ? null : normalizarEscena(i.escena),
+    // v5: con cortes, la escena de cada toma (nombre; propia o heredada de la anterior) y la toma del cabezal
+    ...(Array.isArray(i.tomas) && i.tomas.length > 1 ? {
+      tomas: i.tomas.filter(esObj).slice(0, 60).map((t, k) => ({ toma: k + 1, desde: r2(+t.desde || 0), hasta: r2(+t.hasta || 0), escena: String(t.escena ?? '').slice(0, 60), propia: !!t.propia })),
+      tomaActual: Math.max(1, Math.round(numero(i.tomaActual, 1))),
+    } : {}),
     modelo: {
       cargado: i.cargado !== false,
       medidasMm: medidas ? Object.fromEntries(['x', 'y', 'z'].map(k => [k, r2(+medidas[k] || 0)])) : null,
@@ -1294,8 +1323,117 @@ function fueraDeAqui(x) {
 
 // interpretar(texto, proyecto, info) → acciones (la misma forma que devuelve /api/chat). Nunca lanza.
 export function interpretar(texto, proyecto, info = {}) {
-  try { return interpretarSinRed(texto, proyecto, esObj(info) ? info : {}); }
+  try { const i = esObj(info) ? info : {}; return conNoche(texto, proyecto, i, x => interpretarConTomas(x, proyecto, i)); }
   catch (e) { return accionesVacias('No pude entender eso. ' + AYUDA); }
+}
+
+// =====================================================================================================
+// ---------- Una escena por toma (v5) ----------
+// =====================================================================================================
+// «en la segunda toma usa satén esmeralda», «todas las tomas con fondo negro», «la última toma con la caja abierta», «en la toma 3…»,
+// «en esta toma…»: se quita la toma del pedido, se entiende el resto con la escena de esa toma como la de ahora y la acción de
+// escena lleva la toma (escena.toma). Sin decir la toma, si las tomas ya tienen escenas distintas, el cambio es para la del cabezal.
+const ORDINALES_TOMA = { primera: 1, primer: 1, segunda: 2, tercera: 3, cuarta: 4, quinta: 5, sexta: 6, septima: 7, setima: 7, octava: 8, novena: 9, decima: 10 };
+const NUMEROS_TOMA = { uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };
+const RE_TOMAS = [
+  [/\b(?:en\s+|para\s+|a\s+)?(?:todas\s+las\s+tomas|cada\s+toma|las\s+tomas\s+todas)\b/, () => 'todas'],
+  [/\b(?:en\s+|para\s+|a\s+)?(?:la\s+)?(primera|primer|segunda|tercera|cuarta|quinta|sexta|septima|setima|octava|novena|decima|ultima|penultima)\s+toma\b/, m => (m[1] === 'ultima' ? 'ultima' : m[1] === 'penultima' ? 'penultima' : ORDINALES_TOMA[m[1]])],
+  [/\b(?:en\s+|para\s+|a\s+)?(?:la\s+)?toma\s+(?:final|del\s+final)\b/, () => 'ultima'],
+  [/\b(?:en\s+|para\s+|a\s+)?(?:la\s+)?toma\s+(?:numero\s+|no\.?\s*|#\s*)?(\d{1,3}|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\b/, m => (/^\d/.test(m[1]) ? +m[1] : NUMEROS_TOMA[m[1]])],
+  [/\b(?:en\s+|para\s+|a\s+)?(?:esta|la\s+de\s+ahora|la\s+actual)\s+toma\b|\b(?:en\s+)?(?:la\s+)?toma\s+(?:actual|de\s+ahora)\b/, () => 'actual'],
+];
+// La toma que pide el texto: { toma, resto (el texto sin esa parte) } o null
+export function tomaPedida(texto) {
+  const s = String(texto ?? '');
+  // sin tildes y en minúsculas, letra por letra (así las posiciones son las mismas que en el texto original)
+  const plano = s.split('').map(c => (c.toLowerCase().normalize('NFD')[0] || c)).join('');
+  for (const [re, valor] of RE_TOMAS) {
+    const m = re.exec(plano);
+    if (!m) continue;
+    const toma = valor(m);
+    if (toma === undefined) continue;
+    const resto = (s.slice(0, m.index) + ' ' + s.slice(m.index + m[0].length)).replace(/^[\s,;:y]+(?=\S)/i, '').replace(/\s{2,}/g, ' ').trim();
+    return { toma, resto };
+  }
+  return null;
+}
+function interpretarConTomas(texto, proyecto, info) {
+  const P = esObj(proyecto) ? proyecto : {}, pedida = tomaPedida(texto);
+  const variadas = Array.isArray(P.planos) && P.planos.length > 0;
+  if (!pedida && !variadas) return interpretarSinRed(texto, proyecto, info);
+  const resto = pedida ? pedida.resto : texto;
+  let r = interpretarSinRed(resto, proyecto, info);
+  if (!r.escena?.cambiar) return pedida ? interpretarSinRed(texto, proyecto, info) : r;   // (no era sobre la escena: el texto tal cual)
+  // las tomas que quedan (si el mismo pedido pone cortes, las nuevas) y la escena de cada una
+  const cortes = r.cortes?.cambiar ? r.cortes.lista : Array.isArray(P.cortes) ? P.cortes : [];
+  const n = cortes.length + 1, toma = pedida ? pedida.toma : 'actual';
+  if (n === 1) {
+    // sin cortes hay una sola toma: «todas» o «esta» es todo el video; otra toma no existe
+    if (toma === 'todas' || toma === 'actual' || toma === 'ultima' || toma === 1) return r;
+    return sinEscena(r, 'Tu video tiene una sola toma (no tiene cortes): pon cortes primero, por ejemplo «haz 3 cortes», y luego dime en qué toma va cada escena.');
+  }
+  const actual = Math.round(numero(info.tomaActual, 1)) - 1;
+  const i = toma === 'todas' ? 'todas' : toma === 'ultima' ? n - 1 : toma === 'penultima' ? n - 2 : toma === 'actual' ? limitar(actual, 0, n - 1) : toma - 1;
+  if (i !== 'todas' && (i < 0 || i >= n)) return sinEscena(r, `Tu video tiene ${n} tomas: dime cuál, de la 1 a la ${n}.`);
+  const tmp = { duracion: P.duracion, cortes, planos: normalizarPlanos(P.planos, cortes, { copiar: false }) };
+  const escenas = escenasDeTomas(tmp, info.escena), ref = i === 'todas' ? info.escena : escenas[i];
+  const donde = i === 'todas' ? `en todas las tomas (${n})` : toma === 'ultima' ? `en la última toma (la ${i + 1})` : `en la toma ${i + 1}`;
+  r = interpretarSinRed(resto, proyecto, { ...info, escena: ref, dondeEscena: donde });
+  if (!r.escena?.cambiar) return r;
+  // «la caja abierta» en una toma que ya tiene su estuche o su cofre: se abre ese (no se cambia por una caja de regalo)
+  const u = r.escena.cambios?.utileria, suya = esObj(ref) && ref.id !== 'ninguna' ? ref.utileria : null;
+  const abierta = /\babiert[oa]s?\b/.test(normalizar(resto));
+  if (u && abierta && suya && suya.tipo !== 'ninguna' && suya.tipo !== u.tipo && !/\bregalo\b/.test(normalizar(resto))) r.escena.cambios.utileria = { tipo: suya.tipo, apertura: 1 };
+  if (abierta && r.escena.cambios?.utileria) {
+    r.escena.cambios.utileria.apertura = 1;
+    // si la tapa se anima con keyframes, en esa toma queda abierta (si no, lo de la pista le ganaría al panel)
+    if (i !== 'todas' && Array.isArray(P.pistas?.apertura) && P.pistas.apertura.length && !r.pistas.some(x => x.pista === 'apertura')) {
+      const claves = abiertaEnToma(P, cortes, i);
+      if (claves) r = normalizarAcciones({ ...r, pistas: [...r.pistas, { pista: 'apertura', claves }] }, { duracion: P.duracion });
+    }
+    if (!/abiert/.test(r.respuesta)) r.respuesta = r.respuesta.replace(/\.?\s*$/, '') + '. La tapa queda abierta.';
+  }
+  r.escena.toma = i === 'todas' ? 'todas' : i + 1;
+  return r;
+}
+// el pedido sin el cambio de escena (la toma no existe): lo demás sigue y se dice por qué
+function sinEscena(r, nota) {
+  const a = { ...r, escena: accionesVacias().escena };
+  a.respuesta = hayCambios(a) ? `${r.respuesta} ${nota}` : nota;
+  return a;
+}
+// La pista «apertura» con la tapa abierta en toda la toma i (el resto como estaba, con su costura en los cortes)
+function abiertaEnToma(P, cortes, i) {
+  const D = esNum(P.duracion) ? P.duracion : 8, ts = cortes.map(c => c.t), a = i ? ts[i - 1] : 0, b = i < ts.length ? ts[i] : D;
+  const pr = { duracion: D, cortes, pistas: { apertura: P.pistas.apertura } };
+  const antes = P.pistas.apertura.filter(c => esObj(c) && c.t < a - CUADRO - 1e-6), despues = P.pistas.apertura.filter(c => esObj(c) && c.t >= b - 1e-6);
+  const claves = [...antes];
+  if (a > 0) claves.push({ t: r4(a - CUADRO), v: r4(valorEn(pr, 'apertura', a - CUADRO)), curva: 'lineal' });
+  claves.push({ t: r4(a), v: 1, curva: 'lineal' });
+  if (b < D) { claves.push({ t: r4(b - CUADRO), v: 1, curva: 'lineal' }); if (!despues.length || despues[0].t > b + 1e-6) claves.push({ t: r4(b), v: r4(valorEn(pr, 'apertura', b)), curva: 'lineal' }); }
+  return [...claves, ...despues].sort((x, y) => x.t - y.t);
+}
+// A qué toma va un cambio de escena: null = a todo el video (como antes de las tomas), 'todas', un índice (desde 0) o 'fuera'
+function destinoDeToma(toma, proyecto, tomaActual) {
+  const n = tomasDe(proyecto).length, variadas = Array.isArray(proyecto.planos) && proyecto.planos.length > 0;
+  if (n < 2) return toma === undefined || toma === 'actual' || toma === 'todas' || toma === 'ultima' || toma === 1 ? null : 'fuera';
+  if (toma === 'todas') return 'todas';
+  if (toma === 'ultima') return n - 1;
+  if (Number.isInteger(toma)) return toma >= 1 && toma <= n ? toma - 1 : 'fuera';
+  return variadas ? limitar(Math.round(numero(tomaActual, 0)), 0, n - 1) : null;
+}
+// Pone la escena de la acción en las tomas (las que tienen escena propia: las demás la heredan). Una toma sola: la siguiente, si
+// heredaba, se queda con la que tenía (el pedido era solo para esa). La primera toma va por alEscena. Devuelve las tomas que cambió
+function aplicarEscenaEnTomas(proyecto, accion, destino, base, alEscena) {
+  const lista = tomasDe(proyecto), escenas = escenasDeTomas(proyecto, base), hechas = [];
+  const indices = destino === 'todas' ? lista.filter(t => t.indice === 0 || t.propia).map(t => t.indice) : [destino];
+  if (destino !== 'todas' && destino + 1 < lista.length && !lista[destino + 1].propia && escenas[destino + 1]) ponerEscenaToma(proyecto, destino + 1, escenas[destino + 1]);
+  for (const i of indices) {
+    const cfg = escenaDesdeAccion(accion, escenas[i]);
+    if (i === 0) alEscena(cfg, accion); else ponerEscenaToma(proyecto, i, cfg);
+    hechas.push(i);
+  }
+  return hechas;
 }
 
 function interpretarSinRed(texto, proyecto, info) {
@@ -1937,6 +2075,8 @@ function interpretarSinRed(texto, proyecto, info) {
     if (i >= 0) frases[i] = frases[i].replace(`del ${seg(k.a).replace(' s', '')} al`, `con un corte${conTr} en ${seg(k.a)}, del ${seg(k.a).replace(' s', '')} al`);
     else frases.push(`hay un corte${conTr} en ${seg(k.a)}`);
   }
+  // (v5: «en la toma 2, …» delante de lo que cambió en la escena, cuando el pedido era para una toma)
+  if (info.dondeEscena && frasesEscena.length) frasesEscena[0] = `${info.dondeEscena}, ${frasesEscena[0]}`;
   frases.push(...frasesCortes, ...frasesEscena);
   frases.push(...modTxt);
   if (textosNuevos.length) frases.push(`agregué ${textosNuevos.length === 1 ? 'el texto' : 'los textos'} ${textosNuevos.join(', ')}`.replace('el texto precio', 'el precio'));
@@ -1957,4 +2097,107 @@ function interpretarSinRed(texto, proyecto, info) {
   salida.respuesta = hayCambios(salida) ? todo : notas.length ? notas.join(' ') : fueraDeAqui(x) || 'No encontré nada que cambiar. ' + AYUDA;
   if (info.tienePiedras === false && conMetas.some(k => k.metas.foco?.valor === 1)) salida.respuesta += ' (No encontré piedras en el modelo, así que enfoco la parte de arriba.)';
   return normalizarAcciones(salida, { duracion: P.duracion });
+}
+
+// =====================================================================================================
+// ---------- Noche de regalo, grano de película y la joya que se mece (v5) ----------
+// =====================================================================================================
+// «ponla en una noche de regalo», «un mundo en miniatura con farol», «fondo de ciudad de noche», «con grano de película», «más
+// grano», «sin grano», «que la joya se balancee», «como un péndulo», «que se mezca despacio», «sin balanceo». Estas frases se
+// leen primero y se sacan del pedido: lo que queda lo entiende el intérprete de siempre y aquí se le suma la escena y la pista
+// «balanceo» (así «balanceo» solo, o «que la cámara se balancee», sigue siendo el ladeo de la cámara de antes)
+const FRASES_NOCHE = {
+  noche: /\b(?:(?:una\s+|la\s+)?noche\s+de\s+regalo|(?:un\s+)?mundo\s+(?:en\s+)?miniatura|miniatura\s+de\s+noche|(?:escena|mundo)\s+(?:navidena|de\s+navidad)|navidad\s+de\s+noche|(?:con\s+(?:un\s+|el\s+)?)?farol(?:es)?(?:\s+encendidos?)?|caja\s+de\s+regalo\s+gigante)\b/,
+  ciudad: /\b(?:(?:un\s+|el\s+)?fondo\s+de\s+(?:la\s+)?ciudad(?:\s+de\s+noche)?|ciudad\s+de\s+noche|cielo\s+estrellado|fachadas?\s+con\s+ventanas)\b/,
+  sinGrano: /\b(?:sin\s+(?:el\s+)?grano|quit\w*\s+(?:el\s+)?grano)\b/,
+  masGrano: /\bmas\s+grano\b/, menosGrano: /\bmenos\s+grano\b/,
+  granoPct: /\bgrano\s+(?:al|de|en)\s+(\d{1,3})\s*(?:%|por\s*ciento)/,
+  granoFuerte: /\b(?:mucho\s+grano|grano\s+(?:fuerte|marcado|grueso|notorio))\b/,
+  granoSuave: /\b(?:poco\s+grano|un\s+poco\s+de\s+grano|grano\s+(?:suave|sutil|fino|leve|ligero))\b/,
+  grano: /\b(?:(?:con|ponle|pon|agrega|anade)\s+(?:un\s+|el\s+)?)?(?:grano(?:\s+de\s+(?:pelicula|cine|foto))?|efecto\s+(?:de\s+)?(?:pelicula|analogico)|ruido\s+de\s+pelicula|granulad[oa])\b/,
+  sinBalanceo: /\b(?:sin\s+(?:el\s+)?(?:balanceo|pendulo)|que\s+no\s+se\s+(?:balancee|meza|mezca|columpie)|(?:que\s+)?(?:deje|pare)\s+de\s+(?:balancearse|mecerse|columpiarse)|quit\w*\s+(?:el\s+)?(?:balanceo|pendulo))\b/,
+  balanceo: /\b(?:(?:que\s+)?(?:la\s+joya|el\s+anillo|la\s+argolla|el\s+dije|el\s+colgante|la\s+pieza|el\s+collar|la\s+cadena|el\s+arete)\s+se\s+(?:balancee|balancea|meza|mezca|mece|columpie|columpia)|(?:que\s+)?se\s+(?:balancee|meza|mezca|columpie)|(?:como|en)\s+(?:un\s+)?pendulo|pendulo|balancea(?:la|lo)|mece(?:la|lo)|columpia(?:la|lo))\b(?:\s+(?:muy\s+)?(?:suave|suavecito|despacio|lento|lentamente|rapido|fuerte|poquito|un\s+poco|mucho|amplio|sin\s+parar|todo\s+el\s+tiempo))*/,
+};
+const GRANO_NOCHE = 0.35;
+// el pedido en minúsculas y sin tildes, letra por letra (para sacar las frases del texto original, que conserva las comillas)
+const sinTildes = t => [...t].map(c => c.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') || c).join('');
+function frasesNoche(texto) {
+  const orig = String(texto || ''), plano = sinTildes(orig), alineado = plano.length === orig.length;
+  let r = alineado ? orig : plano, p = plano;
+  const f = { algo: false };
+  const sacar = re => { const m = p.match(re); if (!m) return null; const i = m.index, j = i + m[0].length; r = r.slice(0, i) + ' '.repeat(j - i) + r.slice(j); p = p.slice(0, i) + ' '.repeat(j - i) + p.slice(j); f.algo = true; return m; };
+  if (sacar(FRASES_NOCHE.noche)) f.noche = true;
+  if (sacar(FRASES_NOCHE.ciudad)) f.ciudad = true;
+  let m;
+  if (sacar(FRASES_NOCHE.sinGrano)) f.grano = { valor: 0 };
+  else if (sacar(FRASES_NOCHE.masGrano)) f.grano = { suma: 0.2 };
+  else if (sacar(FRASES_NOCHE.menosGrano)) f.grano = { suma: -0.2 };
+  else if ((m = sacar(FRASES_NOCHE.granoPct))) f.grano = { valor: limitar(+m[1] / 100, 0, 1) };
+  else if (sacar(FRASES_NOCHE.granoFuerte)) f.grano = { valor: 0.6 };
+  else if (sacar(FRASES_NOCHE.granoSuave)) f.grano = { valor: 0.18 };
+  else if (sacar(FRASES_NOCHE.grano)) f.grano = { valor: GRANO_NOCHE };
+  // (la cámara que se balancea es el ladeo de siempre: no es la joya)
+  if (!/\bcamara\s+se\s+(?:balance|mec|mez)/.test(p)) {
+    if (sacar(FRASES_NOCHE.sinBalanceo)) f.balanceo = 'quitar';
+    else if ((m = sacar(FRASES_NOCHE.balanceo))) {
+      const x = m[0], o = {};
+      if (/\b(?:suave|suavecito|poquito|un\s+poco)\b/.test(x)) o.amplitud = 24; else if (/\b(?:fuerte|mucho|amplio)\b/.test(x)) o.amplitud = 52;
+      if (/\b(?:despacio|lento|lentamente)\b/.test(x)) o.periodo = 3.4; else if (/\brapido\b/.test(x)) o.periodo = 1.8;
+      if (/\b(?:sin\s+parar|todo\s+el\s+tiempo)\b/.test(x)) o.amortiguacion = 0.02;
+      f.balanceo = o;
+    }
+  }
+  f.resto = r.replace(/\s+/g, ' ').trim();
+  return f;
+}
+// Los campos v5 de una escena que traen los cambios (del intérprete o de la IA), validados
+function cambiosNoche(fuente) {
+  const out = {}, g = numero(fuente?.grano, NaN);
+  if (esNum(g) && g >= 0) out.grano = r2(limitar(g, 0, 1));
+  const mi = esObj(fuente?.miniatura) && fuente.miniatura.cambiar !== false ? fuente.miniatura : null;
+  if (mi) { const o = {}; for (const k of ['activo', 'farol', 'banca', 'regalo']) if (typeof mi[k] === 'boolean') o[k] = mi[k]; if (Object.keys(o).length) out.miniatura = o; }
+  const pv = numero(fuente?.pivote, NaN);
+  if (esNum(pv) && pv >= 0) out.pivote = r2(limitar(pv, 0, 8));
+  return out;
+}
+function camposNoche(base, c) {
+  const o = {};
+  if (esObj(base?.miniatura) || esObj(c.miniatura)) o.miniatura = { ...(base?.miniatura || {}), ...(c.miniatura || {}) };
+  if (esNum(c.grano)) o.grano = c.grano; else if (esNum(base?.grano)) o.grano = base.grano;
+  if (esNum(c.pivote)) o.pivote = c.pivote; else if (esNum(base?.pivote)) o.pivote = base.pivote;
+  return o;
+}
+function conNoche(texto, proyecto, info, base) {
+  const f = frasesNoche(texto);
+  if (!f.algo) return base(texto);
+  const P = esObj(proyecto) ? proyecto : {}, entendido = f.resto.replace(/[\s.,;:!?¿¡y]+/g, '') ? base(f.resto) : accionesVacias('');
+  const otro = hayCambios(entendido), r = { ...entendido, pistas: [...(entendido.pistas || [])] }, dichos = [];
+  const actual = esObj(info.escena) ? info.escena : null;
+  if (f.noche || f.ciudad || f.grano) {
+    const previa = r.escena?.cambiar && r.escena.id !== 'ninguna' ? r.escena : null, cambios = { ...(previa?.cambios || {}) };
+    const id = f.noche ? 'noche-de-regalo' : previa ? previa.id : 'actual';
+    if (f.ciudad && !f.noche) { cambios.fondo = { ...(cambios.fondo || {}), forma: 'ciudad', color: '#143B33' }; dichos.push('el fondo de ciudad de noche con su cielo estrellado'); }
+    if (f.noche) dichos.push('la escena «Noche de regalo»: la caja de regalo gigante de escenario, el farol encendido, la banca y la cajita que vuela con su estela');
+    if (f.grano) {
+      const antes = f.noche ? ESCENAS['noche-de-regalo'].grano : numero(actual?.grano, 0), v = r2(limitar(esNum(f.grano.valor) ? f.grano.valor : antes + f.grano.suma, 0, 1));
+      cambios.grano = v;
+      dichos.push(v ? `grano de película al ${Math.round(v * 100)} %` : 'sin grano de película');
+    }
+    r.escena = { cambiar: true, id, cambios: Object.keys(cambios).length ? cambios : null };
+    const pedida = tomaPedida(texto);
+    if (previa?.toma !== undefined) r.escena.toma = previa.toma; else if (pedida) r.escena.toma = pedida.toma;
+  }
+  if (f.balanceo) {
+    const D = r.duracion || numero(P.duracion, 8);
+    const claves = f.balanceo === 'quitar' ? [] : clavesPendulo({ ...f.balanceo, duracion: D });
+    r.pistas = r.pistas.filter(x => x.pista !== 'balanceo').concat([{ pista: 'balanceo', claves }]);
+    if (f.balanceo === 'quitar') dichos.push('la joya ya no se mece');
+    else {
+      const A = Math.round(Math.abs(claves[0]?.v || 0)), T = (f.balanceo.periodo || 2.6).toLocaleString('es-CO');
+      dichos.push(`la joya se mece como un péndulo (empieza a ${A}°, una ida y vuelta cada ${T} s${f.balanceo.amortiguacion === 0.02 ? ', sin parar' : ' y se va calmando'})`);
+    }
+  }
+  const mio = dichos.length ? `${otro ? 'Además' : 'Listo'}: ${dichos.join('; ')}.` : '';
+  r.respuesta = otro ? `${(entendido.respuesta || '').replace(/\s*$/, '')} ${mio}`.trim() : mio;
+  return normalizarAcciones(r, { duracion: r.duracion || numero(P.duracion, 8) });
 }

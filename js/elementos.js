@@ -6,6 +6,8 @@
 // Todo el movimiento es una función cerrada del tiempo t (sin azar por cuadro: la semilla fija la variación), así la vista
 // previa y el video dan exactamente lo mismo. Nada atraviesa la joya, el piso ni a los otros elementos: las trayectorias
 // se planean con holguras y se revisan con números al armar.
+// v5: obstáculos (op.obstaculos): las paredes y la tapa de un estuche abierto donde va la joya, el farol y la banca del mundo en
+// miniatura y el espacio por donde se mece la joya (pista «balanceo»). Ningún elemento se planea dentro de ellos.
 // Unidades: las del estudio (el STL de la joya viene en mm: mmPorUnidad = 1). El STL que se exporta va en mm.
 // Marcos: la utilería del piso gira con el escenario (motor rápido: girar(az), como Escenario3D; trazador: quieta, allá gira
 // la joya) y la cinta y la cadena del dije van pegadas a la joya (motor rápido: quietas; trazador: dentro de la tornamesa).
@@ -170,10 +172,46 @@ export function describirJoya(op = {}) {
   const ax = Math.max(Math.abs(caja.min.x), Math.abs(caja.max.x)), az = Math.max(Math.abs(caja.min.z), Math.abs(caja.max.z));
   const suelo = typeof op.suelo === 'number' && Number.isFinite(op.suelo) ? Math.min(op.suelo, caja.min.y) : caja.min.y;
   return {
-    caja, mm, R, rJ: Math.hypot(ax, az), yMin: caja.min.y, yMax: caja.max.y, centro: caja.getCenter(V()), suelo, gap: 0.05 * R,
+    caja, mm, R, rJ: Math.hypot(ax, az), yMin: caja.min.y, yMax: caja.max.y, centro: caja.getCenter(V()), suelo, gap: 0.05 * R, obstaculos: leerObstaculos(op.obstaculos),
     version: op.version ?? null, objeto: j.objeto?.isObject3D ? j.objeto : null, triangulos: j.triangulos instanceof Float32Array ? j.triangulos : null,
     metal: typeof op.metal === 'string' ? op.metal : typeof j.metal === 'string' ? j.metal : '',
   };
+}
+// ---------- Obstáculos (v5) ----------
+// Cada uno es una caja (Box3, en el marco de la joya) y cuánto puede girar respecto al marco de los elementos del piso (giro, en
+// radianes): el estuche donde va la joya gira con la joya y los elementos con el escenario (la tornamesa del motor rápido), así
+// que un estuche que se mece ±1 rad barre un abanico; 0 = quieto respecto a los elementos; Infinity = la vuelta entera (se
+// toma el cuerpo de revolución: el disco que lo envuelve)
+function leerObstaculos(lista) {
+  if (!Array.isArray(lista)) return [];
+  return lista.map(o => {
+    const caja = aCaja(o?.caja ?? o);
+    if (!caja) return null;
+    const giro = o?.giro === Infinity ? Infinity : typeof o?.giro === 'number' && Number.isFinite(o.giro) ? Math.abs(o.giro) : 0;
+    let rho = 0; for (const x of [caja.min.x, caja.max.x]) for (const z of [caja.min.z, caja.max.z]) rho = Math.max(rho, Math.hypot(x, z));
+    return { caja, giro, rho };
+  }).filter(Boolean).slice(0, 48);
+}
+const _qo = V();
+// ¿La esfera de radio r en p (o la columna que sube alto desde p: lo que cae desde arriba) toca algún obstáculo?
+function chocaObstaculo(J, p, r, alto = 0) {
+  const L = J.obstaculos;
+  if (!L?.length) return false;
+  const m = r + J.gap;
+  for (const o of L) {
+    const c = o.caja;
+    if (p.y + alto < c.min.y - m || p.y > c.max.y + m) continue;
+    if (o.giro === Infinity) { if (Math.hypot(p.x, p.z) < o.rho + m) return true; continue; }
+    // el abanico: el punto girado a lo largo del giro posible (con un margen por el arco entre muestras)
+    const n = o.giro > 0 ? Math.max(3, Math.ceil(o.giro / 0.12) + 1) : 1, rp = Math.hypot(p.x, p.z), extra = n > 1 ? rp * (2 * o.giro / (n - 1)) / 2 : 0;
+    for (let i = 0; i < n; i++) {
+      const th = n > 1 ? -o.giro + 2 * o.giro * i / (n - 1) : 0, co = Math.cos(th), si = Math.sin(th);
+      _qo.set(p.x * co + p.z * si, 0, -p.x * si + p.z * co);
+      const mm = m + extra;
+      if (_qo.x > c.min.x - mm && _qo.x < c.max.x + mm && _qo.z > c.min.z - mm && _qo.z < c.max.z + mm) return true;
+    }
+  }
+  return false;
 }
 // Triángulos de la joya en coordenadas del mundo (9 números por triángulo). Se guardan por versión del modelo
 const CACHE_TRI = new Map();
@@ -793,12 +831,12 @@ function alturaRebote(b, tau) {
 // tocar el piso), rb (esfera que la envuelve) y marco ('escenario' | 'joya').
 const LEJOS = 200;   // en radios de la joya: donde esperan los que todavía no caen (fuera de cualquier encuadre)
 function colocar(n, F, J, ocupados, r, { h, lado0 = 1, preferir = 'lados', empuje = 0 }) {
-  const rb = F.info.rb, res = [], R = J.R;
+  const rb = F.info.rb, res = [], R = J.R, hay = J.obstaculos.length > 0, paso = hay ? Math.max(0.45 * rb, 0.12 * R) : 0.45 * rb;
   for (let i = 0; i < n; i++) {
     const lado = i % 2 === 0 ? lado0 : -lado0;
     let mejor = null, ms = Infinity;
-    for (let k = 0; k < 48 && !(mejor && k > 6 && ms < 0.6); k++) {
-      const rho = J.rJ + rb + J.gap + empuje + k * 0.45 * rb, M = Math.max(16, Math.ceil(2 * Math.PI * rho / (0.5 * rb)));
+    for (let k = 0; k < (hay ? 72 : 48) && !(mejor && k > 6 && ms < 0.6); k++) {
+      const rho = J.rJ + rb + J.gap + empuje + k * paso, M = Math.max(16, Math.ceil(2 * Math.PI * rho / (0.5 * rb)));
       for (let m = 0; m < M; m++) {
         const psi = 2 * Math.PI * (m + 0.5 * r()) / M, cx = Math.cos(psi), sz = Math.sin(psi);
         let pen = (rho - J.rJ) / R + 0.25 * r();
@@ -808,6 +846,8 @@ function colocar(n, F, J, ocupados, r, { h, lado0 = 1, preferir = 'lados', empuj
         const p = V(rho * cx, J.suelo + h, rho * sz);
         if (res.some(o => o.distanceTo(p) < 2 * rb + J.gap)) continue;
         if (ocupados.some(o => Math.hypot(o.p.x - p.x, o.p.z - p.z) < rb + o.r + J.gap)) continue;
+        // (lo que cae lo hace desde arriba: también la columna sobre el punto tiene que estar libre)
+        if (hay && chocaObstaculo(J, V(p.x, J.suelo, p.z), rb, 2 * rb + (preferir === 'cae' ? 6 * R : 0))) continue;
         ms = pen; mejor = p;
       }
     }
@@ -844,6 +884,8 @@ function planGrupo(g, J, ctx, empuje = 0) {
         let x = s * (Math.max(libre, rb + J.gap) + ronda * paso + 0.5 * rb * r());
         const hR = modo === 'bola' ? d.r : modo === 'rueda' ? F.info.rRueda : modo === 'volteo' ? d.s / 2 : altos[i];
         for (let it = 0; it < 40 && quietos.some(o => o.p.distanceTo(V(x, J.suelo + hR, z)) < rb + o.r + J.gap); it++) x += s * 0.5 * rb;
+        // (afuera del estuche o del farol: rueda desde su lado y frena antes de tocarlos)
+        for (let it = 0; it < 120 && chocaObstaculo(J, V(x, J.suelo, z), rb, 2 * hR); it++) x += s * 0.25 * rb;
         const ini = t0g + (n > 1 ? resto * i / (n - 1) : 0), dir = V(-s, 0, 0), eje = V().crossVectors(EJE_Y, dir);
         const q0 = modo === 'rueda' ? Q().setFromUnitVectors(EJE_Y, eje).multiply(qEje(EJE_Y, r() * 2 * Math.PI)) : modo === 'volteo' ? qEje(EJE_Y, 0) : reposos[i];
         const xF = x, rr = modo === 'bola' ? d.r : F.info.rRueda;
@@ -880,6 +922,7 @@ function planGrupo(g, J, ctx, empuje = 0) {
         const slots = () => Array.from({ length: n }, (_, i) => V(rho * Math.cos(a0 + 2 * Math.PI * i / n), J.suelo + altos[i], rho * Math.sin(a0 + 2 * Math.PI * i / n)));
         pos = slots();
         for (let it = 0; it < 40 && pos.some(p => ctx.ocupados.some(o => o.p.distanceTo(p) < rb + o.r + J.gap)); it++) { rho += 0.5 * rb; pos = slots(); }
+        for (let it = 0; it < 120 && pos.some(p => chocaObstaculo(J, V(p.x, J.suelo, p.z), rb, 6 * R)); it++) { rho += 0.25 * rb + 0.03 * R; pos = slots(); }
       } else if (g.coreografia === 'lluvia') {
         // en el primer plano, entre la joya y la cámara (desenfocadas con la profundidad de campo)
         pos = [];
@@ -888,12 +931,13 @@ function planGrupo(g, J, ctx, empuje = 0) {
           for (let k = 0; k < 600 && !p; k++) {
             const ancho = 1.1 * R + k * 0.004 * R, c = V((r() * 2 - 1) * ancho, J.suelo + altos[i], J.rJ + rb + J.gap + empuje + r() * (1.5 * R + k * 0.004 * R));
             if (Math.hypot(c.x, c.z) < J.rJ + rb + J.gap) continue;
+            if (chocaObstaculo(J, V(c.x, J.suelo, c.z), rb, 7 * R)) continue;
             if (pos.some(o => o.distanceTo(c) < 2 * rb + J.gap) || ctx.ocupados.some(o => o.p.distanceTo(c) < rb + o.r + J.gap)) continue;
             p = c;
           }
           pos.push(p || V((i - n / 2) * 2.2 * rb, J.suelo + altos[i], J.rJ + 2 * R + empuje));
         }
-      } else pos = colocar(n, F, J, ctx.ocupados, r, { h: 0, lado0, empuje }).map((p, i) => p.setY(J.suelo + altos[i]));
+      } else pos = colocar(n, F, J, ctx.ocupados, r, { h: 0, lado0, empuje, preferir: g.coreografia === 'rebotar' ? 'cae' : 'lados' }).map((p, i) => p.setY(J.suelo + altos[i]));
       const e = g.coreografia === 'caer-en-circulo' ? 0.32 : g.coreografia === 'lluvia' ? 0.42 : 0.5;
       const Tb = g.coreografia === 'lluvia' ? T * 0.45 : g.coreografia === 'caer-en-circulo' ? T * 0.62 : T * 0.8;
       for (let i = 0; i < n; i++) {
@@ -919,9 +963,12 @@ function planGrupo(g, J, ctx, empuje = 0) {
     }
     case 'fila-flotante': {
       const beta = (r() - 0.5) * 0.5, dirF = V(Math.cos(beta), 0, Math.sin(beta)), A = 0.35 * rb, sep = 2 * rb + Math.max(J.gap, 0.8 * rb);
-      const z = (J.rJ + rb + J.gap) / Math.cos(beta) + 0.15 * R + empuje;
+      let z = (J.rJ + rb + J.gap) / Math.cos(beta) + 0.15 * R + empuje;
       let y = Math.max(J.centro.y - 0.1 * R, J.suelo + rb + A + J.gap);
       const deriva = 0.5 * R;
+      // (delante del estuche abierto o del farol: la fila entera, en todo su recorrido, queda fuera de ellos)
+      const enFila = (zz, yy) => [-deriva, deriva].some(dd => Array.from({ length: n }, (_, i) => V(0, yy - A, zz).addScaledVector(dirF, (i - (n - 1) / 2) * sep + dd)).some(c => chocaObstaculo(J, c, rb, 2 * A)));
+      for (let it = 0; it < 120 && enFila(z, y); it++) z += 0.3 * rb + 0.02 * R;
       for (let it = 0; it < 30; it++) {   // que no pase por lo que ya está en el piso
         const ok = Array.from({ length: n }, (_, i) => V(0, y, z).addScaledVector(dirF, (i - (n - 1) / 2) * sep)).every(c => ctx.ocupados.every(o => Math.hypot(c.x - o.p.x, c.z - o.p.z) > rb + o.r + J.gap + deriva || Math.abs(c.y - o.p.y) > rb + o.r + J.gap + A));
         if (ok) break; y += 0.4 * rb;
@@ -942,8 +989,13 @@ function planGrupo(g, J, ctx, empuje = 0) {
     }
     case 'orbitar': {
       const tilt = (r() < 0.5 ? 1 : -1) * M_(12), dirG = r() < 0.5 ? 1 : -1, vueltas = T > 7 ? 2 : 1;
-      const rho = Math.max((J.rJ + rb + 2 * J.gap) / Math.cos(tilt) + empuje, n > 1 ? (2 * rb + J.gap) / (2 * Math.sin(Math.PI / n)) : 0);
-      const yo = Math.max(J.centro.y, J.suelo + rho * Math.abs(Math.sin(tilt)) + rb + J.gap), f0 = r() * 2 * Math.PI;
+      let rho = Math.max((J.rJ + rb + 2 * J.gap) / Math.cos(tilt) + empuje, n > 1 ? (2 * rb + J.gap) / (2 * Math.sin(Math.PI / n)) : 0);
+      let yo = Math.max(J.centro.y, J.suelo + rho * Math.abs(Math.sin(tilt)) + rb + J.gap);
+      // (la órbita pasa por fuera del estuche abierto: se abre hasta que ningún punto de la vuelta lo toque)
+      for (let it = 0; it < 60 && Array.from({ length: 48 }, (_, k) => k / 48 * 2 * Math.PI).some(f => chocaObstaculo(J, V(rho * Math.cos(f), yo + rho * Math.sin(f) * Math.sin(tilt), rho * Math.sin(f) * Math.cos(tilt)), rb)); it++) {
+        rho *= 1.07; yo = Math.max(J.centro.y, J.suelo + rho * Math.abs(Math.sin(tilt)) + rb + J.gap);
+      }
+      const f0 = r() * 2 * Math.PI;
       for (let i = 0; i < n; i++) {
         const fi = f0 + 2 * Math.PI * i / n, ejeG = V(r() - 0.5, r() - 0.5, r() - 0.5).normalize(), qr = reposos[i];
         const pos = (f, p) => p.set(rho * Math.cos(f), yo + rho * Math.sin(f) * Math.sin(tilt), rho * Math.sin(f) * Math.cos(tilt));
@@ -973,7 +1025,7 @@ function planVolar(g, F, J, ctx, r, plan, empuje) {
     for (let j = 0; j <= 10 * vueltas; j++) { const f = f0 + dirG * 2 * Math.PI * j / 10; ctrl.push(V(rho * Math.cos(f), 0.25 * R + 0.35 * R * Math.sin(2 * f), 0.9 * rho * Math.sin(f))); }
     ctrl.push(V(s * 4 * R, 1.3 * R + alza, 1.3 * R), V(s * 8 * R, 1.8 * R + alza, 0.9 * R));
     const { puntos, largo } = remuestrear(curvaB(ctrl.map(p => p.add(C)), 1600), 700);
-    const ok = puntos.every(p => (Math.hypot(p.x, p.z) >= J.rJ + rb + 2 * J.gap || p.y - rb > J.yMax + J.gap || p.y + rb < J.yMin - J.gap) && p.y - rb > J.suelo + J.gap);
+    const ok = puntos.every((p, k) => (Math.hypot(p.x, p.z) >= J.rJ + rb + 2 * J.gap || p.y - rb > J.yMax + J.gap || p.y + rb < J.yMin - J.gap) && p.y - rb > J.suelo + J.gap && (k % 4 || !chocaObstaculo(J, p, rb)));
     camino = { puntos, largo };
     if (ok) break;
     rho *= 1.18; for (const p of camino.puntos) p.y = Math.max(p.y, J.suelo + rb + 2 * J.gap);
@@ -1447,7 +1499,8 @@ export function planearElementos(lista, op = {}) {
   }
   for (const g of grupos) if (g.forma === 'cadena') { const c = planCadena(g, J, { ...op, planes }); avisos.push(...c.avisos); planes.push({ g, camino: c, instancias: [], marco: c.marco }); }
   const tFin = Math.max(0, ...grupos.map(g => g.inicio + g.duracion), ...planes.flatMap(p => p.instancias.map(i => i.finT || 0)));
-  const clave = JSON.stringify([grupos, J.caja.min.toArray(), J.caja.max.toArray(), J.mm, J.suelo, J.version, J.metal, aV(op.ancla?.ancla ?? op.ancla?.punto ?? op.ancla)?.toArray(), op.anclasCadena && JSON.stringify(op.anclasCadena), aV(op.centroVuelo)?.toArray(), J.objeto?.uuid]);
+  const clave = JSON.stringify([grupos, J.caja.min.toArray(), J.caja.max.toArray(), J.mm, J.suelo, J.version, J.metal, aV(op.ancla?.ancla ?? op.ancla?.punto ?? op.ancla)?.toArray(), op.anclasCadena && JSON.stringify(op.anclasCadena), aV(op.centroVuelo)?.toArray(), J.objeto?.uuid,
+    J.obstaculos.map(o => [o.caja.min.toArray().map(v => +v.toFixed(4)), o.caja.max.toArray().map(v => +v.toFixed(4)), o.giro === Infinity ? 'inf' : +o.giro.toFixed(4)])]);
   return { grupos, planes, J, avisos: [...new Set(avisos)], tFin, clave };
 }
 // Instantes donde mirar si algo choca: parejos en toda la duración y los bordes de cada movimiento
@@ -1862,4 +1915,4 @@ export class Elementos {
 }
 
 // (para las pruebas)
-export const _interno = { describirJoya, buscarAgujero, triangulosJoya, rejillaDe, distanciaJoya, piezasDe, medidas, solidoDe, cintaEn, cintaCortada, cintaSolida, catenaria, eslabones, eslabonGeo, argollaGeo, cadenaSolida, destello, sdfElemento, alturaRebote, rebote, STLS };
+export const _interno = { chocaObstaculo, leerObstaculos, describirJoya, buscarAgujero, triangulosJoya, rejillaDe, distanciaJoya, piezasDe, medidas, solidoDe, cintaEn, cintaCortada, cintaSolida, catenaria, eslabones, eslabonGeo, argollaGeo, cadenaSolida, destello, sdfElemento, alturaRebote, rebote, STLS };

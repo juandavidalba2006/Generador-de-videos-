@@ -1,4 +1,4 @@
-// Composición de cada cuadro: fondo de marca, sombra de contacto, la joya y las capas de texto del proyecto.
+// Composición de cada cuadro: fondo de marca, sombra de contacto, la joya, el grano de película y las capas de texto del proyecto.
 import { dibujarTextos, marcoSeleccion } from './textos.js';
 
 export const FONDOS = {
@@ -93,7 +93,8 @@ export class Compositor {
   // opaco: el render 3D trae su propia escena (pedestal y fondo) y cubre todo: no van el fondo de marca ni la sombra 2D.
   // oscuro: si se da, decide el color de los textos (con escena lo dice la escena); si no, el del fondo de marca.
   // Con escena, ese es solo el tono preferido: cada texto «auto» se ajusta a lo que tiene detrás en el cuadro
-  cuadro({ fondo, render3D, sombra, intensidadSombra = 1, mascara = null, capas = [], t = null, duracion, seleccion = null, opaco = false, oscuro = null }) {
+  // grano: 0..1, el grano de película de la escena (encima de la imagen y debajo de los textos, que quedan nítidos)
+  cuadro({ fondo, render3D, sombra, intensidadSombra = 1, mascara = null, capas = [], t = null, duracion, seleccion = null, opaco = false, oscuro = null, grano = 0 }) {
     const ctx = this.ctx, W = this.lienzo.width, H = this.lienzo.height, f = FONDOS[fondo] || FONDOS.perla;
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     if (opaco) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }   // (nunca debería verse: la escena cubre todo el cuadro)
@@ -108,10 +109,55 @@ export class Compositor {
       ctx.drawImage(capa, 0, 0);
     }
     if (render3D) ctx.drawImage(render3D, 0, 0, W, H);
+    if (grano > 0) dibujarGrano(ctx, W, H, grano, t);
     const fondoTextos = opaco && render3D && capas?.some(c => c && !c.oculta) ? this.fondoTextos(render3D, W, H) : null;
     dibujarTextos(ctx, capas, { W, H, t, oscuro: typeof oscuro === 'boolean' ? oscuro : f.oscuro, duracion, fondo: fondoTextos });
     if (seleccion) marcoSeleccion(ctx, seleccion, { W, H });
   }
+}
+
+// ---------- Grano de película (v5, r6) ----------
+// Un grano fino encima de la imagen, como el de una ilustración o una foto analógica. Es determinista: el dibujo de cada cuadro
+// sale de su instante t (la vista previa, el video rápido, el realista y la foto del mismo segundo dan el mismo grano) y cambia
+// de un cuadro al siguiente, como en el cine. El tamaño va con el ancho del cuadro: se ve igual en la vista previa que en el
+// video de 1080. Dos pasadas: «overlay» da el grano en los medios tonos y una suma muy suave lo deja ver también en las sombras
+// (en una escena de noche casi todo es sombra, y «overlay» sobre negro no se nota)
+const TAM_GRANO = 256, N_TESELAS = 4;
+let teselasGrano = null;
+function hashGrano(n) { let h = Math.imul(n ^ 0x9E3779B9, 0x85EBCA6B); h ^= h >>> 13; h = Math.imul(h, 0xC2B2AE35); return (h ^ (h >>> 16)) >>> 0; }
+function crearTeselasGrano() {
+  const L = [];
+  for (let k = 0; k < N_TESELAS; k++) {
+    const medio = document.createElement('canvas'), claro = document.createElement('canvas');
+    medio.width = medio.height = claro.width = claro.height = TAM_GRANO;
+    const xm = medio.getContext('2d'), xc = claro.getContext('2d'), im = xm.createImageData(TAM_GRANO, TAM_GRANO), ic = xc.createImageData(TAM_GRANO, TAM_GRANO);
+    let s = hashGrano(k * 7919 + 1) || 1;
+    const azar = () => ((s = (Math.imul(s, 1103515245) + 12345) >>> 0) >>> 8) / 16777216;
+    for (let i = 0; i < im.data.length; i += 4) {
+      const g = azar() + azar() + azar() - 1.5;   // casi gaussiano (suma de tres uniformes), centrado en 0
+      const v = Math.round(128 + 118 * g), c = Math.round(Math.max(0, g) * 120);
+      im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255;
+      ic.data[i] = ic.data[i + 1] = ic.data[i + 2] = c; ic.data[i + 3] = 255;
+    }
+    xm.putImageData(im, 0, 0); xc.putImageData(ic, 0, 0);
+    L.push({ medio, claro });
+  }
+  return L;
+}
+export function dibujarGrano(ctx, W, H, cantidad, t = 0) {
+  const k = Math.min(1, Math.max(0, +cantidad || 0));
+  if (!k || typeof document === 'undefined') return;
+  const T = teselasGrano || (teselasGrano = crearTeselasGrano());
+  const n = Math.round((Number.isFinite(t) ? t : 0) * 1000), h = hashGrano(n), te = T[h % N_TESELAS];
+  // el grano mide ~1,3 px en un cuadro de 1080 de ancho (y lo mismo, a escala, en la vista previa)
+  const esc = 1.3 * W / 1080, ox = (h >>> 3) % TAM_GRANO, oy = (h >>> 11) % TAM_GRANO;
+  ctx.save();
+  for (const [lienzo, modo, alfa] of [[te.medio, 'overlay', 0.5 * k], [te.claro, 'lighter', 0.22 * k]]) {
+    const pat = ctx.createPattern(lienzo, 'repeat');
+    pat.setTransform(new DOMMatrix([esc, 0, 0, esc, -ox * esc, -oy * esc]));
+    ctx.globalCompositeOperation = modo; ctx.globalAlpha = alfa; ctx.fillStyle = pat; ctx.fillRect(0, 0, W, H);
+  }
+  ctx.restore();
 }
 
 function mezclar(a, b, t) {

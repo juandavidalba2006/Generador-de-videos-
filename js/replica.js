@@ -6,6 +6,13 @@
 //   recolorearEscena(escena, { fondo, superficie, caja, cinta }) → la escena con esos colores (las muestras del panel)
 //   aplicarReplica(proyecto, plan, { movimientos, cortes, textos, sonidos, musica, duracion }) → lo que cambió (muta el proyecto;
 //   la escena y los materiales los pone main.js con sus propias funciones)
+//   paletaDeImagen({ data, width, height }) → la paleta de un cuadro (fondo, superficie, oscuro…): replicar.js la mide en la
+//   miniatura de cada plano y la deja en analisis.planos[i].paleta
+//
+// v5, una escena por toma: con la paleta de cada plano, la toma cuyo fondo se ve distinto del de la escena principal (el satén
+// oscuro del comienzo de r3, antes del ciclorama claro) lleva su propia escena, con los colores de la marca que hacen su papel en
+// esa toma: plan.escenasTomas = [{ escena, muestras }] (una por plano; null = la misma escena en todo el video). aplicarReplica
+// las deja en proyecto.planos (la primera es plan.escena, que main.js pone como la escena del proyecto).
 //
 // Cómo se mezclan las dos fuentes: el flujo (lo medido cuadro a cuadro) sabe hacia dónde y cuándo se mueve la cámara; la IA
 // sabe mejor el encuadre (qué tan cerca, desde qué altura) porque mira la foto entera. Si dicen lo mismo, se afina la
@@ -137,9 +144,12 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
     previo = v;
   }
   if (!hayMacro) pistas.desenfoque = [];
+  // una escena por toma: las que se ven distintas de la principal llevan la suya (la primera toma es la escena del plan)
+  const escenasTomas = escenasPorToma(planos, lista, conIA ? ia : null, a.paleta, { escena, muestras }, modoColor);
+  const escenaPlan = escenasTomas ? escenasTomas[0].escena : escena, muestrasPlan = escenasTomas ? escenasTomas[0].muestras : muestras;
 
   // la tapa del estuche se abre cuando la IA lo vio (keys en la pista «apertura»)
-  const ab = conIA && esObj(ia.abre_estuche) && ia.abre_estuche.abre && escena?.utileria && escena.utileria.tipo !== 'ninguna' ? ia.abre_estuche : null;
+  const ab = conIA && esObj(ia.abre_estuche) && ia.abre_estuche.abre && (escenasTomas || [{ escena }]).some(x => x.escena?.utileria && x.escena.utileria.tipo !== 'ninguna') ? ia.abre_estuche : null;
   if (ab) {
     const t0 = ajustarACuadro(limitar(num(ab.desde, -1) >= 0 ? ab.desde * k : 0.4, 0, D - 0.4));
     const t1 = ajustarACuadro(limitar(num(ab.hasta, -1) > num(ab.desde, -1) ? ab.hasta * k : t0 + 1.1, t0 + 0.3, D));
@@ -157,8 +167,142 @@ export function construirReplica(analisis, ia = null, opciones = {}) {
   const sonidos = sonidosEnCortes(cortes, D);
   const musica = musicaDelPlan(ia, cortes, D);
   if (!conIA) avisos.push('Sin IA: los movimientos, los cortes y los colores salen del análisis hecho en tu equipo; la joya y los textos no se detectan.');
-  const resumen = conIA && ia.resumen ? ia.resumen : resumenLocal(planos, cortes, escena, D);
-  return { duracion: D, bucle: false, cortes, pistas, escena, materiales, joya, textos, sonidos, musica, resumen, avisos, planos, conIA: !!conIA, duracionVideo: r2(durVideo), colores: { modo: modoColor, muestras } };
+  let resumen = conIA && ia.resumen ? ia.resumen : resumenLocal(planos, cortes, escenaPlan, D);
+  if (escenasTomas) { const n = new Set(escenasTomas.map(x => JSON.stringify(x.escena))).size; resumen += ` Una escena por toma: ${n} escenas distintas en ${planos.length} tomas.`; }
+  return {
+    duracion: D, bucle: false, cortes, pistas, escena: escenaPlan, materiales, joya, textos, sonidos, musica, resumen, avisos, planos, conIA: !!conIA,
+    duracionVideo: r2(durVideo), colores: { modo: modoColor, muestras: muestrasPlan }, escenasTomas,
+  };
+}
+
+// ---------- Una escena por toma (v5) ----------
+// La paleta de un cuadro (RGBA): fondo = lo de arriba y los costados (lejos de la pieza, que suele ir al centro), superficie = lo
+// de abajo; oscuro, calidez y sombras duras como en paletaEscena del analizador. Sirve con la miniatura chica de cada plano
+export function paletaDeImagen(img) {
+  const { data, width: W, height: H } = esObj(img) ? img : {};
+  if (!data || !(W > 2) || !(H > 2) || data.length < W * H * 4) return null;
+  const fondo = [], sup = [], izq = [], der = [], lum = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = 4 * (y * W + x), c = [data[i], data[i + 1], data[i + 2]], ux = (x + 0.5) / W, uy = (y + 0.5) / H;
+    const l = lum[y * W + x] = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    if (uy < 0.25 || (uy < 0.7 && (ux < 0.14 || ux > 0.86))) fondo.push(c);
+    if (uy > 0.82 && ux > 0.15 && ux < 0.85) sup.push(c);
+    if (ux < 0.33) izq.push(l); else if (ux > 0.67) der.push(l);
+  }
+  const mediana = v => { const o = Float64Array.from(v).sort(); return o.length ? o[o.length >> 1] : 0; };
+  const med = lista => [0, 1, 2].map(k => mediana(lista.map(c => c[k])));
+  const F = med(fondo), S = sup.length ? med(sup) : F;
+  const hex = c => '#' + c.map(v => Math.round(limitar(v, 0, 255)).toString(16).padStart(2, '0')).join('').toUpperCase();
+  const lin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const L = c => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+  const calidez = limitar(((F[0] - F[2]) / (F[0] + F[2] + 1) + (S[0] - S[2]) / (S[0] + S[2] + 1)) * 3, -1, 1);
+  // sombras duras: bordes marcados en el fondo (con el paso de la miniatura, como contrasteFondo del analizador)
+  let fuertes = 0, total = 0;
+  const p = Math.max(1, Math.round(W / 80));
+  for (let y = 2 * p; y < H - 2 * p; y += p) for (let x = 2 * p; x < W - 2 * p; x += p) {
+    const ux = x / W, uy = y / H;
+    if (ux > 0.25 && ux < 0.75 && uy > 0.2 && uy < 0.85) continue;
+    const i = y * W + x, gx = (lum[i + 2 * p] - lum[i - 2 * p]) / 4, gy = (lum[i + 2 * p * W] - lum[i - 2 * p * W]) / 4;
+    total++; if (Math.hypot(gx, gy) > 6) fuertes++;
+  }
+  const mI = mediana(izq), mD = mediana(der), lado = (mI - mD) / Math.max(20, (mI + mD) / 2);
+  return { fondo: hex(F), superficie: hex(S), oscuro: L(F) < 0.12, calidez: r2(calidez), sombrasDuras: total > 0 && fuertes / total > 0.05, luzDesde: Math.abs(lado) > 0.08 ? (lado > 0 ? 'izquierda' : 'derecha') : 'frente' };
+}
+
+// ¿Dos fondos se ven iguales? (la misma claridad y casi el mismo color: la toma usa la misma escena)
+function mismoFondo(a, b) {
+  const x = oklab(a), y = oklab(b);
+  if (!x || !y) return true;
+  const ab = c => [c.C * Math.cos(c.h * Math.PI / 180), c.C * Math.sin(c.h * Math.PI / 180)], [xa, xb] = ab(x), [ya, yb] = ab(y);
+  return Math.hypot(x.L - y.L, xa - ya, xb - yb) < 0.09 && (x.L < 0.4) === (y.L < 0.4);
+}
+const sinTildes = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+// Lo que la IA vio en una toma de otro fondo: el mismo pedido (la joya, el par, si flota), con el fondo de esa toma (satén si la
+// IA lo dice en la descripción del plano o si es oscuro y parejo; si no, un ciclorama: fondo curvo y la joya en el piso). El
+// estuche y los elementos son de la escena principal
+function iaDeToma(ia, p, formaDicha) {
+  const oscuro = claridad(p.fondo) < 0.4;
+  const tela = formaDicha ? formaDicha === 'tela' : oscuro;   // (un fondo oscuro y parejo de un reel de joyas es una tela)
+  const id = tela ? SATEN_DE_MARCA[marcaMasCercana(p.fondo, 'fondo')] || 'saten-noche' : 'marmol-blanco';
+  const e = esObj(ia?.escena) ? ia.escena : {}, luz = esObj(e.luz) ? e.luz : {};
+  return {
+    ...(esObj(ia) ? ia : {}),
+    escena: {
+      id, superficie: { forma: 'piso', material: tela ? 'saten' : 'yeso', color: hex6(p.superficie) || hex6(p.fondo) },
+      fondo: { forma: tela ? 'tela' : 'curva', material: tela ? 'saten' : 'yeso', color: hex6(p.fondo) },
+      luz: { gobo: 'ninguno', angulo: num(luz.angulo, -20), elevacion: num(luz.elevacion, 50), suavidad: num(luz.suavidad, 0.6), calidez: num(luz.calidez, num(p.calidez, 0.2)) },
+    },
+    // (una tela que no es clara va en clave baja, como los satenes de la marca; un ciclorama claro, en clave alta)
+    luz_esquema: oscuro || (tela && claridad(p.fondo) < 0.6) ? 'clave-baja' : ia?.luz_esquema === 'clave-baja' || ia?.luz_esquema === 'contraluz' ? 'alta-clave' : ia?.luz_esquema || 'alta-clave',
+    utileria: { tipo: 'ninguna', color: '', cinta: '', posicion: 'asiento' }, abre_estuche: { abre: false, desde: -1, hasta: -1 }, elementos: [], destellos: false,
+  };
+}
+// La escena de cada toma del plan: [{ escena, muestras }] o null (todas iguales, o sin la paleta de cada plano: como antes).
+// Las tomas se juntan por su fondo (claridad y color parecidos, en cadena) y, si la IA describe el fondo de la toma («sobre satén»,
+// «ciclorama claro»), también por eso. El grupo que más dura usa la escena principal (la que vio la IA en todo el video, con el
+// estuche y los elementos); un grupo con el mismo fondo y la misma forma que la principal, también. Los demás llevan la suya
+function escenasPorToma(planos, analizados, ia, paletaGlobal, principal, modo) {
+  if (!principal?.escena) return null;
+  const paletas = planos.map(pl => analizados.find(x => (x.indice ?? -1) === pl.analizado)?.paleta).map(p => (esObj(p) && hex6(p.fondo) ? p : null));
+  if (planos.length < 2 || !paletas.some(Boolean)) return null;
+  const desc = planos.map(pl => (Array.isArray(ia?.planos) ? ia.planos.find(x => esObj(x) && x.indice === pl.analizado)?.descripcion || '' : ''));
+  const pista = desc.map(formaDescrita);
+  // grupos por fondo (enlace simple) y, dentro de cada uno, por la forma que dijo la IA (las tomas sin forma van con la más común)
+  const g = planos.map(() => -1);
+  for (let i = 0, n = 0; i < planos.length; i++) {
+    if (!paletas[i]) continue;
+    if (g[i] < 0) g[i] = n++;
+    for (let j = 0; j < planos.length; j++) if (j !== i && paletas[j] && mismoFondo(paletas[i].fondo, paletas[j].fondo)) {
+      if (g[j] < 0) g[j] = g[i]; else if (g[j] !== g[i]) { const a = g[j]; for (let k = 0; k < g.length; k++) if (g[k] === a) g[k] = g[i]; }
+    }
+  }
+  const forma = planos.map((_, i) => pista[i] || null);
+  for (const x of new Set(g)) {
+    if (x < 0) continue;
+    const cuenta = {}; g.forEach((y, i) => { if (y === x && forma[i]) cuenta[forma[i]] = (cuenta[forma[i]] || 0) + 1; });
+    const comun = Object.entries(cuenta).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    g.forEach((y, i) => { if (y === x && !forma[i]) forma[i] = comun; });
+  }
+  const clave = i => (g[i] < 0 ? null : `${g[i]}|${forma[i] || ''}`);
+  const dura = new Map();
+  planos.forEach((pl, i) => { const k = clave(i); if (k) dura.set(k, (dura.get(k) || 0) + num(pl.duracion, 0)); });
+  const mayor = [...dura.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const ref = hex6(ia?.escena?.fondo?.color) || hex6(paletaGlobal?.fondo);
+  const formaPrincipal = principal.escena.fondo?.forma === 'tela' ? 'tela' : 'curva';
+  const porGrupo = new Map();
+  const res = planos.map((pl, i) => {
+    const k = clave(i);
+    if (!k || k === mayor) return principal;
+    if (!porGrupo.has(k)) {
+      // la toma más larga del grupo dice su paleta
+      const miembros = planos.map((_, j) => j).filter(j => clave(j) === k), r0 = miembros.sort((a, b) => num(planos[b].duracion, 0) - num(planos[a].duracion, 0))[0];
+      const p = paletas[r0], f = forma[r0];
+      if (ref && mismoFondo(p.fondo, ref) && (!f || f === formaPrincipal)) porGrupo.set(k, principal);
+      else { const r = escenaDelPlan(ia ? iaDeToma(ia, p, f) : null, p, modo); porGrupo.set(k, r?.escena ? r : principal); }
+    }
+    return porGrupo.get(k);
+  });
+  return res.every(r => r === principal) ? null : res.map(r => ({ escena: r.escena, muestras: (r.muestras || []).map(m => ({ ...m })) }));
+}
+// El fondo que la IA dice ver en la descripción de una toma: 'tela' (satén, seda, terciopelo), 'curva' (ciclorama, fondo claro o
+// liso, el horizonte del estudio) o null
+function formaDescrita(texto) {
+  const d = sinTildes(texto);
+  if (/\b(saten|seda|tela|pliegues?|terciopelo)\b/.test(d)) return 'tela';
+  if (/\b(ciclorama|infinito|horizonte|estudio|fondo (claro|liso|curvo|parejo))\b/.test(d)) return 'curva';
+  return null;
+}
+// Otro color en una parte de las escenas de las tomas indicadas (las muestras del panel por grupo de tomas). Devuelve el plan
+export function recolorearTomas(plan, indices, rol, hex) {
+  const h = hex6(hex);
+  if (!esObj(plan) || !Array.isArray(plan.escenasTomas) || !h) return plan;
+  for (const i of indices) {
+    const t = plan.escenasTomas[i]; if (!t?.escena) continue;
+    t.escena = recolorearEscena(t.escena, { [rol]: h });
+    for (const m of t.muestras || []) if (m.rol === rol || (rol === 'fondo' && m.rol === 'superficie' && t.escena.fondo?.forma === 'tela')) { m.hex = h; m.marca = idMarca(h); }
+  }
+  if (plan.escenasTomas[0]) { plan.escena = plan.escenasTomas[0].escena; plan.colores = { ...plan.colores, muestras: plan.escenasTomas[0].muestras }; }
+  return plan;
 }
 
 // ¿La escena es una composición? La joya junto a algo grande que queda quieto (la esfera de cristal de r8): el estudio los
@@ -541,7 +685,9 @@ export function describirPuesta(escena) {
   }
   return out;
 }
-export const nombreDeEscena = e => (!esObj(e) ? null : e.id === 'ninguna' ? ESCENAS.ninguna.nombre : nombreEscena(e.preset) || nombreEscena(e.id === 'personalizada' ? e.base : e.id));
+// (el fondo curvo con la joya en el piso, sin pedestal ni tela, es un ciclorama: así se llama en el estudio de fotografía)
+export const nombreDeEscena = e => (!esObj(e) ? null : e.id === 'ninguna' ? ESCENAS.ninguna.nombre
+  : !e.preset && e.superficie?.forma === 'piso' && e.fondo?.forma === 'curva' && e.superficie?.material === 'yeso' ? 'Ciclorama' : nombreEscena(e.preset) || nombreEscena(e.id === 'personalizada' ? e.base : e.id));
 
 // Sonidos en los cortes (estilo viral): el golpe cae justo en el corte
 const SONIDO_CORTE = { seco: ['whooshCorto', 0.6], barrido: ['whoosh', 0.7], flash: ['impacto', 0.75], negro: ['impacto', 0.6] };
@@ -660,6 +806,17 @@ export function aplicarReplica(proyecto, plan, { movimientos = true, cortes = tr
     }
   }
   if (cortes) { proyecto.cortes = normalizarCortes(P.cortes, D); hecho.cortes = true; }
+  // una escena por toma (con los cortes del reel): cada toma que cambia de escena la lleva en proyecto.planos; las que siguen
+  // con la misma, la heredan. Sin los cortes del reel, el proyecto queda con una sola escena (la del reel, que pone main.js)
+  if (escena && esObj(proyecto)) {
+    const lista = cortes && Array.isArray(P.escenasTomas) ? P.escenasTomas : null, cs = Array.isArray(proyecto.cortes) ? proyecto.cortes : [];
+    proyecto.planos = [];
+    if (lista) for (let j = 1; j < lista.length && j - 1 < cs.length; j++) {
+      const e = lista[j]?.escena, antes = lista[j - 1]?.escena;
+      if (esObj(e) && JSON.stringify(e) !== JSON.stringify(antes)) proyecto.planos.push({ desde: cs[j - 1].t, escena: JSON.parse(JSON.stringify(e)) });
+    }
+    if (proyecto.planos.length) hecho.escena = true;
+  }
   if (textos && Array.isArray(P.textos) && P.textos.length) {
     const actuales = Array.isArray(proyecto.textos) ? proyecto.textos : [];
     const nuevas = typeof convertir === 'function' ? convertir(P.textos, { formato, capasActuales: actuales }) : null;

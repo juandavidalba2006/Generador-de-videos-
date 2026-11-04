@@ -5,6 +5,9 @@
 // v4: la tela de satén, el degradado y los destellos del fondo, el esquema de luz y «La joya» (flotando y en par). Los
 // controles nuevos usan data-ruta («fondo.ondas», «flotar.activo»…). Al cambiar de escena lista se conservan el estuche,
 // los elementos y el par (son lo que hay en la escena, no su aspecto).
+// v5: con cortes, cada toma puede tener su escena. La barra de la toma (barraToma, que main.js pone arriba de la pestaña) dice qué
+// toma se edita («Toma 2 de 5»), lleva a la anterior o a la siguiente y tiene «Igual que la toma anterior» y «Usar en todas las
+// tomas»; ponerToma(info) la actualiza y alToma(accion, i) avisa ('ir' con el índice, 'anterior' o 'todas').
 import { ESCENAS, FORMAS_SUPERFICIE, FORMAS_FONDO, MATERIALES_ESCENA, GOBOS, RANGOS, RANGOS_JOYA, ESQUEMAS_LUZ, normalizarEscena, escenaDe } from './escenas.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -33,6 +36,9 @@ const ICONO = {
   persiana: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
   foco: '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2.2"/>',
   reiniciar: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v5h5"/>',
+  izq: '<path d="M14.5 6l-6 6 6 6"/>', der: '<path d="M9.5 6l6 6-6 6"/>',
+  todas: '<rect x="3" y="6" width="5" height="12" rx="1"/><rect x="9.5" y="6" width="5" height="12" rx="1"/><rect x="16" y="6" width="5" height="12" rx="1"/>',
+  igual: '<rect x="3.5" y="6" width="7" height="12" rx="1"/><rect x="13.5" y="6" width="7" height="12" rx="1"/><path d="M11 12h2"/>',
   tela: '<path d="M4 4c2 3 1 6 3 9s4 5 4 7"/><path d="M10 4c1.5 2.5 2 5 4 7.5S19 16 20 20"/><path d="M4 20h16"/>',
   'clave-baja': '<rect x="4" y="4" width="16" height="16" rx="2" opacity=".35"/><path d="M12 6v5"/><circle cx="12" cy="15" r="2.5"/>',
   'alta-clave': '<circle cx="12" cy="12" r="4"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
@@ -187,13 +193,17 @@ const conContenido = (n, de) => { for (const k of CONTENIDO) if (de && de[k] !==
 
 // ---------- El panel ----------
 export class PanelEscena {
-  constructor(contenedor, { estudio = null, alCambiar = null } = {}) {
-    this.cont = contenedor; this.estudio = estudio; this.alCambiar = alCambiar;
+  constructor(contenedor, { estudio = null, alCambiar = null, alToma = null } = {}) {
+    this.cont = contenedor; this.estudio = estudio; this.alCambiar = alCambiar; this.alToma = alToma;
     this.cfg = normalizarEscena(estudio?.escena3D ?? 'ninguna');
     this.pendiente = null; this.ultimoAviso = 0;
     contenedor.classList.add('pes');
     contenedor.innerHTML = this.html();
     this.ranuraLiso = contenedor.querySelector('[data-ranura=liso]');   // main.js pone aquí «Fondo» y «Sombra bajo la pieza»
+    // la barra de la toma: main.js la lleva arriba de toda la pestaña (también manda sobre el estuche y los elementos)
+    this.barraToma = contenedor.querySelector('[data-toma]');
+    this.barraToma.addEventListener('click', e => this.alClicToma(e));
+    this.toma = { indice: 0, total: 1 };
     contenedor.addEventListener('click', e => this.alClic(e));
     contenedor.addEventListener('input', e => this.alMover(e, false));
     contenedor.addEventListener('change', e => this.alMover(e, true));
@@ -205,7 +215,7 @@ export class PanelEscena {
   // Cambio desde afuera (chat, deshacer, abrir un proyecto): no se avisa con alCambiar
   poner(cfg) { this.cfg = normalizarEscena(cfg); clearTimeout(this.pendiente); this.pendiente = null; this.render(); }
   // Durante la exportación la escena queda congelada
-  bloquear(si) { for (const f of this.cont.querySelectorAll('fieldset')) f.disabled = !!si; }
+  bloquear(si) { for (const f of [...this.cont.querySelectorAll('fieldset'), ...this.barraToma.querySelectorAll('fieldset')]) f.disabled = !!si; }
 
   html() {
     const rangoR = (ruta, txt, min, max, paso) => `<label class="rango"><span>${txt}</span><input type="range" data-ruta="${ruta}" min="${min}" max="${max}" step="${paso}"><output data-salida="${ruta}"></output></label>`;
@@ -217,6 +227,24 @@ export class PanelEscena {
       </div>`;
     const materiales = grupo => `<select data-grupo="${grupo}" data-campo="material" aria-label="Material">${Object.entries(MATERIALES_ESCENA).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('')}</select>`;
     return `
+      <section class="pes-toma" data-toma hidden aria-label="Toma que se edita">
+        <fieldset class="pes-campos">
+          <legend class="vh">Toma que se edita</legend>
+          <div class="pes-toma-fila">
+            <canvas class="pes-toma-mini" width="72" height="90" aria-hidden="true"></canvas>
+            <div class="pes-toma-txt" aria-live="polite"><b data-toma-n></b><span data-toma-d></span></div>
+            <div class="pes-toma-nav">
+              <button type="button" class="pes-toma-ir" data-accion-toma="ir" data-paso="-1" aria-label="Toma anterior" title="Toma anterior">${svg('izq')}</button>
+              <button type="button" class="pes-toma-ir" data-accion-toma="ir" data-paso="1" aria-label="Toma siguiente" title="Toma siguiente">${svg('der')}</button>
+            </div>
+          </div>
+          <p class="pes-ayuda pes-toma-nota" data-toma-nota></p>
+          <div class="pes-toma-acciones">
+            <button type="button" class="btn sec chico" data-accion-toma="anterior" title="Esta toma deja su escena y usa la de la toma anterior">${svg('igual')}<span>Igual que la toma anterior</span></button>
+            <button type="button" class="btn sec chico" data-accion-toma="todas" title="Todas las tomas pasan a usar la escena de esta toma">${svg('todas')}<span>Usar en todas las tomas</span></button>
+          </div>
+        </fieldset>
+      </section>
       <section class="pes-bloque">
         <div class="pes-cab"><h3>Escena</h3><span class="pes-ayuda">Dónde se apoya la joya, el fondo y cómo le llega la luz</span></div>
         <fieldset class="pes-campos">
@@ -273,6 +301,35 @@ export class PanelEscena {
           <div class="pes-pie"><p class="pes-ayuda" data-base></p><button type="button" class="btn sec chico" data-accion="reiniciar">${svg('reiniciar')}Volver a la escena lista</button></div>
         </fieldset>
       </details>`;
+  }
+
+  // ---------- La toma ----------
+  // info: { indice, total, desde, hasta, propia, nombre, nombreAnterior, variadas (alguna toma tiene escena propia) }
+  ponerToma(info = {}) {
+    const t = this.toma = { indice: 0, total: 1, ...info }, b = this.barraToma, i = t.indice, varias = t.total > 1;
+    b.hidden = !varias;
+    if (!varias) return;
+    const n = x => (Number.isFinite(x) ? x : 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    b.querySelector('[data-toma-n]').textContent = `Toma ${i + 1} de ${t.total}`;
+    b.querySelector('[data-toma-d]').textContent = `${n(t.desde)} – ${n(t.hasta)} s · ${t.nombre || ''}`;
+    b.querySelector('[data-toma-nota]').textContent = i === 0
+      ? 'Es la primera toma: las tomas sin escena propia usan esta misma.'
+      : t.propia ? 'Esta toma tiene su propia escena: lo que cambies aquí solo se ve en ella.'
+        : `Usa la misma escena que la toma ${i} («${t.nombreAnterior || ''}»). Cambia algo aquí y tendrá la suya.`;
+    const [ant, sig] = b.querySelectorAll('[data-accion-toma=ir]');
+    ant.disabled = i === 0; sig.disabled = i >= t.total - 1;
+    const igual = b.querySelector('[data-accion-toma=anterior]');
+    igual.disabled = i === 0 || !t.propia;
+    igual.setAttribute('aria-pressed', String(i > 0 && !t.propia));
+    b.querySelector('[data-accion-toma=todas]').disabled = !t.variadas && i === 0;
+    const lz = b.querySelector('canvas'), clave = JSON.stringify(this.cfg);
+    if (lz.dataset.dibujo !== clave) { dibujarMiniatura(lz, this.cfg); lz.dataset.dibujo = clave; }
+    b.dataset.indice = String(i);
+  }
+  alClicToma(e) {
+    const el = e.target.closest('[data-accion-toma]'); if (!el || el.disabled) return;
+    const a = el.dataset.accionToma;
+    this.alToma?.(a, a === 'ir' ? this.toma.indice + (+el.dataset.paso || 0) : this.toma.indice);
   }
 
   // ---------- Eventos ----------

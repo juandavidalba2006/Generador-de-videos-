@@ -161,3 +161,20 @@
   .rpl-soltar,.rpl-prog i,.rpl-muestra{transition:none}
   .rpl-pasos li[data-estado=curso] .rpl-paso-icono{animation:none;border-color:var(--oro-vivo)}
 }
+
+/* v5: una escena por toma. La tira de planos lleva el color del fondo de cada toma; la tarjeta lista las escenas distintas con
+   las tomas que las usan, y las muestras de color van por grupo de tomas */
+.rpl-plano-escena{position:absolute;right:6px;bottom:6px;width:16px;height:16px;border-radius:50%;background:var(--c);box-shadow:0 0 0 1.5px rgba(252,251,248,.9),0 1px 3px rgba(23,21,15,.45)}
+.rpl-escenas{grid-column:1/-1}
+.rpl-escenas-lista{list-style:none;margin:4px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.rpl-escenas-lista li{display:flex;gap:10px;align-items:center;min-width:0;background:var(--papel);border:1px solid var(--linea);border-radius:8px;padding:6px 8px}
+.rpl-escenas-lista canvas{flex:none;width:36px;height:45px;border-radius:5px;border:1px solid var(--linea)}
+.rpl-escenas-lista li > span{display:flex;flex-direction:column;min-width:0}
+.rpl-escenas-lista b{font-size:13px;font-weight:600;color:var(--tinta)}
+.rpl-colores-grupo h5{margin:8px 0 0;font-family:var(--serif);font-weight:500;font-size:14.5px;color:var(--tinta)}
+.rpl-colores-grupo + .rpl-colores-grupo{border-top:1px solid var(--linea);padding-top:4px}
+@media (prefers-color-scheme: dark){
+  .rpl-escenas-lista li{background:#1D1A14;border-color:#3A352B}
+  .rpl-escenas-lista canvas{border-color:#4A4438}
+  .rpl-plano-escena{box-shadow:0 0 0 1.5px #17150F,0 1px 3px rgba(0,0,0,.7)}
+}

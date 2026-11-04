@@ -101,3 +101,37 @@
   .pes-sin-escena{background:#16140F}
 }
 @media (prefers-reduced-motion: reduce){.pes-marco,.pes-muestra,.pes-personalizar summary::before,.pes-interruptor i,.pes-interruptor i::after{transition:none}}
+
+/* v5: la barra de la toma que se edita («Toma 2 de 5»): arriba de la pestaña Escena, se queda a la vista al bajar al estuche y
+   a los elementos. La miniatura es la escena de esa toma */
+.pes-toma{position:sticky;top:0;z-index:3;margin:0 0 18px;background:var(--papel);border:1px solid var(--linea);border-left:3px solid var(--oro-vivo);border-radius:12px;padding:10px 12px 12px;box-shadow:0 8px 18px -16px rgba(23,21,15,.6)}
+.pes-toma[hidden]{display:none}
+.pes-toma .pes-campos{gap:8px}
+.pes-toma .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.pes-toma-fila{display:flex;align-items:center;gap:12px;min-width:0}
+.pes-toma-mini{width:36px;height:45px;border-radius:6px;flex:none;box-shadow:0 0 0 1px var(--linea)}
+.pes-toma-txt{display:flex;flex-direction:column;min-width:0;flex:1 1 auto;line-height:1.25}
+.pes-toma-txt b{font-family:var(--serif);font-weight:500;font-size:17px;color:var(--tinta)}
+.pes-toma-txt span{font-size:12.5px;color:var(--tinta2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pes-toma-nav{display:flex;gap:6px;flex:none}
+.pes-toma-ir{all:unset;box-sizing:border-box;cursor:pointer;width:34px;height:34px;border-radius:50%;border:1px solid var(--linea);background:var(--perla);display:grid;place-items:center;color:var(--tinta);transition:border-color .18s,background-color .18s}
+.pes-toma-ir svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+@media (hover:hover){.pes-toma-ir:not(:disabled):hover{border-color:var(--oro)}}
+.pes-toma-ir:focus-visible{outline:2px solid var(--oro);outline-offset:2px}
+.pes-toma-ir:disabled{opacity:.35;cursor:default}
+.pes-toma-nota{border-left:0;padding:0}
+.pes-toma-acciones{display:flex;flex-wrap:wrap;gap:6px 8px}
+.pes-toma-acciones .btn{min-height:32px;padding:5px 12px 5px 9px;gap:6px}
+.pes-toma-acciones .btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:var(--oro)}
+.pes-toma-acciones .btn:disabled{opacity:.45;cursor:default}
+.pes-toma-acciones .btn[aria-pressed=true]{opacity:.6}
+.pes-toma fieldset:disabled{opacity:.55}
+/* en una columna la página entera se desplaza; en el celular, debajo de la barra fija de arriba */
+@media (max-width:900px){.pes-toma{top:58px}}
+@media (max-width:420px){.pes-toma-acciones .btn{flex:1 1 100%;justify-content:center}}
+@media (prefers-color-scheme: dark){
+  .pes-toma{background:#1D1A14;border-color:#3A352B;border-left-color:var(--oro-vivo);box-shadow:0 8px 18px -14px rgba(0,0,0,.9)}
+  .pes-toma-ir{background:#26231C;border-color:#4A4438}
+  .pes-toma-mini{box-shadow:0 0 0 1px #4A4438}
+}
+@media (prefers-reduced-motion: reduce){.pes-toma-ir{transition:none}}
