@@ -472,6 +472,8 @@ export class Estudio {
       joya: { caja: this.cajaJoyas || this.caja, mmPorUnidad: 1, objeto: this.joyas }, suelo: ru?.escenario ? ru.suelo : this.escenario.limites?.tope ?? this.base,
       version: this.versionModelo, metal: this.ajustes.metal, ancla: an.mono ? { punto: an.mono.local, direccion: an.mono.direccionLocal } : undefined,
       anclasCadena: an.izquierda && an.derecha ? { izquierda: an.izquierda.local, derecha: an.derecha.local } : undefined,
+      // (v5: los mismos obstáculos que al armarlos, así el STL baja como se ve)
+      obstaculos: this.obstaculosElementos(this.utileriaDe(this.escena3D), ru, this.miniatura.resultado, this.cajaJoyas || this.caja), centroVuelo: this.miniatura.resultado?.cabeza || undefined,
     };
   }
   // El frente de la escena (radianes que se suman al giro de la cámara): con una cinta que pasa por el agujero de la joya, el
@@ -565,7 +567,8 @@ export class Estudio {
     }
     return this.juegosT;
   }
-  versionToma() { return `${this.versionModelo}|${this.ajustes.metal}`; }
+  // (la joya, el metal y hasta dónde se mece la joya: los elementos se planean fuera de ese espacio)
+  versionToma() { return `${this.versionModelo}|${this.ajustes.metal}|${this.balanceoMax || 0}`; }
   nuevoJuego(actual = false) {
     const piezas = actual ? Object.fromEntries(Estudio.PIEZAS_TOMA.map(k => [k, this[k]]))
       : { escenario: new Escenario3D(), utileria: new Utileria({ alCambiarPT: () => { this.ptSucio = true; } }), elementos: new Elementos() };

@@ -92,7 +92,8 @@ export class LineaTiempo {
   constructor(contenedor, { obtenerProyecto, alCambiar, alMoverCabezal, alSeleccionar, efectos, estilosMusica, pistaVisible, valorSinClaves, tomas } = {}) {
     this.cont = contenedor;
     this.obtenerProyecto = obtenerProyecto;
-    this.pistaVisible = typeof pistaVisible === 'function' ? pistaVisible : k => !PISTAS_ESCENA.includes(k);
+    // (sin la app, las de la escena —y el balanceo de la joya— quedan ocultas mientras no tengan keyframes)
+    this.pistaVisible = typeof pistaVisible === 'function' ? pistaVisible : k => !PISTAS_ESCENA.includes(k) && k !== 'balanceo';
     this.claveEnTodas = typeof pistaVisible === 'function' ? () => this.visibles() : () => Object.keys(PISTAS);
     // valor de una pista que todavía no tiene keyframes y lo toma de otro lado (la apertura del estuche, del panel)
     this.valorSinClaves = typeof valorSinClaves === 'function' ? valorSinClaves : () => null;

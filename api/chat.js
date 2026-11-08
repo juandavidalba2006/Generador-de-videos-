@@ -259,6 +259,19 @@ ${Object.entries(ESCENAS).map(([k, e]) => `  ${k} = ${e.nombre}: ${e.descripcion
   recorrido (${RECORRIDOS_CINTA_IDS.join(', ')}) y pasa por el anillo; la cadena cuelga de la joya. «perlas que caen en círculo» = perlas con
   caer-en-circulo; «una cinta en corazón» = cinta con recorrido corazon; «esfera de cristal» = cristal; «cuelga una cadena» = cadena.
 
+# Noche de regalo, grano y péndulo (v5)
+- «noche de regalo», «mundo en miniatura», «escena navideña de noche», «con un farol» = escena.id «noche-de-regalo» (todos los grupos en
+  false): la tapa de una caja de regalo gigante es el piso, con un farol encendido cuyo halo late, una banca, una cajita de regalo que
+  vuela alrededor del farol con su estela y, detrás, fachadas con ventanas bajo un cielo estrellado (fondo forma «ciudad»). La joya es la
+  protagonista, enorme al lado del farol. No hay figuras de personas (la joyera puede subir las suyas como STL). «fondo de ciudad de
+  noche» = id «actual» con el grupo fondo en true y forma «ciudad».${ESQUEMA.properties.escena.properties.grano ? `
+- «con grano», «grano de película», «más grano», «sin grano» = escena.grano (0 a 1; 0.35 normal, 0 = sin grano, -1 = no cambiarlo).` : ''}
+- «que la joya se balancee», «como un péndulo», «que se meza» = la pista balanceo (−60 a 60°: la joya entera se mece colgada de un punto
+  encima de ella, rígida; la cámara no la sigue): un keyframe en cada extremo, cada medio periodo, con curva suave, alternando el signo y
+  bajando la amplitud como A·e^(−0.25·t): con A = 42° y periodo 2.6 s → 0 s 42, 1.3 s −30.3, 2.6 s 21.9, 3.9 s −15.8, 5.2 s 11.4…, y el
+  último keyframe al final del video. «suave» = A 24°, «fuerte» = A 52°, «despacio» = periodo 3.4 s. «sin balanceo» = la pista vacía.
+  Ojo: «balanceo» solo, o «que la cámara se balancee», sigue siendo el ladeo de la cámara (rodar).
+
 # Cada mensaje
 Con cada pedido llega el estado actual del proyecto en JSON dentro de <proyecto>: duración, bucle, keyframes de cada pista, cortes, escena
 (null si no se sabe), textos, audio y datos del modelo (medidas en mm, si tiene piedras, metal, piedra, formato). Úsalo para partir de lo que ya hay. Todo lo que está dentro de

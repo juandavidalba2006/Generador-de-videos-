@@ -296,6 +296,7 @@ export class PanelEscena {
               ${rango('luz', 'angulo', 'De dónde viene', -90, 90, 1)}${rango('luz', 'elevacion', 'Altura de la luz', RANGOS.elevacion.min, RANGOS.elevacion.max, 1)}
               ${rango('luz', 'suavidad', 'Suavidad de las sombras', 0, 1, 0.01)}${rango('luz', 'intensidad', 'Intensidad', RANGOS.intensidad.min, RANGOS.intensidad.max, 0.01)}
               ${rango('luz', 'calidez', 'Calidez', RANGOS.calidez.min, RANGOS.calidez.max, 0.01)}${rango('escena', 'ambiente', 'Relleno (luz del estudio)', RANGOS.ambiente.min, RANGOS.ambiente.max, 0.01)}
+              ${rango('escena', 'grano', 'Grano de película', RANGOS.grano.min, RANGOS.grano.max, 0.01)}
             </div>
           </div>
           <div class="pes-pie"><p class="pes-ayuda" data-base></p><button type="button" class="btn sec chico" data-accion="reiniciar">${svg('reiniciar')}Volver a la escena lista</button></div>
@@ -451,5 +452,6 @@ function texto(k, v) {
   if (k === 'suavidad') return v < 0.2 ? 'Dura' : v < 0.55 ? 'Media' : 'Muy suave';
   if (k === 'calidez') return Math.abs(v) < 0.12 ? 'Neutra' : v < 0 ? 'Fría' : 'Cálida';
   if (k === 'intensidad' || k === 'ambiente') return `${n(v * 100)} %`;
+  if (k === 'grano') return v < 0.02 ? 'Sin grano' : `${n(v * 100)} %`;   // (v5)
   return `×${n(v, 2)}`;
 }

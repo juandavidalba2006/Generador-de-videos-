@@ -149,8 +149,9 @@ export function dibujarGrano(ctx, W, H, cantidad, t = 0) {
   if (!k || typeof document === 'undefined') return;
   const T = teselasGrano || (teselasGrano = crearTeselasGrano());
   const n = Math.round((Number.isFinite(t) ? t : 0) * 1000), h = hashGrano(n), te = T[h % N_TESELAS];
-  // el grano mide ~1,3 px en un cuadro de 1080 de ancho (y lo mismo, a escala, en la vista previa)
-  const esc = 1.3 * W / 1080, ox = (h >>> 3) % TAM_GRANO, oy = (h >>> 11) % TAM_GRANO;
+  // el grano mide ~2 px en un cuadro de 1080 de ancho (y lo mismo, a escala, en la vista previa): más fino, el códec del
+  // video (y el de Instagram) lo borra
+  const esc = 2 * W / 1080, ox = (h >>> 3) % TAM_GRANO, oy = (h >>> 11) % TAM_GRANO;
   ctx.save();
   for (const [lienzo, modo, alfa] of [[te.medio, 'overlay', 0.5 * k], [te.claro, 'lighter', 0.22 * k]]) {
     const pat = ctx.createPattern(lienzo, 'repeat');
