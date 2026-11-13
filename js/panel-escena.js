@@ -64,6 +64,7 @@ export function dibujarMiniatura(lienzo, cfg) {
   g.addColorStop(0, tono(f.color, -0.06 - 0.55 * deg)); g.addColorStop(0.62, tono(f.color, 0.06)); g.addColorStop(1, tono(f.color, -0.04));
   x.fillStyle = g; x.fillRect(0, 0, 120, 150);
   if (f.forma === 'tela') telaMiniatura(x, f.color, l, oscuro);
+  else if (f.forma === 'ciudad') ciudadMiniatura(x, f.color);
   else if (f.forma === 'pared') { x.fillStyle = tono(f.color, 0.1); x.fillRect(0, 104, 120, 46); x.fillStyle = tono(f.color, -0.12); x.fillRect(0, 103.5, 120, 1); }
   else if (f.forma === 'arco') {
     x.fillStyle = tono(f.color, -0.13); x.beginPath(); x.moveTo(30, 112); x.lineTo(30, 50); x.arc(60, 50, 30, Math.PI, 0); x.lineTo(90, 112); x.fill();
@@ -72,10 +73,11 @@ export function dibujarMiniatura(lienzo, cfg) {
     const p = x.createLinearGradient(0, 80, 0, 150); p.addColorStop(0, 'rgba(255,255,255,0)'); p.addColorStop(1, 'rgba(255,255,255,.16)');
     x.fillStyle = p; x.fillRect(0, 80, 120, 70);
   }
-  // la luz: la ventana, la persiana, el arco o el foco, insinuados en el fondo (la tela ya trae sus brillos)
-  if (f.forma !== 'tela') luzMiniatura(x, l, oscuro);
-  // la superficie
-  const tope = superficieMiniatura(x, s, f);
+  // la luz: la ventana, la persiana, el arco o el foco, insinuados en el fondo (la tela ya trae sus brillos; la ciudad es de noche)
+  if (f.forma !== 'tela' && f.forma !== 'ciudad') luzMiniatura(x, l, oscuro);
+  // la superficie (v5: en el mundo en miniatura, la tapa de la caja de regalo gigante con su farol, su banca y la cajita que vuela)
+  const mini = cfg.miniatura?.activo ? cfg.miniatura : null;
+  const tope = mini ? mundoMiniatura(x, mini) : superficieMiniatura(x, s, f);
   // el anillo (o el par) de oro, parado encima con su sombrita, o flotando sobre un charco de luz
   const lado = l.angulo < 0 ? 1 : -1, flota = !!cfg.flotar?.activo, sube = flota ? 18 : 0;
   const xs = cfg.par?.activo ? [48, 72] : [60];
@@ -88,6 +90,65 @@ export function dibujarMiniatura(lienzo, cfg) {
     x.fillStyle = '#F4F7FA'; x.beginPath(); x.moveTo(cx - 3.5, y - r * 1.1); x.lineTo(cx + 3.5, y - r * 1.1); x.lineTo(cx, y - r * 1.1 - 4.5); x.fill();
   }
   x.restore();
+}
+// v5: el fondo «ciudad» de noche: cielo casi negro con estrellas, que baja al color del fondo, y fachadas con ventanas de luz cálida
+function ciudadMiniatura(x, c) {
+  const g = x.createLinearGradient(0, 0, 0, 96); g.addColorStop(0, tono(c, -0.82)); g.addColorStop(0.55, tono(c, -0.55)); g.addColorStop(1, tono(c, -0.1));
+  x.fillStyle = g; x.fillRect(0, 0, 120, 96);
+  // estrellas (siempre las mismas)
+  for (let i = 0, a = 7; i < 22; i++) {
+    a = (a * 73 + 41) % 997;
+    const sx = a % 118 + 1, sy = (a * 7) % 46 + 3, r = i % 5 ? 0.45 : 0.8;
+    x.fillStyle = `rgba(241,239,234,${i % 3 ? 0.55 : 0.9})`; x.beginPath(); x.arc(sx, sy, r, 0, Math.PI * 2); x.fill();
+  }
+  // las fachadas: bloques de distinta altura y, en cada uno, filas de ventanas (algunas encendidas en oro)
+  const cuerpos = [[-2, 58, 26], [24, 50, 22], [46, 62, 20], [66, 46, 26], [92, 56, 30]];
+  cuerpos.forEach(([bx, by, bw], k) => {
+    x.fillStyle = tono(c, k % 2 ? -0.42 : -0.32); x.fillRect(bx, by, bw, 96 - by);
+    x.fillStyle = tono(c, -0.6); x.fillRect(bx, by, bw, 1.4);
+    for (let fy = by + 5, f = 0; fy < 90; fy += 8, f++) for (let fx = bx + 3, n = 0; fx < bx + bw - 4; fx += 6, n++) {
+      const encendida = (k * 7 + f * 3 + n * 5) % 9 < 2;
+      x.fillStyle = encendida ? 'rgba(242,196,110,.95)' : tono(c, -0.5); x.fillRect(fx, fy, 3, 4);
+      if (encendida) { const h = x.createRadialGradient(fx + 1.5, fy + 2, 0, fx + 1.5, fy + 2, 6); h.addColorStop(0, 'rgba(242,196,110,.28)'); h.addColorStop(1, 'rgba(242,196,110,0)'); x.fillStyle = h; x.fillRect(fx - 5, fy - 4, 13, 12); }
+    }
+  });
+}
+// v5: la tapa de la caja de regalo gigante (el piso, con la cinta de oro en cruz), la banca, el farol con su halo y la cajita que
+// vuela con su estela. Devuelve dónde se para la joya
+function mundoMiniatura(x, m) {
+  const caja = m.caja || '#1E5B4B', cinta = m.cinta || '#B8871F';
+  // la tapa en perspectiva, con su canto
+  x.fillStyle = tono(caja, -0.35); x.fillRect(0, 96, 120, 54);
+  const g = x.createLinearGradient(0, 98, 0, 150); g.addColorStop(0, tono(caja, -0.12)); g.addColorStop(1, tono(caja, 0.06));
+  x.fillStyle = g; x.beginPath(); x.moveTo(-8, 150); x.lineTo(10, 98); x.lineTo(110, 98); x.lineTo(128, 150); x.fill();
+  x.fillStyle = tono(caja, -0.45); x.fillRect(10, 97, 100, 1.4);
+  // la cinta: una franja hacia el fondo y otra de lado a lado
+  const c1 = x.createLinearGradient(0, 98, 0, 150); c1.addColorStop(0, tono(cinta, -0.2)); c1.addColorStop(1, tono(cinta, 0.12));
+  x.fillStyle = c1; x.beginPath(); x.moveTo(68, 98); x.lineTo(80, 98); x.lineTo(98, 150); x.lineTo(70, 150); x.fill();
+  x.fillStyle = tono(cinta, 0.05); x.beginPath(); x.moveTo(3, 122); x.lineTo(117, 122); x.lineTo(119, 131); x.lineTo(1, 131); x.fill();
+  // la banca, a la izquierda
+  if (m.banca !== false) {
+    x.fillStyle = '#5A3418'; x.fillRect(14, 100, 26, 2.2); x.fillRect(14, 104, 26, 2.2); x.fillRect(14, 108.5, 26, 2);
+    x.fillStyle = '#1E1B15'; x.fillRect(16, 100, 1.4, 14); x.fillRect(37, 100, 1.4, 14);
+  }
+  // el farol, a la derecha: poste de hierro, linterna encendida y su halo
+  if (m.farol !== false) {
+    const h = x.createRadialGradient(92, 60, 0, 92, 60, 30); h.addColorStop(0, 'rgba(255,214,150,.55)'); h.addColorStop(0.35, 'rgba(255,200,130,.2)'); h.addColorStop(1, 'rgba(255,200,130,0)');
+    x.fillStyle = h; x.fillRect(58, 26, 68, 68);
+    x.fillStyle = '#1E1B15'; x.fillRect(91, 64, 2.2, 52); x.beginPath(); x.ellipse(92, 116, 5, 1.6, 0, 0, Math.PI * 2); x.fill();
+    x.beginPath(); x.moveTo(87, 56); x.lineTo(97, 56); x.lineTo(92, 50); x.fill();
+    x.fillStyle = '#FFE2AE'; x.beginPath(); x.moveTo(88, 57); x.lineTo(96, 57); x.lineTo(94.5, 65); x.lineTo(89.5, 65); x.fill();
+    x.fillStyle = '#B8871F'; x.fillRect(89, 65, 6, 1.4);
+  }
+  // la cajita que vuela con su estela de chispas
+  if (m.regalo !== false) {
+    for (let i = 0; i < 7; i++) { x.fillStyle = `rgba(255,236,190,${(0.85 - i * 0.11).toFixed(2)})`; x.beginPath(); x.arc(46 + i * 4.2, 66 + i * 1.6 - (i % 2) * 1.5, 0.9 - i * 0.07, 0, Math.PI * 2); x.fill(); }
+    x.save(); x.translate(40, 60); x.rotate(-0.25);
+    x.fillStyle = caja; x.fillRect(-5, -4, 10, 8); x.fillStyle = tono(caja, 0.15); x.fillRect(-5, -4, 10, 2);
+    x.fillStyle = cinta; x.fillRect(-1, -4, 2, 8); x.fillRect(-5, -1, 10, 1.6);
+    x.restore();
+  }
+  return 116;
 }
 // La tela de satén: pliegues en diagonal con brillos largos (más marcados en una tela oscura) y el charco de luz abajo
 function telaMiniatura(x, c, l, oscuro) {

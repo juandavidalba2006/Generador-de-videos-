@@ -2140,7 +2140,11 @@ function frasesNoche(texto) {
   if (!/\bcamara\s+se\s+(?:balance|mec|mez)/.test(p)) {
     if (sacar(FRASES_NOCHE.sinBalanceo)) f.balanceo = 'quitar';
     else if ((m = sacar(FRASES_NOCHE.balanceo))) {
-      const x = m[0], o = {};
+      // («que la joya se balancee como un péndulo»: las dos frases son el mismo pedido; el «péndulo» que quedara en el resto
+      // sería el vaivén de cámara, que además quita los cortes y con ellos las escenas de las tomas)
+      let x = m[0], otra;
+      while ((otra = sacar(FRASES_NOCHE.balanceo))) x += ' ' + otra[0];
+      const o = {};
       if (/\b(?:suave|suavecito|poquito|un\s+poco)\b/.test(x)) o.amplitud = 24; else if (/\b(?:fuerte|mucho|amplio)\b/.test(x)) o.amplitud = 52;
       if (/\b(?:despacio|lento|lentamente)\b/.test(x)) o.periodo = 3.4; else if (/\brapido\b/.test(x)) o.periodo = 1.8;
       if (/\b(?:sin\s+parar|todo\s+el\s+tiempo)\b/.test(x)) o.amortiguacion = 0.02;

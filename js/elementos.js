@@ -1019,13 +1019,16 @@ function planVolar(g, F, J, ctx, r, plan, empuje) {
   const intento = ctx.intento || 0, R = J.R, rb = F.info.rb, s = (r() < 0.5 ? 1 : -1) * (intento % 2 ? -1 : 1), dirG = r() < 0.5 ? 1 : -1, n = g.cantidad, T = g.duracion, t0 = g.inicio;
   const C = aV(ctx.centroVuelo) || J.centro.clone(), vueltas = T > 6 ? 2 : 1;
   let rho = J.rJ + rb + 3 * J.gap + 0.35 * R + empuje, camino = null;
-  for (let intento = 0; intento < 8; intento++) {
+  // (v5: con un estuche abierto que se mece, la vuelta tiene que pasar por fuera de todo lo que barre: hacen falta más intentos;
+  // antes, sin camino libre en 8, la cajita volaba por el último aunque atravesara las paredes)
+  const hay = J.obstaculos.length > 0;
+  for (let intento = 0; intento < (hay ? 16 : 8); intento++) {
     const alza = 0.5 * R * Math.floor((intento + 1) / 2), ctrl = [V(-s * 8 * R, 1.4 * R + alza, 1.6 * R), V(-s * 4 * R, 1.0 * R + alza, 1.8 * R)];
     const f0 = Math.atan2(1.6, -s * 1.8);
     for (let j = 0; j <= 10 * vueltas; j++) { const f = f0 + dirG * 2 * Math.PI * j / 10; ctrl.push(V(rho * Math.cos(f), 0.25 * R + 0.35 * R * Math.sin(2 * f), 0.9 * rho * Math.sin(f))); }
     ctrl.push(V(s * 4 * R, 1.3 * R + alza, 1.3 * R), V(s * 8 * R, 1.8 * R + alza, 0.9 * R));
     const { puntos, largo } = remuestrear(curvaB(ctrl.map(p => p.add(C)), 1600), 700);
-    const ok = puntos.every((p, k) => (Math.hypot(p.x, p.z) >= J.rJ + rb + 2 * J.gap || p.y - rb > J.yMax + J.gap || p.y + rb < J.yMin - J.gap) && p.y - rb > J.suelo + J.gap && (k % 4 || !chocaObstaculo(J, p, rb)));
+    const ok = puntos.every((p, k) => (Math.hypot(p.x, p.z) >= J.rJ + rb + 2 * J.gap || p.y - rb > J.yMax + J.gap || p.y + rb < J.yMin - J.gap) && p.y - rb > J.suelo + J.gap && (!hay || !chocaObstaculo(J, p, rb)));
     camino = { puntos, largo };
     if (ok) break;
     rho *= 1.18; for (const p of camino.puntos) p.y = Math.max(p.y, J.suelo + rb + 2 * J.gap);

@@ -123,6 +123,8 @@ export const ESQUEMA = obj({
         cantidad: num('Cuántos (0 = los de siempre).'),
       })),
     }, 'Objetos que acompañan a la joya: esferas, perlas, cuentas, una esfera de cristal, una cinta de satén, una cadena.'),
+    // v5: el grano de película (0 por defecto; -1 = no cambiarlo, como ambiente)
+    grano: num('Grano de película encima de la imagen (0 a 1; 0.35 normal, 0 = sin grano); -1 = no cambiarlo.'),
     // v5: una escena por toma
     toma: { type: 'string', description: 'En qué toma va este cambio de escena (las tomas son lo que hay entre cortes; cuentan desde 1): «actual» = la toma del cabezal (o todo el video si tiene una sola escena), «todas» = todas las tomas, «ultima» = la última, «1», «2», «3»… = esa toma.' },
   }, 'La escena donde está la joya.'),
