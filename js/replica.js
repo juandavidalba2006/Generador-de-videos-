@@ -212,9 +212,14 @@ export function paletaDeImagen(img) {
 // ¿Dos fondos se ven iguales? (la misma claridad y casi el mismo color: la toma usa la misma escena)
 function mismoFondo(a, b) {
   const x = oklab(a), y = oklab(b);
-  if (!x || !y) return true;
+  return !x || !y || (distanciaColor(a, b) < 0.09 && (x.L < 0.4) === (y.L < 0.4));
+}
+// distancia de dos colores en OKLab (0 = iguales; 0,1 ya se nota)
+function distanciaColor(a, b) {
+  const x = oklab(a), y = oklab(b);
+  if (!x || !y) return 0;
   const ab = c => [c.C * Math.cos(c.h * Math.PI / 180), c.C * Math.sin(c.h * Math.PI / 180)], [xa, xb] = ab(x), [ya, yb] = ab(y);
-  return Math.hypot(x.L - y.L, xa - ya, xb - yb) < 0.09 && (x.L < 0.4) === (y.L < 0.4);
+  return Math.hypot(x.L - y.L, xa - ya, xb - yb);
 }
 const sinTildes = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 // Lo que la IA vio en una toma de otro fondo: el mismo pedido (la joya, el par, si flota), con el fondo de esa toma (satén si la
@@ -264,11 +269,23 @@ function escenasPorToma(planos, analizados, ia, paletaGlobal, principal, modo) {
     g.forEach((y, i) => { if (y === x && !forma[i]) forma[i] = comun; });
   }
   const clave = i => (g[i] < 0 ? null : `${g[i]}|${forma[i] || ''}`);
-  const dura = new Map();
-  planos.forEach((pl, i) => { const k = clave(i); if (k) dura.set(k, (dura.get(k) || 0) + num(pl.duracion, 0)); });
-  const mayor = [...dura.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  // cuánto dura cada grupo y su toma más larga
+  const grupos = new Map();
+  planos.forEach((pl, i) => {
+    const k = clave(i); if (!k) return;
+    const x = grupos.get(k) || { dura: 0, forma: forma[i], rep: i };
+    x.dura += num(pl.duracion, 0); if (num(pl.duracion, 0) > num(planos[x.rep].duracion, 0)) x.rep = i;
+    grupos.set(k, x);
+  });
   const ref = hex6(ia?.escena?.fondo?.color) || hex6(paletaGlobal?.fondo);
   const formaPrincipal = principal.escena.fondo?.forma === 'tela' ? 'tela' : 'curva';
+  // la escena principal va con el grupo que más dura de los que le calzan (la misma forma de fondo, si la IA la dijo, y del mismo
+  // lado de claro u oscuro que el fondo que vio la IA); a igual duración, el de color más parecido. Si ninguno calza, el que más dura
+  const oscuroRef = ref ? claridad(ref) < 0.4 : null;
+  const calza = x => (!x.forma || x.forma === formaPrincipal) && (oscuroRef === null || (claridad(paletas[x.rep].fondo) < 0.4) === oscuroRef);
+  const todos = [...grupos.entries()], aptos = todos.filter(([, x]) => calza(x));
+  const lejos = x => (ref ? distanciaColor(paletas[x.rep].fondo, ref) : 0);
+  const mayor = (aptos.length ? aptos : todos).sort((a, b) => b[1].dura - a[1].dura || lejos(a[1]) - lejos(b[1]))[0]?.[0];
   const porGrupo = new Map();
   const res = planos.map((pl, i) => {
     const k = clave(i);
